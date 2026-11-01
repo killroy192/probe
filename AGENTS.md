@@ -1,8 +1,17 @@
-# T3 Code
+# Probe
 
-T3 Code is a minimal GUI for coding agents. A Node WebSocket server wraps provider CLIs and agents (Codex, Claude Code, Cursor, Grok, OpenCode, Antigravity) and serves web, desktop, and mobile clients.
+This repo is a fork of T3 Code that is becoming a terminal-first app. It does not sync upstream.
+Background: `docs/terminal-first-app/`.
 
-You can think of T3 Code as an open source "bring-your-own-subscription" alternative to apps like Claude Desktop, Codex App, Cursor Glass and Conductor.
+- **Docs describe what exists.** Update `docs/` in the same PR that changes behavior. Rewrite or
+  delete inherited T3 docs about features you remove (chat, web mode).
+- **Plans and tickets live in the sibling repo `../probe-vault`** (epics/stories in `tickets/PRB-NNN.md`,
+  drafts and open questions in `memory/`). Do not put plans or drafts in this repo.
+- **Vault access is limited to tickets and notes.** From here, read tickets, set a ticket's
+  `status`/`updated`, and append to `memory/log/`. Do not restructure the vault. The `pv` CLI is
+  planned but not built; until then edit ticket frontmatter by hand and keep the format exact.
+- Reference ticket IDs (e.g. `PRB-002`) in commits and PRs.
+- Search code with the `cocoindex-code` MCP when it helps; the index is gitignored.
 
 ## What makes T3 Code special?
 
