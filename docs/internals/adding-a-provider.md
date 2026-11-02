@@ -2,8 +2,7 @@
 
 A provider integration is judged by whether every T3 feature behaves honestly on it, not by
 whether a turn runs. This page lists the decisions and evidence a new driver needs. The
-[provider constraints](./providers.md) and the
-[capability system](../orchestration-v2/provider-capability-system.md) explain why these rules exist.
+[provider constraints](./providers.md) explain why these rules exist.
 
 ## Choose the integration shape
 
@@ -51,7 +50,7 @@ capabilities, never the driver kind.
 ## Tests
 
 Prove adapter behavior with replay fixtures: a provider transcript replayed through the real
-orchestrator, adapter, and projections. See the [testing strategy](../orchestration-v2/testing-strategy.md).
+orchestrator, adapter, and projections.
 
 - Record transcripts from the real provider with a recorder script in
   [`apps/server/scripts`](../../apps/server/scripts) (`record-*-replay-fixture.ts`). A new protocol
