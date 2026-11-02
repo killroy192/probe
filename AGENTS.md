@@ -1,17 +1,20 @@
 # Probe
 
 This repo is a fork of T3 Code that is becoming a terminal-first app. It does not sync upstream.
-Background: `docs/terminal-first-app/`.
+Background, decisions, and current plans: the `probe-vault` MCP (see below).
 
 - **Docs describe what exists.** Update `docs/` in the same PR that changes behavior. Rewrite or
   delete inherited T3 docs about features you remove (chat, web mode).
 - **Plans and tickets live in the sibling repo `../probe-vault`** (epics/stories in `tickets/PRB-NNN.md`,
   drafts and open questions in `memory/`). Do not put plans or drafts in this repo.
 - **Vault access is limited to tickets and notes.** From here, read tickets, set a ticket's
-  `status`/`updated`, and append to `memory/log/`. Do not restructure the vault. The `pv` CLI is
-  planned but not built; until then edit ticket frontmatter by hand and keep the format exact.
+  `status`/`updated`, and append to `memory/log/`. Do not restructure the vault. Use the `pv` CLI
+  via the [vault-tickets](.agents/skills/vault-tickets/SKILL.md) skill, not hand edits.
 - Reference ticket IDs (e.g. `PRB-002`) in commits and PRs.
 - Search code with the `cocoindex-code` MCP when it helps; the index is gitignored.
+- Search the vault (tickets, `memory/`, `bin/pv`) with the `probe-vault` MCP, a second `ccc mcp`
+  server in `.mcp.json` rooted at `../probe-vault`. Prefer it over reading vault files by hand.
+  Refresh the index with `ccc index` run from the vault after notes change.
 
 ## What makes T3 Code special?
 

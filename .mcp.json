@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "cocoindex-code": {
+      "command": "ccc",
+      "args": ["mcp"]
+    },
+    "probe-vault": {
+      "type": "stdio",
+      "command": "sh",
+      "args": ["-c", "cd ../probe-vault && exec ccc mcp"],
+      "env": {}
+    }
+  }
+}
