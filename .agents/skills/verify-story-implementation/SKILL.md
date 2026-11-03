@@ -23,9 +23,9 @@ Do not map ACs, author the plan, run checks, or score yourself.
   after the plan subagent only if the user explicitly asks for plan-only.
 - **No code changes** — you and both subagents: no diffs, patches, fix
   snippets, or “change line X to Y”. Gaps are outcome-level actions only.
-- **No product / vault edits** — do not fix the implementation or edit ticket
-  bodies. Use [vault-tickets](../vault-tickets/SKILL.md) only to `pv show` /
-  `pv log` if asked.
+- **No product / ticket edits** — do not fix the implementation or edit ticket
+  bodies. Use [tickets](../tickets/SKILL.md) only to `tm show` /
+  `tm log` if asked.
 - **Repo check scope** (evaluate subagent) — prefer focused commands
   (`vp test run <files>`, `vp run check:changed`). No repo-wide `vp check` or
   `vp run -r test` unless the user asks.
@@ -34,7 +34,7 @@ Do not map ACs, author the plan, run checks, or score yourself.
 
 Resolve before launching subagents (pass the results into their prompts):
 
-1. **Story** — `../probe-vault/bin/pv show <PRB.T-NNN>` (or the ticket the user
+1. **Story** — `vp run tm show <PRB.T-NNN>` (or the ticket the user
    names). Include the full body (or the sections: Business Goal, Expected
    Behavior, Out Of Scope, Acceptance Criteria, Assumptions).
 2. **Implementation plan** — plan section/notes from the ticket, or text the
@@ -111,6 +111,6 @@ pass | fail — <one sentence>
 
 ## Related skills
 
-- Story load / labels: [vault-tickets](../vault-tickets/SKILL.md)
+- Story load / labels: [tickets](../tickets/SKILL.md)
 - Point the evaluate subagent at [test-t3-app](../test-t3-app/SKILL.md) when a
   planned check needs a real web client (include that path in its prompt).

@@ -50,3 +50,6 @@ node_modules/
 .pnpm-store/
 # CocoIndex Code (ccc)
 /.cocoindex_code/
+# tm (ticket manager) lock and temp files
+/docs/dev/.ids.lock
+/docs/dev/ids.json.tmp

@@ -1,20 +1,18 @@
 # Probe
 
 This repo is a fork of T3 Code that is becoming a terminal-first app. It does not sync upstream.
-Background, decisions, and current plans: the `probe-vault` MCP (see below).
+Background, decisions, and current plans: [docs/dev](docs/dev/README.md).
 
-- **Docs describe what exists.** Update `docs/` in the same PR that changes behavior. Rewrite or
-  delete inherited T3 docs about features you remove (chat, web mode).
-- **Plans and tickets live in the sibling repo `../probe-vault`** (`epics/` and `tasks/`,
-  IDs `PRB.E-NNN` and `PRB.T-NNN`; drafts and open questions in `memory/`). Do not put plans or drafts in this repo.
-- **Vault access is limited to tickets and notes.** From here, read tickets, set a ticket's
-  `status`/`updated`, and append to `memory/log/`. Do not restructure the vault. Use the `pv` CLI
-  via the [vault-tickets](.agents/skills/vault-tickets/SKILL.md) skill, not hand edits.
-- Reference ticket IDs (e.g. `PRB.T-004`) in commits and PRs.
-- Search code with the `cocoindex-code` MCP when it helps; the index is gitignored.
-- Search the vault (tickets, `memory/`, `bin/pv`) with the `probe-vault` MCP, a second `ccc mcp`
-  server in `.mcp.json` rooted at `../probe-vault`. Prefer it over reading vault files by hand.
-  Refresh the index with `ccc index` run from the vault after notes change.
+- **Docs describe what exists**, except `docs/dev/`, which holds tickets and notes for work that is
+  planned or in flight. Update `docs/` in the same PR that changes behavior. Rewrite or delete
+  inherited T3 docs about features you remove (chat, web mode).
+- **Tickets** are `PRB.E-NNN` epics and `PRB.T-NNN` tasks in `docs/dev/epics/` and `docs/dev/tasks/`.
+  Change them only with `vp run tm` via the [tickets](.agents/skills/tickets/SKILL.md) skill; never
+  hand-edit frontmatter or `ids.json`. Reference ticket IDs (e.g. `PRB.T-004`) in commits and PRs.
+- **Notes** go in `docs/dev/memory/`: decisions in `roadmap.md` and `questions.md`, unverified claims
+  marked as such in `questions.md`, a short session note in `log/` when a work session ends. Record
+  project decisions there, not in your personal memory.
+- Search code and `docs/dev` with the `cocoindex-code` MCP when it helps; the index is gitignored.
 
 ## What makes T3 Code special?
 
@@ -182,9 +180,8 @@ Most code changes do not need an internal documentation change. Agents can read 
 
 ## Plans and work artifacts
 
-- Do not commit implementation plans, research notes, or agent scratch files. Keep temporary working material outside the worktree. `.plans/` is gitignored only as a safety net for legacy tooling.
-- Track active maintainer work in the GitHub issue or project item that owns it. External proposals follow `CONTRIBUTING.md` and belong in Ideas discussions.
-- A merged PR is the implementation record. Close or update its tracking item when the work lands; do not preserve a second checklist in the repository.
+- Plans, research notes, and tickets go in `docs/dev/` (see above). Do not commit agent scratch files; keep temporary working material outside the worktree. `.plans/` is gitignored only as a safety net for legacy tooling.
+- A merged PR is the implementation record. When the work lands, `vp run tm mv <ID> done` and move what still matters from the ticket into `docs/`.
 
 ## How it works
 

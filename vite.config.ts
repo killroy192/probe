@@ -178,6 +178,8 @@ export default defineConfig({
       "apps/mobile/modules/t3-highlights/Vendor/**",
       "apps/mobile/modules/t3-highlights/cpp/generated/**",
       "*.icon/**",
+      // Tickets and notes are written by scripts/ticket-manager-lib in its own format.
+      "docs/dev/**",
     ],
     sortPackageJson: {},
     overrides: [
