@@ -23,6 +23,17 @@ Rules for writing tests, and for asking for them in review. AGENTS.md carries th
   - `it.skip` and friends need a tracking issue on the line above: `// quarantine: #1234 <why>`.
   - Lint enforces this: `t3code/no-test-timeout-or-unreasoned-skip`, `t3code/no-frame-waits-in-browser-tests`, `t3code/no-wall-clock-in-tests`, `t3code/no-real-time-wait-in-tests`, `t3code/no-polling-loop-in-tests`.
 
+## Scenario tests
+
+Scenarios (`scripts/scenarios/`) prove the terminal-first product end to end in headless Chromium, installed and cached the same way as for the web browser tests. A Node runner owns the server process and uses Playwright as a library, because Vitest browser mode runs test code inside the page and cannot stop or restart a real server.
+
+- Each scenario gets its own throwaway home, server and browser context. The server child never inherits `T3CODE_*` or `VITE_*`, and the runner refuses `~/.t3` or any server address. Never add a path to real data or a remote server.
+- Scenarios receive a `PointerPage` (no `keyboard`). Drive the UI with clicks; typing into a terminal or text field is fine, keyboard shortcuts are not.
+- Wait on events (a locator, a ready line, a process `exit`), never on sleeps. Fix flakiness instead of retrying.
+- `harness.test.ts` covers the runner's failure paths; it needs the Playwright Chromium installed, like the web browser tests.
+- A new scenario goes in `scenarios/` and replaces its `pending` entry in `registry.ts`. Self-tests of the harness live in `selftest/` and run only with `--selftest`.
+- The mock agent (`scripts/mock-agent/mock-agent.ts`) stands in for a Claude-Code-like CLI in shells.
+
 ## Web browser tests
 
 - Web browser tests are `*.browser.test.tsx` or `*.browser.test.ts` and render with `await using screen = await render(...)` from `apps/web/test/render.tsx`. `t3code/require-disposable-render` errors on the old patterns.

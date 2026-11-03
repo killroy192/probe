@@ -1,0 +1,18 @@
+import { boot } from "./scenarios/boot.ts";
+import { deliberateFailure } from "./selftest/deliberate-failure.ts";
+import { restartPersistence } from "./selftest/restart-persistence.ts";
+import type { Scenario } from "./scenario.ts";
+
+// S1..S8 from PRB.E-001. A scenario without `run` is pending until its story builds it.
+export const scenarios: ReadonlyArray<Scenario> = [
+  boot,
+  { id: "S2", title: "pending (story 4)" },
+  { id: "S3", title: "pending (story 5)" },
+  { id: "S4", title: "pending (story 6)" },
+  { id: "S5", title: "pending (story 6)" },
+  { id: "S6", title: "pending (story 6)" },
+  { id: "S7", title: "pending (story 7)" },
+  { id: "S8", title: "pending (story 8)" },
+];
+
+export const selftestScenarios: ReadonlyArray<Scenario> = [restartPersistence, deliberateFailure];

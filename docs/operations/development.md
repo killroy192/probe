@@ -214,6 +214,22 @@ export check's workspace selectors as more workspaces become clean. Review calle
 deleting code; production mode can also report development scripts and test fixtures.
 Runtime-discovered entrypoints and dependency exceptions belong in [knip.jsonc](../../knip.jsonc).
 
+### Scenario tests
+
+`vp run test:scenarios` starts Probe on a throwaway data directory, drives it in headless Chromium, and prints each scenario as `PASS`, `FAIL` or `PENDING` plus how many of the 8 pass. It exits non-zero when a scenario fails. It uses the same Playwright Chromium as the web browser tests (install it once with `node scripts/node_modules/playwright-core/cli.js install --only-shell chromium`, or pass `--browser <path>`) and builds the web bundle if `apps/web/dist` is missing; pass `--rebuild` after web changes. It never touches `~/.t3` and does not disturb a running dev server. Scenarios themselves are not a CI gate.
+
+`vp run test:scenarios -- --selftest` runs the harness self-tests (restart persistence and a deliberate failure, so it exits non-zero by design). See [Testing](../internals/testing.md#scenario-tests).
+
+The mock agent CLI stands in for a Claude-Code-like tool:
+
+```sh
+node scripts/mock-agent/mock-agent.ts                  # prints a banner and "session: mock-xxxxxxxx"
+node scripts/mock-agent/mock-agent.ts --resume <id>    # replays that conversation, then continues it
+```
+
+It echoes each line as `echo: <line>` and exits 0 on `exit`. Sessions are stored in
+`$MOCK_AGENT_HOME` (default: a `probe-mock-agent` folder in the system temp directory).
+
 ## Desktop artifacts
 
 Local artifact builds are unsigned by default and write to `release/`:
