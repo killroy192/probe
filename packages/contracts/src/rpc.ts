@@ -265,6 +265,15 @@ import {
   TerminalWriteInput,
 } from "./terminal.ts";
 import {
+  ShellAttachInput,
+  ShellInput,
+  ShellListStreamEvent,
+  ShellOpenInput,
+  ShellResizeInput,
+  ShellSummary,
+  ShellWriteInput,
+} from "./shell.ts";
+import {
   DiscoveredLocalServerList,
   ConfiguredLocalServerUrls,
   PreviewCloseInput,
@@ -465,6 +474,12 @@ export const WS_METHODS = {
   terminalClear: "terminal.clear",
   terminalClose: "terminal.close",
 
+  shellOpen: "shell.open",
+  shellAttach: "shell.attach",
+  shellWrite: "shell.write",
+  shellResize: "shell.resize",
+  shellClose: "shell.close",
+
   previewOpen: "preview.open",
   previewResize: "preview.resize",
   previewAdjust: "preview.adjust",
@@ -593,6 +608,7 @@ export const WS_METHODS = {
   subscribeWorktreeSetup: "subscribeWorktreeSetup",
   worktreeSetupCancel: "worktreeSetup.cancel",
   subscribeTerminalMetadata: "subscribeTerminalMetadata",
+  subscribeShells: "subscribeShells",
   subscribePreviewEvents: "subscribePreviewEvents",
   subscribeDiscoveredLocalServers: "subscribeDiscoveredLocalServers",
   subscribeDeviceState: "subscribeDeviceState",
@@ -1549,6 +1565,43 @@ const WsTerminalCloseRpc = Rpc.make(WS_METHODS.terminalClose, {
   error: Schema.Union([TerminalError, EnvironmentAuthorizationError]),
 });
 
+const ShellRpcError = Schema.Union([TerminalError, EnvironmentAuthorizationError]);
+
+const WsShellOpenRpc = Rpc.make(WS_METHODS.shellOpen, {
+  payload: ShellOpenInput,
+  success: ShellSummary,
+  error: ShellRpcError,
+});
+
+const WsShellAttachRpc = Rpc.make(WS_METHODS.shellAttach, {
+  payload: ShellAttachInput,
+  success: TerminalAttachStreamEvent,
+  error: ShellRpcError,
+  stream: true,
+});
+
+const WsShellWriteRpc = Rpc.make(WS_METHODS.shellWrite, {
+  payload: ShellWriteInput,
+  error: ShellRpcError,
+});
+
+const WsShellResizeRpc = Rpc.make(WS_METHODS.shellResize, {
+  payload: ShellResizeInput,
+  error: ShellRpcError,
+});
+
+const WsShellCloseRpc = Rpc.make(WS_METHODS.shellClose, {
+  payload: ShellInput,
+  error: ShellRpcError,
+});
+
+const WsSubscribeShellsRpc = Rpc.make(WS_METHODS.subscribeShells, {
+  payload: Schema.Struct({}),
+  success: ShellListStreamEvent,
+  error: EnvironmentAuthorizationError,
+  stream: true,
+});
+
 const WsPreviewOpenRpc = Rpc.make(WS_METHODS.previewOpen, {
   payload: PreviewOpenInput,
   success: PreviewSessionSnapshot,
@@ -2092,6 +2145,12 @@ export const WsRpcGroup = RpcGroup.make(
   WsTerminalResizeRpc,
   WsTerminalClearRpc,
   WsTerminalCloseRpc,
+  WsShellOpenRpc,
+  WsShellAttachRpc,
+  WsShellWriteRpc,
+  WsShellResizeRpc,
+  WsShellCloseRpc,
+  WsSubscribeShellsRpc,
   WsSubscribeTerminalMetadataRpc,
   WsPreviewOpenRpc,
   WsPreviewResizeRpc,

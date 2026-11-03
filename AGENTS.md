@@ -12,7 +12,7 @@ Background, decisions, and current plans: [docs/dev](docs/dev/README.md).
 - **Notes** go in `docs/dev/memory/`: decisions in `roadmap.md` and `questions.md`, unverified claims
   marked as such in `questions.md`, a short session note in `log/` when a work session ends. Record
   project decisions there, not in your personal memory.
-- Search code and `docs/dev` with the `cocoindex-code` MCP when it helps; the index is gitignored.
+- Search code and `docs` with the `cocoindex-code` MCP when it helps; the index is gitignored.
 
 ## What makes T3 Code special?
 

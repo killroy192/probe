@@ -4,6 +4,8 @@ import {
   DEFAULT_TERMINAL_ID,
   type TerminalAttachStreamEvent,
   type TerminalEvent,
+  type TerminalMetadataStreamEvent,
+  type ShellListStreamEvent,
   type TerminalOpenInput,
   ProviderDriverKind,
   ProviderInstanceId,
@@ -31,6 +33,7 @@ import * as ServerSettings from "../serverSettings.ts";
 import * as TerminalManager from "./Manager.ts";
 import { terminalOutputStream } from "./OutputProtocol.ts";
 import * as PtyAdapter from "@t3tools/shared/PtyAdapter";
+import * as Shells from "./Shells.ts";
 
 vi.mock("effect/SynchronizedRef", async (importOriginal) => {
   const original = await importOriginal<typeof SynchronizedRef>();
@@ -1802,6 +1805,176 @@ it.layer(
       expect(process.writes).toEqual([]);
       expect(process.killSignals).toEqual([]);
       expect(missingEvents).toEqual([]);
+    }),
+  );
+});
+
+it.layer(
+  Layer.merge(NodeServices.layer, ProcessRunner.layer.pipe(Layer.provide(NodeServices.layer))),
+  { excludeTestServices: true },
+)("Shells", (it) => {
+  let nextShell = 0;
+  const makeShells = (manager: TerminalManager.TerminalManager["Service"]) =>
+    Shells.makeShells(
+      manager,
+      Effect.sync(() => `shell-${++nextShell}`),
+    );
+
+  const collectList = (shells: ReturnType<typeof makeShells>) =>
+    Effect.gen(function* () {
+      const events = yield* Ref.make<ReadonlyArray<ShellListStreamEvent>>([]);
+      const stop = yield* shells.subscribe((event) => Ref.update(events, (all) => [...all, event]));
+      yield* Effect.addFinalizer(() => Effect.sync(stop));
+      return Ref.get(events);
+    });
+
+  it.effect("starts, writes to, resizes and lists a shell with no thread", () =>
+    Effect.gen(function* () {
+      const { manager, ptyAdapter } = yield* createManager();
+      const shells = makeShells(manager);
+      const events = yield* collectList(shells);
+
+      const shell = yield* shells.open({ cwd: process.cwd(), cols: 100, rows: 24 });
+      yield* shells.write({ shellId: shell.shellId, data: "echo hi\n" });
+      yield* shells.resize({ shellId: shell.shellId, cols: 120, rows: 40 });
+
+      assert.equal(shell.status, "running");
+      assert.equal(shell.cwd, process.cwd());
+      assert.notProperty(shell, "threadId");
+      expect(ptyAdapter.processes[0]?.writes).toEqual(["echo hi\n"]);
+      expect(ptyAdapter.processes[0]?.resizeCalls.at(-1)).toEqual({ cols: 120, rows: 40 });
+      const listed = yield* events;
+      expect(listed[0]).toEqual({ type: "snapshot", shells: [] });
+      expect(listed.some((e) => e.type === "upsert" && e.shell.shellId === shell.shellId)).toBe(
+        true,
+      );
+    }),
+  );
+
+  it.effect("keeps shells out of the thread terminal list and thread terminals out of shells", () =>
+    Effect.gen(function* () {
+      const { manager } = yield* createManager();
+      const shells = makeShells(manager);
+      const events = yield* collectList(shells);
+      const threadEvents: TerminalMetadataStreamEvent[] = [];
+      const stop = yield* manager.subscribeMetadata((event) =>
+        Effect.sync(() => void threadEvents.push(event)),
+      );
+      yield* Effect.addFinalizer(() => Effect.sync(stop));
+
+      yield* manager.open(openInput());
+      const shell = yield* shells.open({ cwd: process.cwd() });
+
+      const shellListed = (yield* events).flatMap((e) =>
+        e.type === "upsert" ? [e.shell.shellId] : [],
+      );
+      expect(shellListed).toEqual([shell.shellId]);
+      const visible = threadEvents.flatMap((event) => Shells.withoutShells(event) ?? []);
+      expect(JSON.stringify(visible)).not.toContain("shell:");
+      expect(visible.some((e) => e.type === "upsert" && e.terminal.threadId === "thread-1")).toBe(
+        true,
+      );
+    }),
+  );
+
+  it.effect("replays output to a shell attached after it was produced", () =>
+    Effect.gen(function* () {
+      const { manager, ptyAdapter } = yield* createManager();
+      const shells = makeShells(manager);
+      const shell = yield* shells.open({ cwd: process.cwd() });
+      ptyAdapter.processes[0]!.emitData("made while detached\n");
+
+      const [first] = yield* shells
+        .attach({ shellId: shell.shellId }, "viewer-1")
+        .pipe(Stream.take(1), Stream.runCollect);
+
+      assert.equal(first?.type, "snapshot");
+      if (first?.type === "snapshot") {
+        assert.equal(first.snapshot.status, "running");
+        expect(first.snapshot.history).toContain("made while detached");
+      }
+    }),
+  );
+
+  it.effect("gives two shells in one folder separate output and lifetimes", () =>
+    Effect.gen(function* () {
+      const { manager, ptyAdapter } = yield* createManager();
+      const shells = makeShells(manager);
+      const a = yield* shells.open({ cwd: process.cwd() });
+      const b = yield* shells.open({ cwd: process.cwd() });
+      ptyAdapter.processes[0]!.emitData("only-a\n");
+      ptyAdapter.processes[1]!.emitData("only-b\n");
+
+      yield* shells.close({ shellId: a.shellId });
+
+      const [first] = yield* shells
+        .attach({ shellId: b.shellId }, "viewer-1")
+        .pipe(Stream.take(1), Stream.runCollect);
+      assert.equal(first?.type, "snapshot");
+      if (first?.type === "snapshot") {
+        expect(first.snapshot.history).toContain("only-b");
+        expect(first.snapshot.history).not.toContain("only-a");
+        assert.equal(first.snapshot.status, "running");
+      }
+      expect(ptyAdapter.processes[0]?.killed).toBe(true);
+      expect(ptyAdapter.processes[1]?.killed).toBe(false);
+    }),
+  );
+
+  it.effect("removes an ended shell from the list and shows a self-exit as ended", () =>
+    Effect.gen(function* () {
+      const { manager, ptyAdapter } = yield* createManager();
+      const shells = makeShells(manager);
+      const events = yield* collectList(shells);
+      const closed = yield* shells.open({ cwd: process.cwd() });
+      const exited = yield* shells.open({ cwd: process.cwd() });
+
+      ptyAdapter.processes[1]!.emitExit({ exitCode: 3, signal: 0 });
+      yield* shells.close({ shellId: closed.shellId });
+
+      const listed = yield* events;
+      const last = listed
+        .filter((e) => e.type === "upsert" && e.shell.shellId === exited.shellId)
+        .at(-1);
+      expect(last).toMatchObject({ shell: { status: "exited", exitCode: 3 } });
+      expect(listed).toContainEqual({ type: "remove", shellId: closed.shellId });
+    }),
+  );
+
+  it.effect("rejects requests for a shell that does not exist and a folder that does not", () =>
+    Effect.gen(function* () {
+      const { manager, ptyAdapter } = yield* createManager();
+      const shells = makeShells(manager);
+      const other = yield* shells.open({ cwd: process.cwd() });
+      const missing = { shellId: "no-such-shell" };
+
+      const write = yield* Effect.exit(shells.write({ ...missing, data: "x" }));
+      const resize = yield* Effect.exit(shells.resize({ ...missing, cols: 80, rows: 24 }));
+      const attach = yield* Effect.exit(
+        shells.attach(missing, "viewer-1").pipe(Stream.take(1), Stream.runCollect),
+      );
+      const badCwd = yield* Effect.exit(shells.open({ cwd: "/definitely/not/a/folder" }));
+
+      const exits: ReadonlyArray<Exit.Exit<unknown, unknown>> = [write, resize, attach, badCwd];
+      for (const exit of exits) assert.isTrue(Exit.isFailure(exit));
+      expect(ptyAdapter.spawnInputs).toHaveLength(1);
+      assert.equal(ptyAdapter.processes[0]?.killed, false);
+      expect(other.status).toBe("running");
+    }),
+  );
+
+  it.effect("reports a shell whose program cannot be launched as failed, not running", () =>
+    Effect.gen(function* () {
+      const { manager, ptyAdapter } = yield* createManager();
+      const shells = makeShells(manager);
+      for (let attempt = 0; attempt < 8; attempt++) {
+        ptyAdapter.spawnFailures.push(new Error("posix_spawnp failed."));
+      }
+
+      const shell = yield* shells.open({ cwd: process.cwd() });
+
+      assert.equal(shell.status, "error");
+      assert.equal(shell.pid, null);
     }),
   );
 });

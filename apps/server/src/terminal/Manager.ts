@@ -204,6 +204,9 @@ export class TerminalManager extends Context.Service<
 
     readonly clear: (input: TerminalClearInput) => Effect.Effect<void, TerminalError>;
 
+    /** Whether this server holds a session for the terminal, running or ended. */
+    readonly has: (threadId: string, terminalId: string) => Effect.Effect<boolean>;
+
     /** Omit terminalId to close all sessions for the thread. */
     readonly close: (input: TerminalCloseInput) => Effect.Effect<void, TerminalError>;
 
@@ -3449,6 +3452,9 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
     resyncStream,
     write,
     resize,
+    has: Effect.fn("TerminalManager.has")(function* (threadId, terminalId) {
+      return Option.isSome(yield* getSession(threadId, terminalId));
+    }),
     clear,
     close,
     closeIdle,

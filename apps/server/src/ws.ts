@@ -94,6 +94,7 @@ import {
   type ProviderDriverKind,
   type ProviderInstanceId,
   ThreadId,
+  type ShellListStreamEvent,
   type TerminalMetadataStreamEvent,
   type PullRequestRef,
   WS_METHODS,
@@ -184,6 +185,7 @@ import * as ServerSettings from "./serverSettings.ts";
 import * as DatabaseStorage from "./persistence/DatabaseStorage.ts";
 import * as StorageCleanup from "./storageCleanup.ts";
 import * as TerminalManager from "./terminal/Manager.ts";
+import * as Shells from "./terminal/Shells.ts";
 import { terminalOutputStream, withTerminalOutputWindow } from "./terminal/OutputProtocol.ts";
 import * as ServerBrowser from "./preview/ServerBrowser.ts";
 import * as DeviceService from "./device/DeviceService.ts";
@@ -1317,6 +1319,7 @@ export const layerWsRpc = (
       const vcsProvisioning = yield* VcsProvisioningService.VcsProvisioningService;
       const vcsStatusBroadcaster = yield* VcsStatusBroadcaster.VcsStatusBroadcaster;
       const terminalManager = yield* TerminalManager.TerminalManager;
+      const shells = Shells.makeShells(terminalManager, crypto.randomUUIDv4().pipe(Effect.orDie));
       const previewManager = yield* PreviewManager.PreviewManager;
       const portDiscovery = yield* PortScanner.PortDiscovery;
       const providerRegistry = yield* ProviderRegistry.ProviderRegistry;
@@ -3016,7 +3019,24 @@ export const layerWsRpc = (
         [WS_METHODS.subscribeTerminalMetadata]: (_input) =>
           Stream.callback<TerminalMetadataStreamEvent>((queue) =>
             Effect.acquireRelease(
-              terminalManager.subscribeMetadata((event) => Queue.offer(queue, event)),
+              terminalManager.subscribeMetadata((event) => {
+                const visible = Shells.withoutShells(event);
+                return visible === null ? Effect.void : Queue.offer(queue, visible);
+              }),
+              (unsubscribe) => Effect.sync(unsubscribe),
+            ),
+          ),
+        [WS_METHODS.shellOpen]: (input) => shells.open(input),
+        [WS_METHODS.shellAttach]: (input, metadata) =>
+          shells.attach(input, terminalViewerId(metadata)),
+        [WS_METHODS.shellWrite]: (input) => shells.write(input),
+        [WS_METHODS.shellResize]: (input, metadata) =>
+          shells.resize(input, terminalViewerId(metadata)),
+        [WS_METHODS.shellClose]: (input) => shells.close(input),
+        [WS_METHODS.subscribeShells]: (_input) =>
+          Stream.callback<ShellListStreamEvent>((queue) =>
+            Effect.acquireRelease(
+              shells.subscribe((event) => Queue.offer(queue, event)),
               (unsubscribe) => Effect.sync(unsubscribe),
             ),
           ),
