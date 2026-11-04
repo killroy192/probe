@@ -1,8 +1,0 @@
-Probe devcontainer (commands only; Claude runs on the host)
-
-  vp run dev            start server + web, then open the pairing URL it
-                        prints (the bare forwarded port will not authenticate)
-  vp run tm ls          tickets
-  git add / commit      work here; pull and push run on the host
-
-Details: docs/internals/devcontainer.md

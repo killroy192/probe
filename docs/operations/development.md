@@ -18,20 +18,23 @@ Working with an agent? Run its commands in the [dev container](#dev-container) i
 ## Dev container
 
 An isolated Linux container (Ubuntu 24.04, Node 26, Rust, `vp`) that runs the commands an agent on
-your host sends it. It has no root, a firewalled network and no git credentials; the reasons are in
+your host sends it, whichever harness the agent runs in. Keep the agent itself on the host. It has no
+root, a firewalled network and no git credentials; the reasons are in
 [Dev container](../internals/devcontainer.md). It needs Docker and, on the host, Node (for `npx`).
 
 ```sh
+git config core.hooksPath /dev/null                    # once per clone; the container refuses to start without it
 bash .devcontainer/up.sh                               # create or start
 bash .devcontainer/up.sh --remove-existing-container   # after changing .devcontainer/
 ```
 
-The container is `probe-dev-<folder>`, with the checkout at `/workspaces/<folder>`. Run commands with
+The container is `probe-dev-<folder>`, with the checkout at its host path (same inside and out). Next to
+it runs `probe-net-<folder>`, which owns the firewall and the published ports. Run commands with
 `docker exec`; always the same prefix:
 
 ```sh
-docker exec -u devcontaineruser -w /workspaces/<folder> probe-dev-<folder> vp test run <file>
-docker exec -u devcontaineruser -w /workspaces/<folder> probe-dev-<folder> vp run dev --no-browser
+docker exec -u devcontaineruser -w /abs/path/to/<folder> probe-dev-<folder> vp test run <file>
+docker exec -u devcontaineruser -w /abs/path/to/<folder> probe-dev-<folder> vp run dev --no-browser
 ```
 
 The dev server's web and backend ports are the dev runner's defaults plus an offset that `up.sh` picks
@@ -39,24 +42,45 @@ for the checkout and prints. They are published on `127.0.0.1` only and are the 
 open the pairing URL the dev runner prints. Stop the server by a PID or process group you captured at
 spawn (see AGENTS.md).
 
-Git: `add`, `commit` and read-only commands run in the container; commits use your host git identity
-(`up.sh` writes it to the gitignored `.devcontainer/git-identity.env`). `pull`, `fetch` and `push` run
-on the host as `git -c core.hooksPath=/dev/null ...`. The container has no credentials and `.git/config`
-and `.git/hooks` are read-only in it. Linked worktrees are not supported yet.
+Git: `add`, `commit` and read-only commands run in the container, and the repo's hooks run only there;
+commits use your host git identity, which `up.sh` passes in. `pull`, `fetch` and `push` run on the host
+as `git -c core.hooksPath=/dev/null ...`. Hooks are off on the host for every tool, including your
+editor, so commit from the container. The container has no credentials, and git config, hooks and the
+agent and editor config the host loads are read-only in it.
+
+`vp i` runs in the container when `up.sh` creates it; never install on the host.
+
+**Worktrees.** Each worktree gets its own pair of containers, and nothing in the repo runs on the host
+to set one up:
+
+```sh
+git -c core.hooksPath=/dev/null worktree add ../<folder> <branch>   # next to this checkout
+cp .env ../<folder>/.env                                            # only for a reusable dev credential
+bash ../<folder>/.devcontainer/up.sh
+# when done:
+bash ../<folder>/.devcontainer/down.sh                              # containers and node_modules volume
+git -c core.hooksPath=/dev/null worktree remove ../<folder>
+```
+
+The new worktree needs its own agent permissions, with its path and folder in the rules below (for
+Claude Code, its own `.claude/settings.local.json`). The hooks setting carries over: linked worktrees
+share the main checkout's `.git/config`.
 
 **Network.** Outbound traffic is limited to the hosts in `.devcontainer/allowed-domains.txt`. Add a host
 there and rebuild with `--remove-existing-container`; ask first, it widens what agent-run code can reach.
 
 **Claude Code permissions.** Put these in the checkout's `.claude/settings.local.json` (gitignored, so
-repeat it per worktree, with that checkout's folder name and absolute path):
+repeat it per worktree, with that checkout's folder name and absolute path). Keep the `docker exec`
+rule literal: a wildcard in the path or name would also match an inserted `-u root`:
 
 ```json
 {
   "permissions": {
     "allow": [
-      "Bash(docker exec -u devcontaineruser -w /workspaces/<folder> probe-dev-<folder> *)",
+      "Bash(docker exec -u devcontaineruser -w /abs/path/to/<folder> probe-dev-<folder> *)",
       "Bash(git -c core.hooksPath=/dev/null pull *)",
       "Bash(git -c core.hooksPath=/dev/null fetch *)",
+      "Bash(grep *)",
       "Bash(mkdir /abs/path/to/<folder>/*)",
       "Bash(mkdir -p /abs/path/to/<folder>/*)"
     ],
@@ -64,6 +88,7 @@ repeat it per worktree, with that checkout's folder name and absolute path):
       "Bash(mkdir *..*)",
       "Edit(.devcontainer/**)",
       "Edit(.vite-hooks/**)",
+      "Edit(.mcp.json)",
       "Edit(.claude/settings*.json)",
       "Edit(.claude/hooks/**)"
     ],
@@ -74,7 +99,15 @@ repeat it per worktree, with that checkout's folder name and absolute path):
 ```
 
 With `autoAllowBashIfSandboxed` off, every host command that no rule allows asks you first, so nothing
-runs on the host unnoticed. `git push` has no rule and prompts.
+runs on the host unnoticed. `git push` has no rule and prompts. `grep` is allowed because it only
+reads, and the sandbox confines that to the checkout; `sed` is not, since a prefix rule cannot keep
+out `-i` or its `w` command, and a write to `.git/config` would run on the host outside the sandbox.
+
+**Other harnesses** (Codex, Cursor and the like) read the same rules from `AGENTS.md`. Give each the
+equivalent of the Claude settings above in its own permission system: allow only the literal
+`docker exec` prefix and the host git commands, and ask for everything else, including edits to
+`.devcontainer/`, hooks and agent config. If the harness keeps project config in the repo that the host
+loads or runs, add it to the read-only mounts in `.devcontainer/compose.yaml`.
 
 ## GitCafe mirror (optional)
 
@@ -200,14 +233,9 @@ Put that value in the main checkout's gitignored `.env`:
 T3CODE_DEV_AUTH_TOKEN=<the value generated above>
 ```
 
-The `t3.json` Setup Worktree action links that file to each worktree's `.env`. The dev runner reads repository env files at startup. `.env.local` and inherited process
-environment values override `.env`, so no per-worktree export is needed after setup.
-
-For a manual worktree or launcher without that link, export the same fixed value instead:
-
-```sh
-export T3CODE_DEV_AUTH_TOKEN="<the value generated above>"
-```
+Copy that file to each worktree's `.env`; a symlink to the main checkout does not resolve inside the
+dev container. The dev runner reads repository env files at startup. `.env.local` and inherited process
+environment values override `.env`.
 
 Do not generate a new value at startup. Start or restart `vp run dev --share` after configuration,
 then open its printed startup pairing URL once per browser profile on that hostname. Later web dev

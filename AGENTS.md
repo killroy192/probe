@@ -82,16 +82,29 @@ Most code changes do not need an internal documentation change. Agents can read 
 
 ## Working in the devcontainer
 
-Claude runs on the host; the container runs everything else, so code you start stays off the host and
-off the open network. Setup and permission rules: [Dev container](docs/operations/development.md#dev-container).
+You (the agent, whichever harness) run on the host; the container runs everything else, so code you
+start stays off the host and off the open network. Setup and permission rules: [Dev container](docs/operations/development.md#dev-container).
 
 - Edit files on the host. Run every other command in the container with exactly this prefix:
-  `docker exec -u devcontaineruser -w /workspaces/<dir> probe-dev-<dir> <cmd>` (`<dir>` is the
-  checkout's folder name). That includes `vp`, `node`, tests, `vp run tm`, and `git status`, `diff`,
-  `log`, `add` and `commit`. Commit in the container, so the hooks run there.
-- On the host run only `git -c core.hooksPath=/dev/null pull`, `fetch` or `push`. Do not run anything
+  `docker exec -u devcontaineruser -w <path> probe-dev-<dir> <cmd>` (`<path>` is the checkout's
+  absolute host path, which is the same in the container, and `<dir>` its folder name). That includes `vp`, `node`, tests, `vp run tm`, and `git status`, `diff`,
+  `log`, `add` and `commit`. Commit in the container: hooks run only there, because the host's
+  `.git/config` sets `core.hooksPath=/dev/null`.
+- Keep each `docker exec` to one line with no host-side pipe, redirect target or `;`, so the permission
+  rule matches without a prompt. Filter output inside the container (`sh -c 'cmd | tail -30'`, one
+  line); anything longer goes in a script file you run from the container.
+- Host commands already start in the checkout: never prefix them with `cd`. Use relative paths, or an
+  absolute one when the file is elsewhere. A `cd` makes every later path unverifiable to the
+  permission check, so the command is blocked. Chain with `&&`, never `;`.
+- On the host run only `git -c core.hooksPath=/dev/null pull`, `fetch`, `push` or `worktree add` /
+  `remove`, and read-only `grep`.
+  Edit files with the editor tools, never `sed -i` or other shell writes. Do not run anything
   else there without an explicit prompt: no tool installs, no other `docker` subcommands.
-- Start or rebuild the container only with `.devcontainer/up.sh`.
+- Never change hooks without explicit approval: git hooks (`.vite-hooks/`, `core.hooksPath`, the
+  `staged` config in `vite.config.ts`) and Claude hooks (`.claude/hooks/`, `hooks` in
+  `.claude/settings*.json`).
+- Start or rebuild the container only with `.devcontainer/up.sh`, and remove it with
+  `.devcontainer/down.sh` before removing a worktree.
 - The dev server runs in the container. Open the pairing URL it prints on the host; never pass `--host`.
 - Do not widen `.devcontainer/allowed-domains.txt`, anything under `.devcontainer/`, or your own
   permissions to get a command through. If a command fails on the network, report the host it needed.
@@ -111,14 +124,14 @@ The most common defect in this repo is a change that works on the path you teste
 
 ## Dev servers
 
-- `vp i` installs. Worktrees get this from the t3.json setup script; if module resolution looks broken, it probably did not run.
-- Setup runs in the background. While `.t3/setup-running` names a live PID, wait for it and do not run `vp i`. It ends with `.t3/setup-done` or `.t3/setup-failed` (with the error tail). With no marker at all, setup never ran here, so run `vp i` yourself.
+- `vp i` installs, in the container. `up.sh` runs it when it creates the container; after a lockfile change, run it yourself. Never install on the host.
 - `vp run dev` starts server and web. In a worktree, state defaults to that worktree's gitignored `.t3`, which deliberately outranks an ambient `T3CODE_HOME` so you cannot land on shared state by accident. An explicit `--home-dir` still wins.
 - Ports derive from the worktree path and are stable across restarts, but read the real ones from the `[dev-runner]` line since occupied ports shift.
 - Sharing over the tailnet is three steps: run `vp run dev --share` in the background, wait for the `pairingUrl:` line in its output, then give that full URL to an unpaired browser. Do not wire up `tailscale serve` by hand, open the URL yourself, or consume the user's pairing link. A browser with the reusable dev cookie can use the bare origin. If a normal one-time token was consumed, mint a fresh one with `node apps/server/src/bin.ts pair`. It carries standard scopes, while the startup URL carries admin scopes needed for Connections settings.
-- To reuse web dev auth across worktrees, configure one fixed `T3CODE_DEV_AUTH_TOKEN` in the main checkout's gitignored `.env`. The `t3.json` setup links that file into worktrees. Never commit or publish the token or a startup URL. See [Reusable dev credential](docs/operations/development.md#reusable-dev-credential).
+- To reuse web dev auth across worktrees, configure one fixed `T3CODE_DEV_AUTH_TOKEN` in the main checkout's gitignored `.env` and copy that file into each worktree (a copy, not a symlink: the container cannot follow a link to a host path). Never commit or publish the token or a startup URL. See [Reusable dev credential](docs/operations/development.md#reusable-dev-credential).
 - Stop what you started, by the PID you tracked. See rule 1.
-- Need a second checkout? `git worktree add` it next to this worktree, not in `/tmp`. Remove it when done.
+- Need a second checkout? Add it next to this one, not in `/tmp`, with its own container; remove both
+  when done. Steps: [Worktrees](docs/operations/development.md#dev-container).
 
 ## Test data
 

@@ -1,12 +1,14 @@
 // Dev container for Probe. Mirrors CI (ubuntu-24.04, Node 26, Rust stable)
 // and the canonical setup in docs/operations/development.md: global `vp`, `vp i`.
 // Claude runs on the host; this container only executes commands (docker exec).
+// Start it with up.sh, which sets the variables compose.yaml needs.
 // Contributor doc: docs/internals/devcontainer.md
 {
   "name": "Probe",
-  "build": {
-    "dockerfile": "Dockerfile"
-  },
+  "dockerComposeFile": "compose.yaml",
+  "service": "dev",
+  "runServices": ["net", "dev"],
+  "workspaceFolder": "${localWorkspaceFolder}",
   "features": {
     // nodeGypDependencies (default true) brings python3/make/g++, which Linux
     // needs for node-pty's node-gyp fallback (its prebuilds are mac/win only).
@@ -17,69 +19,8 @@
     // degrades gracefully without the binary, but CI checks cargo fmt + test.
     "ghcr.io/devcontainers/features/rust:1": {}
   },
-  "hostRequirements": {
-    "cpus": 4,
-    "memory": "8gb",
-    "storage": "32gb"
-  },
   // The image entrypoint (root) does the privileged setup; commands run as this user.
   "remoteUser": "devcontaineruser",
   "overrideCommand": false,
-  // Runs on the host: writes the git author identity file read by --env-file below.
-  "initializeCommand": "sh .devcontainer/git-identity.sh",
-  // One container per worktree, so host-side permission rules can name it exactly.
-  "runArgs": [
-    "--name",
-    "probe-dev-${localWorkspaceFolderBasename}",
-    "--env-file",
-    "${localWorkspaceFolder}/.devcontainer/git-identity.env",
-    // The entrypoint installs the firewall; devcontaineruser cannot use the capability.
-    "--cap-add",
-    "NET_ADMIN",
-    // The only way in: the dev server, on the host's loopback. up.sh picks the
-    // ports; with no up.sh these are the dev runner's defaults.
-    "-p",
-    "127.0.0.1:${localEnv:T3_DC_WEB_PORT:5733}:${localEnv:T3_DC_WEB_PORT:5733}",
-    "-p",
-    "127.0.0.1:${localEnv:T3_DC_SERVER_PORT:13773}:${localEnv:T3_DC_SERVER_PORT:13773}"
-  ],
-  "containerEnv": {
-    // Keep all runtime state inside the (gitignored) workspace .t3, matching
-    // the worktree default. An explicit --home-dir still wins.
-    "T3CODE_HOME": "${containerWorkspaceFolder}/.t3",
-    // Same ports inside and out, so the URL the dev runner prints works on the host.
-    "T3CODE_PORT_OFFSET": "${localEnv:T3_DC_PORT_OFFSET:0}"
-  },
-  "mounts": [
-    // vp keeps the pnpm content-addressable store and metadata cache under
-    // ~/.cache/pnpm (verified: the v11 store dir lives there); mounting a
-    // volume there lets installs survive container rebuilds.
-    "source=t3code-pnpm-store,target=/home/devcontaineruser/.cache/pnpm,type=volume",
-    // Root node_modules holds the whole pnpm virtual store (.pnpm), so one
-    // volume keeps the heavy tree off the slow macOS/Windows bind mount.
-    // Scoped by devcontainerId so parallel checkouts do not share it.
-    "source=t3code-node-modules-${devcontainerId},target=${containerWorkspaceFolder}/node_modules,type=volume",
-    // Git config and hooks run code on whichever machine runs git next, and the
-    // host does (pull/push). Read-only here, so the container cannot plant any.
-    "source=${localWorkspaceFolder}/.git/config,target=${containerWorkspaceFolder}/.git/config,type=bind,readonly",
-    "source=${localWorkspaceFolder}/.git/hooks,target=${containerWorkspaceFolder}/.git/hooks,type=bind,readonly"
-  ],
-  "onCreateCommand": "bash .devcontainer/on-create.sh",
-  "updateContentCommand": "bash .devcontainer/update-content.sh",
-  "customizations": {
-    "vscode": {
-      "extensions": ["oxc.oxc-vscode", "rust-lang.rust-analyzer"],
-      "settings": {
-        // .repos is a large vendored read-only reference tree; watching it
-        // burns CPU and file handles.
-        "files.watcherExclude": {
-          "**/.repos/**": true,
-          "**/.t3/**": true
-        },
-        "search.exclude": {
-          "**/.repos": true
-        }
-      }
-    }
-  }
+  "onCreateCommand": "bash .devcontainer/on-create.sh"
 }

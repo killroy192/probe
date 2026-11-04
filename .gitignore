@@ -28,7 +28,6 @@ squashfs-root/
 .gstack/
 .plans/
 .claude/memory/
-.devcontainer/git-identity.env
 .claude/settings.local.json
 /audits/
 dist-electron/

@@ -1,0 +1,13 @@
+# The container's .git/config (devcontainer.json mounts it read-only). The host's
+# own config sets core.hooksPath=/dev/null, so no host tool runs a hook the
+# container could have written; here the include keeps remotes and branches and
+# the lines after it turn the repo's hooks back on.
+# `git config --local` does not follow includes, so the vp keys are repeated:
+# `vp config` (the prepare script) then finds them and writes nothing.
+[include]
+	path = /etc/probe/host-git-config
+[core]
+	hooksPath = .vite-hooks/_
+[vp "hooks"]
+	dir = .vite-hooks
+	prefix = .

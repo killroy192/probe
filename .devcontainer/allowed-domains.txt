@@ -6,3 +6,10 @@ vite.plus
 viteplus.dev
 registry-bridge.viteplus.dev
 nodejs.org
+# Electron runtime download (ensure:electron): release URL and its redirect targets
+github.com
+release-assets.githubusercontent.com
+objects.githubusercontent.com
+# cargo's sparse index and crate downloads (native/resource-monitor)
+index.crates.io
+static.crates.io

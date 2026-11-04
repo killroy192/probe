@@ -1,0 +1,72 @@
+# Two containers sharing one network namespace. `net` holds NET_ADMIN, installs
+# the firewall, relays the published ports and owns the namespace; `dev` runs
+# every command and has no capabilities, so not even root in it can change the
+# firewall. up.sh and env.sh set every ${PROBE_*} variable.
+services:
+  net:
+    build:
+      context: .
+      dockerfile: net.Dockerfile
+    container_name: probe-net-${PROBE_NAME}
+    # The default bridge copies the host's resolvers into resolv.conf, which the
+    # firewall can allow. Compose's own network uses Docker's embedded DNS, which
+    # forwards from inside this namespace to an upstream the rules do not know.
+    network_mode: bridge
+    cap_add: [NET_ADMIN]
+    environment:
+      PROBE_PORTS: ${PROBE_WEB_PORT} ${PROBE_SERVER_PORT}
+    # The only way in: the dev server, on the host's loopback.
+    ports:
+      - 127.0.0.1:${PROBE_WEB_PORT}:${PROBE_WEB_PORT}
+      - 127.0.0.1:${PROBE_SERVER_PORT}:${PROBE_SERVER_PORT}
+    healthcheck:
+      test: [CMD, test, -f, /run/probe-firewall-ready]
+      interval: 1s
+      start_period: 60s
+
+  dev:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: probe-dev-${PROBE_NAME}
+    network_mode: service:net
+    depends_on:
+      net:
+        condition: service_healthy
+    environment:
+      PROBE_WORKSPACE: ${PROBE_WORKSPACE}
+      # Keep all runtime state inside the (gitignored) workspace .t3, matching
+      # the worktree default. An explicit --home-dir still wins.
+      T3CODE_HOME: ${PROBE_WORKSPACE}/.t3
+      # Same ports inside and out, so the URL the dev runner prints works on the host.
+      T3CODE_PORT_OFFSET: ${PROBE_PORT_OFFSET}
+      GIT_AUTHOR_NAME: ${PROBE_GIT_NAME}
+      GIT_AUTHOR_EMAIL: ${PROBE_GIT_EMAIL}
+      GIT_COMMITTER_NAME: ${PROBE_GIT_NAME}
+      GIT_COMMITTER_EMAIL: ${PROBE_GIT_EMAIL}
+    volumes:
+      # Host paths inside the container too, so the absolute gitdir pointers of
+      # linked worktrees resolve. For the main checkout the second line is the
+      # workspace's own .git again.
+      - ${PROBE_WORKSPACE}:${PROBE_WORKSPACE}
+      - ${PROBE_GIT_COMMON_DIR}:${PROBE_GIT_COMMON_DIR}
+      # The host's config sets core.hooksPath=/dev/null; the container sees
+      # git-config instead, which includes it and turns the repo's hooks back on.
+      - ${PROBE_GIT_COMMON_DIR}/config:/etc/probe/host-git-config:ro
+      - ./git-config:${PROBE_GIT_COMMON_DIR}/config:ro
+      - ${PROBE_GIT_COMMON_DIR}/hooks:${PROBE_GIT_COMMON_DIR}/hooks:ro
+      # Files the host runs or loads into its agent: Claude settings, hooks, skills
+      # and MCP servers, editor tasks, and this directory (up.sh runs on the host).
+      - ${PROBE_WORKSPACE}/.claude:${PROBE_WORKSPACE}/.claude:ro
+      - ${PROBE_WORKSPACE}/.agents:${PROBE_WORKSPACE}/.agents:ro
+      - ${PROBE_WORKSPACE}/.mcp.json:${PROBE_WORKSPACE}/.mcp.json:ro
+      - ${PROBE_WORKSPACE}/.vscode:${PROBE_WORKSPACE}/.vscode:ro
+      - ${PROBE_WORKSPACE}/.cursor:${PROBE_WORKSPACE}/.cursor:ro
+      - ${PROBE_WORKSPACE}/.devcontainer:${PROBE_WORKSPACE}/.devcontainer:ro
+      # Root node_modules holds the whole pnpm virtual store (.pnpm) and, being
+      # another filesystem, pnpm's store too; a volume keeps it off the slow
+      # macOS bind mount. Compose scopes it to this checkout's project.
+      - node_modules:${PROBE_WORKSPACE}/node_modules
+
+volumes:
+  node_modules:

@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
-# One-time container setup, baked into prebuilds. Content-dependent work
-# (dependency install, Chromium) lives in update-content.sh. Runs as
-# devcontaineruser without sudo; root-only setup is in container-init.sh.
+# One-time container setup. Runs as devcontaineruser without sudo; root-only
+# setup is in container-init.sh. Everything here is idempotent.
 set -euo pipefail
 
 # The Vite+ CLI is the repo task runner (vp i, vp run dev, vp test run).
@@ -11,7 +10,8 @@ set -euo pipefail
 # together, absolute) pins the install location instead of the installer's
 # XDG platform defaults, which moved the binary from ~/.vite-plus/bin to
 # ~/.local/share/vite-plus/bin between releases and would break the check
-# below either way. devcontainer.json puts that directory on PATH.
+# below either way. The Dockerfile puts that directory on PATH.
+export VP_VERSION=1.5.0
 export VP_BIN_DIR="$HOME/.local/share/vite-plus/bin"
 export VP_DATA_DIR="$HOME/.local/share/vite-plus"
 export VP_CACHE_DIR="$HOME/.cache/vite-plus"
@@ -20,3 +20,10 @@ curl -fsSL https://vite.plus -o "$installer"
 VP_NODE_MANAGER=no bash "$installer"
 rm -f "$installer"
 test -x "$VP_BIN_DIR/vp"
+
+CI=true vp i
+# Repairs electron's path.txt and exec bits after install, same as CI.
+vp run --filter @t3tools/desktop ensure:electron
+# Pre-warms Vite's dep optimizer (cache is keyed on the absolute path, which
+# is the host's path here too).
+node apps/web/scripts/warm-dep-cache.ts
