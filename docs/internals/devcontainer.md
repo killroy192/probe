@@ -2,12 +2,18 @@
 
 > For maintainers. Using T3 Code? See [docs/user](../user/).
 
-`.devcontainer/` gives you a ready-to-code Linux environment matching CI: Ubuntu 24.04, Node 26, pnpm, Rust stable, the global `vp` CLI, and the GitHub CLI. Open the repo in VS Code and "Reopen in Container", or create a GitHub Codespace. Dependency install (`vp i`), the Electron exec-bit repair, and the Vite dep-cache warmup all run automatically before you attach.
+`.devcontainer/` gives you a ready-to-code Linux environment matching CI: Ubuntu 24.04, Node 26, pnpm, Rust stable, the global `vp` CLI, Claude Code, and `ccc` for code search. It needs only Docker: open the repo in VS Code and "Reopen in Container", create a GitHub Codespace, or use the [Dev Container CLI](https://github.com/devcontainers/cli) (`devcontainer up --workspace-folder .`, then `devcontainer exec --workspace-folder . claude`). The CLI does not forward ports or git credentials the way VS Code does. Dependency install (`vp i`), the Electron exec-bit repair, and the Vite dep-cache warmup all run automatically before you attach.
 
 ## What works in the container
 
 - The full dev stack: `vp run dev`, then open the pairing URL it prints through the forwarded web port (5733). The bare origin is useless without the pairing token. In VS Code the forwarded port is a true localhost, so the printed URL works as-is; in browser Codespaces the forwarded origin differs, and if the server rejects it, pass the forwarded origin via `T3CODE_DEV_ALLOWED_ORIGINS`.
 - Everything the Linux CI jobs run: focused `vp test run <files>`, `vp lint <files>`, package typechecks, `vp run build:desktop`, and the resource-monitor cargo build and tests. (`vpr` is not on PATH here; the curl installer only shims `vp`. Use `vp run <script>` or `node_modules/.bin/vpr` after install.)
+
+## Claude Code
+
+`claude` runs without permission prompts, with the repo's `.mcp.json` servers pre-approved, and without its own sandbox: `/etc/claude-code/managed-settings.json`, written by `on-create.sh`, outranks the repo's and your local settings, and exists only in the container. The container is the boundary, but the workspace is a bind mount, so Claude can still change or delete files in your real checkout. `~/.claude` (with `CLAUDE_CONFIG_DIR` pointing there) is a named volume, so you log in once and stay logged in across rebuilds.
+
+The `cocoindex-code` MCP server runs `ccc`. The workspace's `.cocoindex_code/settings.yml` is shared with the host, but `COCOINDEX_CODE_DB_PATH_MAPPING` keeps the container's index and embedding model in their own volume, because an index built from container paths would clobber the host's. `update-content.sh` builds it.
 
 ## State and safety
 
