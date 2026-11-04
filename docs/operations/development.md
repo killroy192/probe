@@ -22,16 +22,18 @@ runs, so mistakes stay off your machine. It sees only the checkout. Why it is bu
 [Dev container](../internals/devcontainer.md). It needs Docker Desktop.
 
 - **Cursor or VS Code:** open the checkout and run _Dev Containers: Reopen in Container_.
-- **Terminal:** `devcontainer up --workspace-folder .` (or `npx @devcontainers/cli@0.89.0 up ...`), then
-  `devcontainer exec --workspace-folder . claude` or `bash`, or `docker exec -it probe-dev-<folder> bash`.
+- **Terminal:** see [From a terminal](#from-a-terminal).
 
 Both start the same container, `probe-dev-<folder>`, with the checkout at `/workspaces/<folder>`. Before
 each start, `.devcontainer/init-env.sh` runs on your machine by itself: it disables git hooks on the
 host, finds the repository's shared `.git` and picks the ports. The first start runs `vp i` and installs
-the rest; `node_modules` and Claude Code's login live in volumes and survive rebuilds. Rebuild after
+the rest, including Playwright's headless Chromium for the scenario and web browser tests;
+`node_modules`, the browser and Claude Code's login live in volumes and survive rebuilds. Rebuild after
 changing `.devcontainer/`.
 
-- **Claude Code:** run `claude` in the container and log in once.
+- **Claude Code:** run `claude` in the container and log in once. Its status line is
+  [glint](https://github.com/oleg-koval/glint), installed on first start without gauges; rerun its
+  installer with `--bars` to add them.
 - **Git and push:** commit and push from the container; hooks run only there. Push uses your SSH agent,
   forwarded by Docker Desktop (and by Cursor in an attached window), so your key must be loaded in it:
   `ssh-add -l` on your Mac lists it. Add `AddKeysToAgent yes` and `UseKeychain yes` to `~/.ssh/config`
@@ -41,6 +43,28 @@ changing `.devcontainer/`.
   machine. Cursor also forwards them itself.
 - **Reusable dev credential:** copy the main checkout's `.env` into the checkout; `worktree.sh` does it for
   you.
+
+### From a terminal
+
+From the checkout on your machine:
+
+```sh
+npx @devcontainers/cli@0.89.0 up --workspace-folder .            # start, or reuse a running one
+npx @devcontainers/cli@0.89.0 exec --workspace-folder . claude   # Claude Code, in /workspaces/<folder>
+npx @devcontainers/cli@0.89.0 exec --workspace-folder . claude --dangerously-skip-permissions
+npx @devcontainers/cli@0.89.0 exec --workspace-folder . bash     # a shell instead
+docker stop probe-dev-<folder>                                   # stop; the next `up` starts it again
+```
+
+`up` reuses a container that Cursor started, and Cursor reuses one that `up` started. The first
+`claude` asks you to log in: open the URL it prints on your machine and paste the code back.
+`--dangerously-skip-permissions` runs Claude Code without permission prompts; the flag overrides the
+checkout's settings, and the container is what limits the damage. It works here because the container
+user is not root. Prefer
+`exec` over `docker exec -it -u vscode -w /workspaces/<folder> probe-dev-<folder> claude`: it applies
+the container's environment the way Cursor does. To skip the `npx` download, install the CLI once with
+`npm i -g @devcontainers/cli@0.89.0` and run `devcontainer up` and `devcontainer exec`. For a worktree,
+pass its folder: `--workspace-folder ../<repo>-<branch>`.
 
 ### Worktrees
 

@@ -24,7 +24,19 @@ VP_NODE_MANAGER=no bash "$installer"
 rm -f "$installer"
 test -x "$VP_BIN_DIR/vp"
 
+# glint, Claude Code's status line. Its installer writes glint.py and the
+# statusLine setting into CLAUDE_CONFIG_DIR (the claude volume) and merges into
+# an existing settings.json. It always fetches glint.py from glint's main branch.
+installer=$(mktemp)
+curl -fsSL https://raw.githubusercontent.com/oleg-koval/glint/main/install.sh -o "$installer"
+bash "$installer" --no-bars
+rm -f "$installer"
+
 CI=true vp i
+# Headless Chromium at the repo's pinned Playwright version. Both the scenario
+# harness and Vitest browser mode launch `chromium` headless, which Playwright
+# runs as chromium-headless-shell, so the full browser is not needed.
+node scripts/node_modules/playwright-core/cli.js install --only-shell chromium
 # Repairs electron's path.txt and exec bits after install, same as CI.
 vp run --filter @t3tools/desktop ensure:electron
 # Pre-warms Vite's dep optimizer (cache is keyed on the absolute path, which

@@ -46,7 +46,10 @@ services:
       - node_modules:/workspaces/${PROBE_NAME}/node_modules
       # Claude Code's login, settings and sessions survive rebuilds.
       - claude:/home/vscode/.claude
+      # Playwright's browser downloads survive rebuilds too.
+      - playwright:/home/vscode/.cache/ms-playwright
 
 volumes:
   node_modules:
   claude:
+  playwright:

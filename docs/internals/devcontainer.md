@@ -15,6 +15,14 @@ and both reach the same container. [`init-env.sh`](../../.devcontainer/init-env.
 that [`compose.yaml`](../../.devcontainer/compose.yaml) interpolates. A plain `devcontainer.json`
 cannot compute mount paths; compose exists only to read that file.
 
+The editor and the CLI find an existing container by the labels the devcontainer tooling puts on it
+for the folder, so either one reuses what the other started. Only an attached editor window does the
+extra work itself: copying the developer's git identity, forwarding credentials and forwarding ports.
+The CLI does none of it, so the container carries its own equivalents for terminal use: the
+`GIT_AUTHOR_*` / `GIT_COMMITTER_*` variables from `init-env.sh`, the SSH agent socket mount, and the
+published ports with the relay below. `devcontainer exec` runs as `remoteUser` in `workspaceFolder`
+with the container's probed environment, which a bare `docker exec` skips.
+
 ## What keeps the host safe, and the traps
 
 - **Only the checkout is mounted,** plus the repository's shared `.git` for a linked worktree and
@@ -62,8 +70,12 @@ the dev runner here: it would bind the address the relay uses.
 `T3CODE_HOME` points at the workspace's gitignored `.t3`. `~/.t3` is not mounted, so the dev runner's
 automatic seeding finds no source and the database starts empty.
 
-Root `node_modules` and Claude Code's config directory (`CLAUDE_CONFIG_DIR`) are named volumes per
-checkout; `worktree.sh remove` deletes them with the container. `node_modules` covers the whole `.pnpm`
+Root `node_modules`, Claude Code's config directory (`CLAUDE_CONFIG_DIR`) and Playwright's browser
+cache are named volumes per checkout; `worktree.sh remove` deletes them with the container. Only
+`chromium-headless-shell` is installed: Playwright launches it for any headless `chromium`, which is
+what both the scenario harness and Vitest browser mode ask for. Its system libraries are an explicit
+list in the Dockerfile, because Node, which `playwright install-deps` needs, only arrives with a feature
+layer. `node_modules` covers the whole `.pnpm`
 virtual store and pnpm's own store, which pnpm places there because the home directory is another
 filesystem; packages are hardlinked from it, not copied. The host sees its own `node_modules`, not the
 container's.
