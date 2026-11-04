@@ -1,0 +1,8 @@
+# Hosts the container may reach (one per line). Resolved to IPs by
+# container-init.sh at start and every five minutes. Baked into the image: a
+# change takes effect on rebuild, and needs your sign-off (see AGENTS.md).
+registry.npmjs.org
+vite.plus
+viteplus.dev
+registry-bridge.viteplus.dev
+nodejs.org

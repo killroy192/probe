@@ -32,12 +32,23 @@
     "--name",
     "probe-dev-${localWorkspaceFolderBasename}",
     "--env-file",
-    "${localWorkspaceFolder}/.devcontainer/git-identity.env"
+    "${localWorkspaceFolder}/.devcontainer/git-identity.env",
+    // The entrypoint installs the firewall; devcontaineruser cannot use the capability.
+    "--cap-add",
+    "NET_ADMIN",
+    // The only way in: the dev server, on the host's loopback. up.sh picks the
+    // ports; with no up.sh these are the dev runner's defaults.
+    "-p",
+    "127.0.0.1:${localEnv:T3_DC_WEB_PORT:5733}:${localEnv:T3_DC_WEB_PORT:5733}",
+    "-p",
+    "127.0.0.1:${localEnv:T3_DC_SERVER_PORT:13773}:${localEnv:T3_DC_SERVER_PORT:13773}"
   ],
   "containerEnv": {
     // Keep all runtime state inside the (gitignored) workspace .t3, matching
     // the worktree default. An explicit --home-dir still wins.
-    "T3CODE_HOME": "${containerWorkspaceFolder}/.t3"
+    "T3CODE_HOME": "${containerWorkspaceFolder}/.t3",
+    // Same ports inside and out, so the URL the dev runner prints works on the host.
+    "T3CODE_PORT_OFFSET": "${localEnv:T3_DC_PORT_OFFSET:0}"
   },
   "mounts": [
     // vp keeps the pnpm content-addressable store and metadata cache under
@@ -55,17 +66,6 @@
   ],
   "onCreateCommand": "bash .devcontainer/on-create.sh",
   "updateContentCommand": "bash .devcontainer/update-content.sh",
-  "forwardPorts": [5733, 13773],
-  "portsAttributes": {
-    "5733": {
-      "label": "t3 web (open via the pairing URL, not the bare origin)",
-      "onAutoForward": "notify"
-    },
-    "13773": {
-      "label": "t3 server",
-      "onAutoForward": "silent"
-    }
-  },
   "customizations": {
     "vscode": {
       "extensions": ["oxc.oxc-vscode", "rust-lang.rust-analyzer"],

@@ -14,7 +14,14 @@ RUN groupmod -n devcontaineruser vscode \
 # Set here, not in devcontainer.json: docker exec only sees the image's environment.
 ENV PATH=/home/devcontaineruser/.local/share/vite-plus/bin:$PATH
 
+# The firewall in container-init.sh.
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends iptables ipset \
+  && rm -rf /var/lib/apt/lists/*
+COPY allowed-domains.txt /etc/probe/allowed-domains.txt
+
 COPY first-run-notice.txt /usr/local/etc/vscode-dev-containers/first-run-notice.txt
+COPY port-relay.mjs /usr/local/bin/port-relay.mjs
 COPY container-init.sh /usr/local/bin/container-init
 RUN chmod 0755 /usr/local/bin/container-init
 
