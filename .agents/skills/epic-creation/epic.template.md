@@ -96,7 +96,7 @@ Created later with the story skill; this list is a sketch. -->
 
 ## Dependencies and sequencing
 
-<!-- Other epics, tools, decisions, people. Phase in memory/roadmap.md. -->
+<!-- Other epics, tools, decisions, people. Phase in docs/dev/roadmap.md. -->
 
 ## Risks
 
@@ -109,8 +109,8 @@ Created later with the story skill; this list is a sketch. -->
 ## Assumptions and unknowns
 
 <!-- Everything we believe without proof (assumption) or do not know yet (unknown). Be exhaustive:
-if the plan breaks when it is wrong, it belongs here. Unverified rows are copied to
-memory/questions.md with this epic's ID. An epic with a `must` requirement that depends on an
+if the plan breaks when it is wrong, it belongs here. Unverified rows that more
+than one ticket depends on are copied to docs/dev/questions.md with this epic's ID. An epic with a `must` requirement that depends on an
 unverified assumption is not ready to start; verify it in the first story. -->
 
 | ID  | Statement | Kind (assumption / unknown) | Status (unverified / verified / false) | How and when to verify | Owner | Affects (FR / NFR / story) |

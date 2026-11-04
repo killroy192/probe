@@ -156,7 +156,7 @@ Stories 3 to 8 depend on this one (epic order).
 | SA-4 | A-6 (epic): a running shell survives a browser reload. Very likely true: shells run on the server, not in the browser (user, 2026-11-02). If the spike finds it false, the fix is built in this story. | assumption | verified | Spike and AC-5 | author |
 | SA-5 | A-14 (epic): shells can keep running while the server restarts and the new server can reattach. Today a finalizer ends them on manager close (read, not run) and the `survivesRestart` flag depends on systemd (unverified on macOS, the author's machine) | assumption | false | Spike on the author's machine; result decides the size of story 7 (R-6) | author |
 | SU-1 | U-1 (epic): how a standalone shell is identified without a thread | unknown | verified (see spike note) | Spike; the answer is the output of subtask 1 | author |
-| SU-2 | Where the spike findings are recorded. Default: a note in `memory/research/` (vault), linked from this story. Fallback: a section at the end of this story if the author prefers | unknown | verified | Defaulted 2026-11-02 to avoid blocking; the author may move it | author |
+| SU-2 | Where the spike findings are recorded. Default: a note in `research/` (vault), linked from this story. Fallback: a section at the end of this story if the author prefers | unknown | verified | Defaulted 2026-11-02 to avoid blocking; the author may move it | author |
 | SU-3 | Must this story prevent orphan shell processes after a server restart (EC-5)? Closed: no, the spike only records; orphan handling belongs to story 7 | unknown | verified | Decided by the user (epic update) | author |
 | SU-4 | Which `probe/docs/` pages describe terminals and the drawer | unknown | unverified | TBD (author, 2026-11-09): search docs while working | author |
 | SU-5 | Whether CI type-checks desktop or mobile against contract changes | unknown | unverified | TBD (author, 2026-11-09): check CI config | author |
@@ -165,7 +165,7 @@ Stories 3 to 8 depend on this one (epic order).
 
 ## Implementation Status and Handoff
 
-Branch `feat/standalone-shells-prb-t-002`. Spike findings: `docs/dev/memory/research/t-002-standalone-shell-spike.md`. The working plan is `.plans/PRB.T-002-standalone-shells.md` (gitignored, local); this section is enough to continue without it.
+Branch `feat/standalone-shells-prb-t-002`. Spike findings: `docs/dev/research/t-002-standalone-shell-spike.md`. The working plan is `.plans/PRB.T-002-standalone-shells.md` (gitignored, local); this section is enough to continue without it.
 
 **Decisions**
 - Identity (U-1): separate `shell.*` RPCs, a server-allocated shell id, and a `shell:<id>` owner id used as the `threadId` key inside the terminal manager (`packages/contracts/src/shell.ts`). Chosen over a tagged `kind` and over an optional `threadId` because the latter ripples into mobile, MCP and storage cleanup.

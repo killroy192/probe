@@ -66,3 +66,14 @@ source alone does not explain. Most code changes do not need an internal documen
 - [Observability](./operations/observability.md)
 - [Relay observability](./operations/relay-observability.md)
 - [Mobile app store screenshots](./operations/mobile-app-store-screenshots.md)
+
+### Planning
+
+Work that is planned or in flight lives in `dev/`; the rest of these docs describe what exists.
+What goes where is in the [documentation rules](../AGENTS.md#documentation), and tickets are
+managed with `tm` as the [tickets skill](../.agents/skills/tickets/SKILL.md) describes.
+
+- [Roadmap](./dev/roadmap.md): settled product and scope decisions, and phase order
+- [Open questions](./dev/questions.md): unverified assumptions and pending decisions that span tickets
+- Tickets: [epics](./dev/epics/) and [tasks](./dev/tasks/), in `backlog/`, `in-progress/` or `done/`
+- [Design drafts](./dev/design/) and [research](./dev/research/): product studies and spike reports

@@ -49,8 +49,8 @@ The story body uses exactly these titles, in this order (the reviewer checks the
      unknowns, notes for stories. Say which candidate story this is, or that it is not on the list.
    - Run `vp run tm ls --parent <EPIC>` to find stories that overlap. If one covers the idea, propose
      extending it instead of creating a new one.
-   - Search `docs/dev` with `mcp__cocoindex-code__search` (`docs/dev/memory/roadmap.md`,
-     `docs/dev/memory/questions.md`, `docs/dev/memory/design/`).
+   - Search `docs/dev` with `mcp__cocoindex-code__search` (`docs/dev/roadmap.md`,
+     `docs/dev/questions.md`, `docs/dev/design/`).
    - Check the current behavior in the code with `mcp__cocoindex-code__search`, or by reading files.
      Record file paths. If the index is unavailable and you could not read the code, say so and mark
      the Current Behavior as unverified.
@@ -89,9 +89,10 @@ The story body uses exactly these titles, in this order (the reviewer checks the
    - Set the workflow label if appropriate: `vp run tm label <ID> +plan` (stages are `plan`,
      `implement`, `verify`, `review`; the story is ready for `plan`). Add `mobile-impact` if the
      story touches mobile.
-   - Copy unverified assumption and unknown rows that outlive the story into `docs/dev/memory/questions.md`,
-     prefixed with the story ID and row ID.
-   - `vp run tm check`, then `vp run tm log "created PRB.T-NNN <title>"`.
+   - Copy into `docs/dev/questions.md` only unverified rows that another ticket depends on or that
+     outlive the story, prefixed with the story ID and row ID. Do not copy rows that cite an epic
+     row already listed there.
+   - `vp run tm check`.
    - Say the next step is the plan stage. Do not plan here. Do not commit unless asked.
 
 ## Automated review loop

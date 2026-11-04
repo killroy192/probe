@@ -132,8 +132,6 @@ it("mv moves the file between status folders and board follows", () => {
   );
   tm(d, "mv", "PRB.E-002", "done");
   NodeAssert.ok(NodeFS.existsSync(NodePath.join(d, "epics", "done", "PRB.E-002-beta.md")));
-  tm(d, "log", "hello");
-  NodeAssert.ok(NodeFS.existsSync(NodePath.join(d, "memory", "log")));
 });
 
 it("rm deletes a ticket, refuses an epic with tasks, and never frees the id", () => {

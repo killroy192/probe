@@ -11,7 +11,7 @@ judge the file only.
 ## Read first
 
 1. The epic file and `epic.template.md`.
-2. `docs/dev/memory/roadmap.md` and `docs/dev/memory/questions.md`.
+2. `docs/dev/roadmap.md` and `docs/dev/questions.md`.
 3. Any epic or note that overlaps the epic. Use the `cocoindex-code` search plus Read, Grep and
    Glob. Check file names under `epics/` and `tasks/` to confirm ticket IDs exist.
 
@@ -36,8 +36,8 @@ Report only real problems. Focus on inconsistency and blocking issues, not style
 4. **Product level.** Tech details (libraries, schemas, file layouts, code) in Goal, Scope,
    Approach or Requirements that belong in "Notes for stories".
 5. **Vagueness.** Unmeasurable words ("better", "faster", "improve", "robust") used as targets.
-6. **Conflicts with `docs/dev`.** Phase or sequence contradicting `docs/dev/memory/roadmap.md`; a duplicate of
-   an existing epic; a contradiction with an answered question in `docs/dev/memory/questions.md`;
+6. **Conflicts with `docs/dev`.** Phase or sequence contradicting `docs/dev/roadmap.md`; a duplicate of
+   an existing epic; a contradiction with a decision in `docs/dev/roadmap.md`;
    references to ticket IDs that do not exist.
 7. **Size.** Fewer than 2 candidate stories (probably a story) or more than 8 (should be split).
 

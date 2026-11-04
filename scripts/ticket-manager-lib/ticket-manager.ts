@@ -1,7 +1,6 @@
 // @effect-diagnostics nodeBuiltinImport:off globalConsole:off - Plain Node CLI that prints to the terminal.
 
 import * as NodeFS from "node:fs";
-import * as NodePath from "node:path";
 import * as NodeURL from "node:url";
 import * as NodeUtil from "node:util";
 import {
@@ -28,7 +27,6 @@ const USAGE = `usage: tm <command>
   label <ID> <+label|-label>...   add or remove labels, e.g. +plan -spec
   board [--phase N] [--epic ID]   tasks by status
   check                   verify IDs are unique, ids.json is ahead of every ticket, parents exist
-  log "<text>"
 
 IDs come from ids.json, only ever increase, and are issued under a lock. PRB.E-NNN epics (epics/<status>/), PRB.T-NNN tasks (tasks/<status>/). Status is the folder.
 Workflow stages (plan, implement, verify, review) are optional labels, not statuses.`;
@@ -196,17 +194,6 @@ function main() {
           ),
         );
       }
-      return;
-    }
-    case "log": {
-      const text = rest.join(" ").trim();
-      if (!text) fail(USAGE);
-      const dir = NodePath.join(root, "memory", "log");
-      NodeFS.mkdirSync(dir, { recursive: true });
-      const f = NodePath.join(dir, `${today()}.md`);
-      if (!NodeFS.existsSync(f)) NodeFS.writeFileSync(f, `# ${today()}\n\n`);
-      NodeFS.appendFileSync(f, `- ${text}\n`);
-      console.log(`logged to ${f}`);
       return;
     }
     default:

@@ -10,7 +10,7 @@ path of its parent epic file, and the path of `story.template.md`. Review only w
 ignore any justification outside them. Focus on inconsistency and blocking problems, not style.
 
 Read the story, the epic and the template in full. Use `mcp__cocoindex-code__search` for planning notes
-(`docs/dev/memory/roadmap.md`, `docs/dev/memory/questions.md`, other tickets; list siblings with Glob on
+(`docs/dev/roadmap.md`, `docs/dev/questions.md`, other tickets; list siblings with Glob on
 `docs/dev/tasks/*/*.md` and read those whose `parent` matches). Use the same search, Read, Grep and Glob
 to check claims about code. If the index is unavailable, use Read and Grep.
 
@@ -42,7 +42,7 @@ Report only real problems.
 7. **Assumptions and dependencies.** Beliefs stated as fact but missing from the assumptions table;
    a blocking unknown with no owner or way to verify; dependencies on stories or epics that do not
    exist, or that form a cycle.
-8. **Conflicts with the rest of `docs/dev`.** `docs/dev/memory/roadmap.md`, `docs/dev/memory/questions.md`, other
+8. **Conflicts with the rest of `docs/dev`.** `docs/dev/roadmap.md`, `docs/dev/questions.md`, other
    tickets.
 
 ## Severity

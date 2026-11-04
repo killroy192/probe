@@ -1,17 +1,12 @@
 # Probe
 
 This repo is a fork of T3 Code that is becoming a terminal-first app. It does not sync upstream.
-Background, decisions, and current plans: [docs/dev](docs/dev/README.md).
 
 - **Docs describe what exists**, except `docs/dev/`, which holds tickets and notes for work that is
-  planned or in flight. Update `docs/` in the same PR that changes behavior. Rewrite or delete
-  inherited T3 docs about features you remove (chat, web mode).
+  planned or in flight. Where each kind of file goes: [Documentation](#documentation).
 - **Tickets** are `PRB.E-NNN` epics and `PRB.T-NNN` tasks in `docs/dev/epics/` and `docs/dev/tasks/`.
   Change them only with `vp run tm` via the [tickets](.agents/skills/tickets/SKILL.md) skill; never
   hand-edit frontmatter or `ids.json`. Reference ticket IDs (e.g. `PRB.T-004`) in commits and PRs.
-- **Notes** go in `docs/dev/memory/`: decisions in `roadmap.md` and `questions.md`, unverified claims
-  marked as such in `questions.md`, a short session note in `log/` when a work session ends. Record
-  project decisions there, not in your personal memory.
 - Search code and `docs` with the `cocoindex-code` MCP when it helps; the index is gitignored.
 
 ## What makes T3 Code special?
@@ -40,31 +35,44 @@ T3 Code has 3 key app surfaces: **web**, **desktop**, and **mobile**.
 
 **Mobile** is a React Native app for both iOS and Android, available on the App Store and Google Play. The mobile app allows for connecting to any T3 Code server to control work remotely.
 
-## A note from Theo
-
-I like ambitious ideas, simple systems, and software that feels obvious. Do not preserve complexity just because it already exists. Do not introduce machinery because it looks architecturally impressive. Understand the real constraint, then fight for the smallest model that makes the correct behavior unsurprising.
-
-Channel both "measure twice, cut once" and "yagni". Fight scope creep. Try to honor the dev's intent in both a minimal and realistic fashion.
-
-The rest of this document is meant to help you navigate the codebase and make changes effectively. Think of these instructions less as "hard rules", more as "good defaults". The developer's preferences should be able to override anything here.
-
-Of note: Most T3 Code contributions will come from T3 Code itself, often controlled remotely. This means you should be careful about accessing data, killing dev servers, and other things that may damage the T3 Code instance that the contributor is using.
-
 ## A small glossary
 
-We need to be on the same page with terminology. When communicating, use this language:
+Shared vocabulary is in [docs/internals/glossary.md](docs/internals/glossary.md).
 
-- **you** means the agent reading this file and changing T3 Code.
-- **we, us, and maintainers** mean Theo, Julius and the people building T3 Code. These are who you are talking to now.
-- **user** means the person using T3 Code to direct coding agents.
-- **agent** means the coding agent a user runs inside T3 Code. Depending on context, that may also include you.
-- **provider** means the agent runtime or harness T3 Code talks to, such as Codex, Claude, Cursor, or OpenCode.
-- **client** means the web, desktop, or mobile UI.
-- **environment** means one running T3 server and the machine, filesystem, provider credentials, and state it owns.
-- **project** means an environment-local workspace record rooted at a directory.
-- **thread** means the durable conversation and work history for a project.
-- **turn** means one user-to-agent cycle, including follow-up work such as checkpointing.
-- **T3 home** means the base data directory. Runtime state normally lives below its userdata directory.
+## Documentation
+
+Pick the place by asking: is it shipped, is it shared, is it durable?
+
+| Where                       | Holds                                                                                         | Committed     | Never here                                                     |
+| --------------------------- | --------------------------------------------------------------------------------------------- | ------------- | -------------------------------------------------------------- |
+| `docs/user/`                | How to use shipped features                                                                   | yes           | implementation, plans                                          |
+| `docs/operations/`          | Maintainer procedures: dev setup, release, debugging                                          | yes           | user how-tos, plans                                            |
+| `docs/internals/`           | Architecture decisions, cross-component constraints and traps, for built code                 | yes           | anything not built yet                                         |
+| `docs/dev/roadmap.md`       | Every settled product and scope decision, and the phase order                                 | yes           | per-ticket detail                                              |
+| `docs/dev/questions.md`     | Open questions and unverified claims that span tickets                                        | yes           | copies of a ticket's assumption table                          |
+| `docs/dev/epics/`, `tasks/` | One ticket each: spec, assumptions, verification notes, and the handoff a later session needs | yes, via `tm` | step-by-step working plans                                     |
+| `docs/dev/design/`          | Design drafts for features not built yet                                                      | yes           |                                                                |
+| `docs/dev/research/`        | Studies of other products and spike reports                                                   | yes           |                                                                |
+| `.plans/`                   | The current working plan                                                                      | no            | anything a later session needs; put it in the ticket's handoff |
+| Agent auto-memory           | How this developer likes to work with the agent                                               | no            | project facts and decisions                                    |
+
+- **Memory test.** If another developer or agent on another machine would need it, it goes in
+  `docs/dev`, not in your auto-memory. Do not commit auto-memory, plans, or other agent scratch files.
+- **When a ticket lands.** `vp run tm mv <ID> done`, then move what still matters out of the ticket:
+  architecture to `docs/internals/`, procedures to `docs/operations/`, usage to `docs/user/`. Product
+  decisions stay in `roadmap.md`; delete the ticket's rows from `questions.md`. The merged PR is the
+  implementation record.
+- **Update docs in the same PR that changes behavior.** Rewrite or delete inherited T3 docs about
+  features you remove (chat, web mode). When a documented decision or constraint changes, rewrite or
+  remove the affected text; do not append another account of the new behavior.
+
+Most code changes do not need an internal documentation change. Agents can read the code.
+
+- `docs/internals/`: before adding a paragraph, ask what a maintainer would get wrong without it. If reading the relevant code answers the question, leave it out. A new page needs a distinct, durable reason to exist.
+- Do not document every feature, enumerate fields or methods, narrate control flow, maintain file catalogs, or append PR summaries. Types, tests, and code already record the implementation. The glossary defines shared vocabulary; it is not a feature index.
+- A local reason the code can't show goes in a short nearby code comment. Use an internal doc when the reasoning crosses boundaries or needs context the code cannot carry well. Link to the relevant source instead of copying it.
+- `docs/user/`: give each major feature a concise section explaining what it does, how to start, and anything unintuitive. A settings path is useful; descriptions of visible buttons, icons, layouts, animations, or every UI state are not. Write in the shipped product's voice, without implementation details or contributor tooling. A UI tweak does not need a documentation entry, and a new control does not need its own page.
+- `docs/operations/` is for maintainers. Instructions for operating an installed server belong in the user guides.
 
 ## The three ways to hurt yourself
 
@@ -154,35 +162,6 @@ For mobile verification, a missing or outdated native client is an install step,
 ## Evals
 
 `evals/` checks how real models behave with T3 Code's model-facing text: agent instructions, MCP tool descriptions and schemas, and generated titles. Before you change that text, read [evals/README.md](evals/README.md) and run the evals it names. When you fix a model behavior bug, add a case that fails before the fix.
-
-## Pull requests
-
-- Never make a PR unless the developer explicitly asks you to do so.
-- If `origin` is git.cafe, follow [GitCafe mirror](docs/operations/development.md#gitcafe-mirror-optional): push to `origin`, open and track PRs with `cafe` and their git.cafe URLs, and keep `gh` for merging.
-- Conventional commit titles, plain language: `fix(web): new threads no longer spike CPU`.
-- Body: the problem in a sentence or two, then how you fixed it. End with the model and harness that did the work.
-- UI changes need before/after images. Motion or timing needs a short video.
-- Upload PR evidence to GitHub. Never commit PR-only screenshots or assets such as `.github/pr-assets/`.
-- One request is one PR. Split it only when the maintainer asks. Outside contributions follow the stricter [one problem per PR](CONTRIBUTING.md#one-problem) rule.
-- When babysitting: call `watch_pull_request` and end your turn. T3 Code wakes you on checks, comments, or conflicts. Do not poll or sleep. Verify each bot finding against the source, fix real ones, dismiss false positives with a written reason. Stay quiet when nothing is new. Stop when the bots are green on the latest commit.
-
-## Documentation
-
-Most code changes do not need an internal documentation change. Agents can read the code.
-
-- `docs/internals/` is for architectural decisions and their reasons, constraints that span components, and implementation traps that are hard to discover from the source. Before adding a paragraph, ask what a maintainer would get wrong without it. If reading the relevant code answers the question, leave it out.
-- Do not document every feature, enumerate fields or methods, narrate control flow, maintain file catalogs, or append PR summaries. Types, tests, and code already record the implementation. The glossary defines shared vocabulary; it is not a feature index.
-- A local reason the code can't show goes in a short nearby code comment. Use an internal doc when the reasoning crosses boundaries or needs context the code cannot carry well. Link to the relevant source instead of copying it.
-- When a documented decision or constraint changes, rewrite or remove the affected text. Do not append another account of the new behavior. A new internal page needs a distinct, durable reason to exist.
-- `docs/user/` helps users accomplish tasks. Give each major feature a concise section explaining what it does, how to start, and anything unintuitive. A settings path is useful; descriptions of visible buttons, icons, layouts, animations, or every UI state are not. Before adding text, ask what task or decision it helps the user with.
-- Keep user docs in the shipped product's voice, without implementation details or contributor tooling. Update the relevant feature section when how to use it changes. A UI tweak does not need a documentation entry, and a new control does not need its own page.
-- `docs/operations/` holds maintainer setup, release, and debugging procedures. Keep instructions for operating an installed T3 Code server in the user guides.
-
-## Plans and work artifacts
-
-- Implementation plans go in `.plans/` in this repo (the `plansDirectory` setting points there). The directory is gitignored: never commit a plan. Anything a later session needs from a plan (decisions, remaining steps) goes into the ticket body in `docs/dev/`.
-- Research notes and tickets go in `docs/dev/` (see above). Claude's auto-memory is kept in `.claude/memory/` (the `autoMemoryDirectory` setting in `.claude/settings.local.json`), also gitignored; do not commit it, and record project decisions in `docs/dev/memory/` instead. Do not commit other agent scratch files.
-- A merged PR is the implementation record. When the work lands, `vp run tm mv <ID> done` and move what still matters from the ticket into `docs/`.
 
 ## How it works
 

@@ -24,8 +24,7 @@ Do not map ACs, author the plan, run checks, or score yourself.
 - **No code changes** — you and both subagents: no diffs, patches, fix
   snippets, or “change line X to Y”. Gaps are outcome-level actions only.
 - **No product / ticket edits** — do not fix the implementation or edit ticket
-  bodies. Use [tickets](../tickets/SKILL.md) only to `tm show` /
-  `tm log` if asked.
+  bodies. Use [tickets](../tickets/SKILL.md) only to `tm show`.
 - **Repo check scope** (evaluate subagent) — prefer focused commands
   (`vp test run <files>`, `vp run check:changed`). No repo-wide `vp check` or
   `vp run -r test` unless the user asks.

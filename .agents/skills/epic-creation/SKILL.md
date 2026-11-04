@@ -16,7 +16,7 @@ Output: one file, `epics/backlog/PRB.E-NNN-slug.md`, filled from [epic.template.
 
 1. **Orient.** Before asking anything, search `docs/dev` with the `cocoindex-code` MCP and run
    `vp run tm ls --type epic`. Look for an epic or note that already covers the idea
-   (`docs/dev/memory/roadmap.md`, `docs/dev/memory/design/`, `docs/dev/memory/questions.md`). If one exists, propose extending
+   (`docs/dev/roadmap.md`, `docs/dev/design/`, `docs/dev/questions.md`). If one exists, propose extending
    it instead of creating a new one. Never ask the user something `docs/dev` already answers.
 2. **Interview.** Run the grill-me session below until every template section is answered or
    explicitly parked.
@@ -30,9 +30,11 @@ Output: one file, `epics/backlog/PRB.E-NNN-slug.md`, filled from [epic.template.
 4. **Automated review loop** (max 3 iterations). See [Review loop](#review-loop).
 5. **Human review.** Always required, even when the loop is clean. See [Human review](#human-review).
 6. **Hand off.** Only after approval:
-   - Copy every unverified row of the assumptions and unknowns table, and every open question,
-     into `docs/dev/memory/questions.md`, marked unverified and prefixed with the epic ID and row ID.
-   - `vp run tm check`, then `vp run tm log "created PRB.E-NNN <title>"`.
+   - Copy into `docs/dev/questions.md` only the unverified rows and open questions that more than
+     one ticket will depend on, or that outlive the epic, prefixed with the epic ID and row ID. The
+     rest stay in the epic's table only; stories cite them as `epic A-n`.
+   - Record decisions the user made in the interview that outlive the epic in `docs/dev/roadmap.md`.
+   - `vp run tm check`.
    - List the candidate stories from the epic and say the next step is the story skill. Do not
      create stories here. Do not commit unless asked.
 
@@ -78,7 +80,7 @@ Topics, in this order (each maps to a template section):
 10. **Verification.** How we know the goal is met: how the KPI is measured, which scenarios are
     covered by automated scenario tests (epic PRB.E-012) and which are checked by hand, who signs off.
 11. **Dependencies and sequencing.** Other epics, tools, decisions and people we wait on; the phase
-    in `docs/dev/memory/roadmap.md` it belongs to.
+    in `docs/dev/roadmap.md` it belongs to.
 12. **Risks.** What could go wrong and how we would limit it.
 13. **Assumptions and unknowns.** Finish with a sweep: "What are we taking for granted? What do we
     not know yet that the plan depends on?" Go back over every earlier answer and extract each

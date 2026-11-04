@@ -104,7 +104,7 @@ if none. No cycles. -->
 
 <!-- Everything we believe without proof (assumption) or do not know yet (unknown), scoped to this
 story. Assumptions are not constraints. Be exhaustive: if the plan breaks when it is wrong, it
-belongs here. Unverified rows that outlive this story go to memory/questions.md. -->
+belongs here. Unverified rows that outlive this story go to docs/dev/questions.md. -->
 
 | ID   | Statement | Kind (assumption / unknown) | Status (unverified / verified / false) | How and when to verify | Owner |
 | ---- | --------- | --------------------------- | -------------------------------------- | ---------------------- | ----- |

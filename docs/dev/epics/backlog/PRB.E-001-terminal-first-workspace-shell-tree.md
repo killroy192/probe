@@ -183,7 +183,7 @@ Alternatives considered: keep chat hidden behind a flag (rejected: user wants no
 
 ## Dependencies and sequencing
 
-- Phase 1 of `memory/roadmap.md`. Depends on the running app (A-5). Follow-up epic, not yet created: configurable launch command and script shells. Later epics add the subagent level of the tree and agent status. The tree wording differs from the roadmap's "workspace > agent (worktree) > subagent" on purpose: this epic's tree is workspace > folder > worktree > branch > shell, and `memory/roadmap.md` is updated to match.
+- Phase 1 of `roadmap.md`. Depends on the running app (A-5). Follow-up epic, not yet created: configurable launch command and script shells. Later epics add the subagent level of the tree and agent status. The tree wording differs from the roadmap's "workspace > agent (worktree) > subagent" on purpose: this epic's tree is workspace > folder > worktree > branch > shell, and `roadmap.md` is updated to match.
 - Blocks all later epics (agent state, subagent tree level, review, context, remove chat).
 - U-1 (how a shell is identified without a thread) is answered by a spike at the start of story 2; the story's plan follows from it.
 
@@ -233,7 +233,7 @@ Alternatives considered: keep chat hidden behind a flag (rejected: user wants no
 
 ## Notes for stories
 
-- Claude Code subagents: per the hook docs recorded in `memory/questions.md`, hook events inside a subagent carry `agent_id` and `agent_type` on the same session, so a subagent is not a separate shell. The subagent level of the tree is therefore built from hook events in a later epic, not from process or shell tracking. Still unverified for nested runs.
+- Claude Code subagents: per the hook docs recorded in `questions.md`, hook events inside a subagent carry `agent_id` and `agent_type` on the same session, so a subagent is not a separate shell. The subagent level of the tree is therefore built from hook events in a later epic, not from process or shell tracking. Still unverified for nested runs.
 - Later, restoring a Claude Code (or other agent) conversation after a kill through Probe is done by starting a new shell and choosing the session to recover in the "+" modal (see Out of scope).
 - Restore behavior reference: Paradev's public docs (terminal-integration, agent-sessions): sessions survive restarts with scrollback; interrupted agents are relaunched with e.g. `claude --resume <session-id>` taken from a per-agent "Resume Args" setting; deliberate kills disappear and clean exits stay down (Probe differs: any normal exit is removed too, FR-19); a failed resume is handled differently in Probe (FR-20). Behavioral reference only, no code copied (license).
 - The scenario command is `vp run test:scenarios` (a scenario that does not exist yet is listed as pending and does not fail the run; the KPI counts passing scenarios out of 8; scenarios run locally only, the harness tests run in CI); the harness uses a temporary `--home-dir`, never `~/.t3`, and sets no `VITE_HTTP_URL` / `VITE_WS_URL`; docs go in `probe/docs/`.
