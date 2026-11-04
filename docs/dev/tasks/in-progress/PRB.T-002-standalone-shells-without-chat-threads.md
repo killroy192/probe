@@ -151,7 +151,7 @@ Stories 3 to 8 depend on this one (epic order).
 | ID | Statement | Kind (assumption / unknown) | Status (unverified / verified / false) | How and when to verify | Owner |
 | --- | --- | --- | --- | --- | --- |
 | SA-1 | The terminal RPCs and manager treat the thread id as an opaque string and never need the thread to exist in orchestration (read from code, not run) | assumption | verified | First step of the spike: start a terminal for a made-up thread id in a throwaway environment | author |
-| SA-2 | Existing chat-thread terminals can stay in place and work while standalone shells are added (chat is hidden in story 3, not removed) | assumption | unverified | Spike plus AC-9 | author |
+| SA-2 | Existing chat-thread terminals can stay in place and work while standalone shells are added (chat is hidden in story 3, not removed) | assumption | verified | Spike plus the AC-9 test (`Manager.test.ts`, "leaves a shell running while a thread's terminals open, run and close") | author |
 | SA-3 | A-2 (epic): worktree creation can be reused without a chat. Seen called from `ws.ts` and `WorktreeMcpService.ts` | assumption | verified | Spike: call it without a thread | author |
 | SA-4 | A-6 (epic): a running shell survives a browser reload. Very likely true: shells run on the server, not in the browser (user, 2026-11-02). If the spike finds it false, the fix is built in this story. | assumption | verified | Spike and AC-5 | author |
 | SA-5 | A-14 (epic): shells can keep running while the server restarts and the new server can reattach. Today a finalizer ends them on manager close (read, not run) and the `survivesRestart` flag depends on systemd (unverified on macOS, the author's machine) | assumption | false | Spike on the author's machine; result decides the size of story 7 (R-6) | author |
@@ -180,7 +180,7 @@ Branch `feat/standalone-shells-prb-t-002`. Spike findings: `docs/dev/research/t-
 - ws handlers, auth scopes (`RpcAuthorization.ts`) and `RpcInstrumentation.ts` entries.
 - Tests: `contracts/src/shell.test.ts`, the `Shells` block in `terminal/Manager.test.ts`, extended `RpcAuthorization.test.ts`.
 
-**Done (checkpoints 4, 5 and 7, uncommitted as of 2026-11-04)**
+**Done (checkpoints 4, 5 and 7)**
 - Client runtime: `createShellEnvironmentAtoms` (list, attach, open, write, resize, close) in `packages/client-runtime/src/state/terminal.ts`, `applyShellListStreamEvent` reducer with a test row in `terminalSession.test.ts`.
 - Web: `apps/web/src/state/shells.ts`, `ShellView.tsx` and the shell route. `TerminalViewport` takes an optional `shellId` and then attaches, writes and resizes through `shell.*` (links open in the browser, since the preview panel needs a thread). Shells need operate scope to view; there is no read-only observe for them. AC-17 needs no web change: the server already filters shells out of the thread list.
 - No web browser test: the viewport mounts the Ghostty WASM surface, so the end-to-end check is the scenario.
@@ -189,8 +189,11 @@ Branch `feat/standalone-shells-prb-t-002`. Spike findings: `docs/dev/research/t-
 - After the first verify run: `shell.open` fails with `ShellLaunchError` (the manager's readable reason) when the program cannot start, and the failed shell is closed so it is never listed (AC-12). `terminal.*` inputs reject `shell:` owner ids at the contract (`TerminalThreadInput`), so a thread request cannot create, reopen or close a shell. New `Shells` tests cover AC-9 (thread terminals opened, written and closed leave the shell running), AC-10 (missing folder and a file, with reasons, nothing listed) and AC-11 (the other shell's live status). Decision (user, 2026-11-04): the AGENTS.md and `.gitignore` policy edits stay in this PR; making `Shells` a server service is left to a later story.
 - `vp run check:changed` green.
 
+- AC-15 manual pass (author, 2026-11-04): a shell opened on the dev server showed its earlier output at `/shell/$environmentId/$shellId`; after leaving the page by pointer and reopening the same address, the output was still there and the prompt was live.
+- `verify-story-implementation` (second run, 2026-11-04): every gate 2 except specification and evidence (1, both only for AC-15, now done); AC-1 to AC-14 and AC-16 to AC-18 met.
+
 **Not done**
-- AC-15 manual pass (pointer only) in a real browser, then the `verify-story-implementation` skill against AC-1 to AC-18.
+- Nothing for this story. Story 7 scope (A-14 false) still needs the user's choice before it is planned.
 
 **Known gaps**
 - Bad-size rejection (AC-13) is covered by the contract schema test only.
