@@ -13,8 +13,10 @@ the terminal manager it is an ordinary session whose owner key is `shell:<id>` w
 thread terminal's key is its thread id; [`Shells.ts`](../../apps/server/src/terminal/Shells.ts)
 maps between the two. The thread terminal list (`subscribeTerminalMetadata`) drops shell owners
 and the shell list carries no thread id, so clients never see a shell as a thread's terminal.
-Do not drive a shell through `terminal.*` with its owner key: those inputs can reopen or
-recreate sessions by key, which a shell id must not do.
+The `terminal.*` input schemas reject the `shell:` prefix, because those inputs can reopen
+or recreate sessions by key, which a shell id must not do. Server code that calls the manager
+directly with a shell owner key bypasses that check, so it should go through `Shells`. A shell
+that cannot start is closed again, and `shell.open` fails with the launch reason.
 
 A shell outlives its viewers: closing or reloading a page only detaches. It does not
 outlive the server. Shutdown ends every PTY, and the `survivesRestart` process-scope

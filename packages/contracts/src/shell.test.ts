@@ -4,6 +4,12 @@ import { describe, expect, it } from "vite-plus/test";
 
 import { WS_METHODS, WsRpcGroup } from "./rpc.ts";
 import { ShellOpenInput, ShellResizeInput, ShellSummary, shellOwnerId } from "./shell.ts";
+import {
+  TerminalAttachInput,
+  TerminalCloseInput,
+  TerminalOpenInput,
+  TerminalWriteInput,
+} from "./terminal.ts";
 
 const decodeSummary = Schema.decodeUnknownSync(ShellSummary);
 
@@ -43,6 +49,16 @@ describe("shell contracts", () => {
 
   it("keeps shell owners apart from any chat thread id", () => {
     expect(shellOwnerId("s1")).not.toBe("s1");
+    const owner = shellOwnerId("s1");
+    for (const [schema, input] of [
+      [TerminalOpenInput, { terminalId: "term-1", cwd: "/tmp/project" }],
+      [TerminalAttachInput, { terminalId: "term-1" }],
+      [TerminalWriteInput, { terminalId: "term-1", data: "x" }],
+      [TerminalCloseInput, {}],
+    ] as const) {
+      expect(decodes(schema, { ...input, threadId: "thread-1" })).toBe(true);
+      expect(decodes(schema, { ...input, threadId: owner })).toBe(false);
+    }
   });
 
   it("registers a method for every shell operation", () => {

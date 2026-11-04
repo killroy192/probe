@@ -1828,6 +1828,31 @@ it.layer(
       return Ref.get(events);
     });
 
+  const liveStatus = (shells: ReturnType<typeof makeShells>, shellId: string) =>
+    shells.attach({ shellId }, "status-check").pipe(
+      Stream.take(1),
+      Stream.runCollect,
+      Effect.map(([first]) => (first?.type === "snapshot" ? first.snapshot.status : null)),
+    );
+
+  it.effect("leaves a shell running while a thread's terminals open, run and close", () =>
+    Effect.gen(function* () {
+      const { manager, ptyAdapter } = yield* createManager();
+      const shells = makeShells(manager);
+      const shell = yield* shells.open({ cwd: process.cwd() });
+
+      yield* manager.open(openInput());
+      yield* manager.open(openInput({ terminalId: "term-2" }));
+      yield* manager.write({ threadId: "thread-1", terminalId: DEFAULT_TERMINAL_ID, data: "ls\n" });
+      yield* manager.close({ threadId: "thread-1" });
+
+      expect(ptyAdapter.processes[1]?.writes).toEqual(["ls\n"]);
+      expect(ptyAdapter.processes.slice(1).map((p) => p.killed)).toEqual([true, true]);
+      assert.equal(ptyAdapter.processes[0]?.killed, false);
+      assert.equal(yield* liveStatus(shells, shell.shellId), "running");
+    }),
+  );
+
   it.effect("starts, writes to, resizes and lists a shell with no thread", () =>
     Effect.gen(function* () {
       const { manager, ptyAdapter } = yield* createManager();
@@ -1945,6 +1970,7 @@ it.layer(
     Effect.gen(function* () {
       const { manager, ptyAdapter } = yield* createManager();
       const shells = makeShells(manager);
+      const events = yield* collectList(shells);
       const other = yield* shells.open({ cwd: process.cwd() });
       const missing = { shellId: "no-such-shell" };
 
@@ -1953,13 +1979,17 @@ it.layer(
       const attach = yield* Effect.exit(
         shells.attach(missing, "viewer-1").pipe(Stream.take(1), Stream.runCollect),
       );
-      const badCwd = yield* Effect.exit(shells.open({ cwd: "/definitely/not/a/folder" }));
+      const noFolder = yield* Effect.flip(shells.open({ cwd: "/definitely/not/a/folder" }));
+      const aFile = yield* Effect.flip(shells.open({ cwd: `${process.cwd()}/package.json` }));
 
-      const exits: ReadonlyArray<Exit.Exit<unknown, unknown>> = [write, resize, attach, badCwd];
+      const exits: ReadonlyArray<Exit.Exit<unknown, unknown>> = [write, resize, attach];
       for (const exit of exits) assert.isTrue(Exit.isFailure(exit));
+      expect(noFolder.message).toContain("does not exist");
+      expect(aFile.message).toContain("not a directory");
       expect(ptyAdapter.spawnInputs).toHaveLength(1);
-      assert.equal(ptyAdapter.processes[0]?.killed, false);
-      expect(other.status).toBe("running");
+      const listed = (yield* events).flatMap((e) => (e.type === "upsert" ? [e.shell.shellId] : []));
+      expect(new Set(listed)).toEqual(new Set([other.shellId]));
+      assert.equal(yield* liveStatus(shells, other.shellId), "running");
     }),
   );
 
@@ -1967,14 +1997,21 @@ it.layer(
     Effect.gen(function* () {
       const { manager, ptyAdapter } = yield* createManager();
       const shells = makeShells(manager);
+      const events = yield* collectList(shells);
       for (let attempt = 0; attempt < 8; attempt++) {
         ptyAdapter.spawnFailures.push(new Error("posix_spawnp failed."));
       }
 
-      const shell = yield* shells.open({ cwd: process.cwd() });
+      const error = yield* Effect.flip(shells.open({ cwd: process.cwd() }));
 
-      assert.equal(shell.status, "error");
-      assert.equal(shell.pid, null);
+      assert.equal(error._tag, "ShellLaunchError");
+      expect(error.message).toContain("Failed to spawn PTY process");
+      const listed = yield* events;
+      const removed = new Set(listed.flatMap((e) => (e.type === "remove" ? [e.shellId] : [])));
+      const left = listed.flatMap((e) =>
+        e.type === "upsert" && !removed.has(e.shell.shellId) ? [e.shell] : [],
+      );
+      expect(left).toEqual([]);
     }),
   );
 });

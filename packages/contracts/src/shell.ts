@@ -1,6 +1,7 @@
 import * as Schema from "effect/Schema";
 import { TrimmedNonEmptyString } from "./baseSchemas.ts";
 import {
+  SHELL_OWNER_PREFIX,
   TerminalOpenInput,
   TerminalResizeInput,
   TerminalSessionStatus,
@@ -12,7 +13,6 @@ export const ShellId = TrimmedNonEmptyString.check(Schema.isMaxLength(128));
 export type ShellId = typeof ShellId.Type;
 
 // Terminals are keyed by an opaque owner id; the prefix keeps shell owners disjoint from thread ids.
-const SHELL_OWNER_PREFIX = "shell:";
 export const shellOwnerId = (shellId: string) => `${SHELL_OWNER_PREFIX}${shellId}`;
 export const isShellOwnerId = (ownerId: string) => ownerId.startsWith(SHELL_OWNER_PREFIX);
 export const shellIdFromOwnerId = (ownerId: string) =>
@@ -60,6 +60,14 @@ export const ShellSummary = Schema.Struct({
   updatedAt: Schema.String,
 });
 export type ShellSummary = typeof ShellSummary.Type;
+
+export class ShellLaunchError extends Schema.TaggedError<ShellLaunchError>()("ShellLaunchError", {
+  reason: Schema.String,
+}) {
+  override get message() {
+    return `The shell could not start: ${this.reason}`;
+  }
+}
 
 export const ShellListStreamEvent = Schema.Union([
   Schema.Struct({ type: Schema.Literal("snapshot"), shells: Schema.Array(ShellSummary) }),

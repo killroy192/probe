@@ -21,8 +21,13 @@ const TerminalEnvSchema = Schema.Record(TerminalEnvKeySchema, TerminalEnvValueSc
   Schema.isMaxProperties(128),
 );
 
+// Owner ids with this prefix belong to standalone shells, reachable only through `shell.*`.
+export const SHELL_OWNER_PREFIX = "shell:";
+
 export const TerminalThreadInput = Schema.Struct({
-  threadId: TrimmedNonEmptyStringSchema,
+  threadId: TrimmedNonEmptyStringSchema.check(
+    Schema.isPattern(new RegExp(`^(?!${SHELL_OWNER_PREFIX})`)),
+  ),
 });
 export type TerminalThreadInput = typeof TerminalThreadInput.Type;
 

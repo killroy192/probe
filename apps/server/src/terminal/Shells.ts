@@ -7,6 +7,7 @@ import {
   type ShellResizeInput,
   type ShellSummary,
   type ShellWriteInput,
+  ShellLaunchError,
   type TerminalMetadataStreamEvent,
   type TerminalSessionSnapshot,
   type TerminalSummary,
@@ -83,9 +84,22 @@ export const makeShells = (manager: Manager, newShellId: Effect.Effect<string>) 
   });
 
   return {
+    // A shell that cannot start is not kept: the caller gets the launch error's reason instead.
     open: Effect.fn("Shells.open")(function* (input: ShellOpenInput) {
       const shellId = yield* newShellId;
-      return toSummary(shellId, yield* manager.open({ ...session(shellId), ...input }));
+      const owner = session(shellId);
+      let reason = "The shell program could not be launched.";
+      const stop = yield* manager.subscribe((event) =>
+        Effect.sync(() => {
+          if (event.type === "error" && event.threadId === owner.threadId) reason = event.message;
+        }),
+      );
+      const snapshot = yield* manager
+        .open({ ...owner, ...input })
+        .pipe(Effect.ensuring(Effect.sync(stop)));
+      if (snapshot.status !== "error") return toSummary(shellId, snapshot);
+      yield* manager.close({ ...owner, deleteHistory: true });
+      return yield* new ShellLaunchError({ reason });
     }),
     attach: (input: ShellAttachInput, viewerId: string) =>
       manager.attachOutputStream(

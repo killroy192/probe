@@ -184,16 +184,15 @@ Branch `feat/standalone-shells-prb-t-002`. Spike findings: `docs/dev/research/t-
 - Client runtime: `createShellEnvironmentAtoms` (list, attach, open, write, resize, close) in `packages/client-runtime/src/state/terminal.ts`, `applyShellListStreamEvent` reducer with a test row in `terminalSession.test.ts`.
 - Web: `apps/web/src/state/shells.ts`, `ShellView.tsx` and the shell route. `TerminalViewport` takes an optional `shellId` and then attaches, writes and resizes through `shell.*` (links open in the browser, since the preview panel needs a thread). Shells need operate scope to view; there is no read-only observe for them. AC-17 needs no web change: the server already filters shells out of the thread list.
 - No web browser test: the viewport mounts the Ghostty WASM surface, so the end-to-end check is the scenario.
-- Scenario `T-002` in `scripts/scenarios/scenarios/standalone-shell.ts`, registered in `storyScenarios` (runs after S1 to S8, reported as "story checks", not counted in the epic's out-of-8 KPI). It drives the server through `scripts/scenarios/rpc.ts` (WS RPC client signed in with the page's cookie) and reads what the page receives from its websocket frames. Covers AC-1, AC-3, AC-5, AC-7, AC-16, the automated half of AC-15, and A-14 (restart ends shells).
+- Scenario `T-002` passes in headless Chromium (`vp run test:scenarios --rebuild`: S1 plus story checks 1/1; `--selftest` and `harness.test.ts` green). It waits for the page's first grid before reading `stty size`, since the surface reports its size only after attaching. Scenario `T-002` lives in `scripts/scenarios/scenarios/standalone-shell.ts`, registered in `storyScenarios` (runs after S1 to S8, reported as "story checks", not counted in the epic's out-of-8 KPI). It drives the server through `scripts/scenarios/rpc.ts` (WS RPC client signed in with the page's cookie) and reads what the page receives from its websocket frames. Covers AC-1, AC-3, AC-5, AC-7, AC-16, the automated half of AC-15, and A-14 (restart ends shells).
 - Docs: shells section in `docs/internals/terminal-runtime.md`, glossary entry.
+- After the first verify run: `shell.open` fails with `ShellLaunchError` (the manager's readable reason) when the program cannot start, and the failed shell is closed so it is never listed (AC-12). `terminal.*` inputs reject `shell:` owner ids at the contract (`TerminalThreadInput`), so a thread request cannot create, reopen or close a shell. New `Shells` tests cover AC-9 (thread terminals opened, written and closed leave the shell running), AC-10 (missing folder and a file, with reasons, nothing listed) and AC-11 (the other shell's live status). Decision (user, 2026-11-04): the AGENTS.md and `.gitignore` policy edits stay in this PR; making `Shells` a server service is left to a later story.
 - `vp run check:changed` green.
 
 **Not done**
-- The browser scenario has not run: the dev container lacks Chromium's system libraries and has no sudo. Run `vp run test:scenarios --rebuild` where Chromium works. Its RPC half (open, write, attach with history, list, unknown id, restart ends the shell) was checked by a throwaway script against a real server.
 - AC-15 manual pass (pointer only) in a real browser, then the `verify-story-implementation` skill against AC-1 to AC-18.
 
 **Known gaps**
-- A shell whose program cannot launch is reported as `status: "error"` with no pid; the reason reaches the client only as an error event on the attach stream, not in the summary (AC-12).
 - Bad-size rejection (AC-13) is covered by the contract schema test only.
 - No ws-level test: `ws.test.ts` mocks the manager and has no terminal cases.
 

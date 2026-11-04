@@ -142,7 +142,11 @@ export const standaloneShell: Scenario = {
       await page.getByTestId("shell-view").locator("canvas").waitFor();
       await frames.until("earlier output in the page", (frame) => frame.includes("before-42"));
 
-      // AC-16: the shell's size follows the pane.
+      // AC-16: the shell's size follows the pane. The page reports its grid once it has attached.
+      await output.until(
+        "the page's grid",
+        (event) => event.type === "activity" && event.cols !== undefined && event.cols !== 80,
+      );
       const sizeAfter = async (marker: string) => {
         await Effect.runPromise(
           client["shell.write"]({ shellId: shell.shellId, data: `echo ${marker}:$(stty size)\r` }),
