@@ -31,8 +31,10 @@ it is verified or decided; settled decisions go to `roadmap.md`.
   SU-5).
 - Mock CLI gaps left by PRB.T-001: behavior for an unknown session id, and a switch that makes
   resume always fail. PRB.T-008 owns both (by 2026-11-16).
-- Whether desktop and mobile still type-check after contract changes, and whether CI checks them
-  (PRB.T-002 SU-5, PRB.T-008 SA-4).
+- Whether CI type-checks desktop and mobile after contract changes (PRB.T-008 SA-4). Locally,
+  `vp run check:changed` type-checks both as dependents of `packages/contracts`.
+- Which story makes `Shells` a server service, so MCP tools and scheduled tasks can reach shells.
+  PRB.T-002 builds it inside the ws layer (`apps/server/src/ws.ts`); deferred by the user.
 - Paradev CLA terms (not read; irrelevant unless we contribute).
 
 ## Decisions pending

@@ -148,7 +148,7 @@ Work areas, not steps:
 
 | ID | Statement | Kind (assumption / unknown) | Status (unverified / verified / false) | How and when to verify | Owner |
 | --- | --- | --- | --- | --- | --- |
-| SA-1 | A running shell can stay alive while no tab is open for it (epic A-6, depends on PRB.T-002) | assumption | unverified | Check once PRB.T-002 lands; before planning this story | author |
+| SA-1 | A running shell can stay alive while no tab is open for it (epic A-6, depends on PRB.T-002) | assumption | verified | PRB.T-002: a shell outlives its viewers (scenario T-002, [spike](../../research/t-002-standalone-shell-spike.md)) | author |
 | SA-2 | Ending the shell process also ends what it started (current code signals the pty process only) | assumption | unverified | Run a shell with a child, kill it, check processes, at the start of planning | author |
 | SU-1 | Name of the kill command and how it finds its own shell (epic U-5, designed in this story's plan stage) | unknown | unverified | Decide in the plan stage; do not decide here | author |
 | SU-2 | Whether a shell exiting on its own (for example `exit`) while a tab is open closes the tab; the epic assigns the not-restored rule to PRB.T-007 and PRB.T-008 | unknown | unverified | Confirm the split with PRB.T-007 and PRB.T-008 authors | author |

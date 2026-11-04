@@ -203,11 +203,11 @@ Alternatives considered: keep chat hidden behind a flag (rejected: user wants no
 | ID | Statement | Kind | Status | How and when to verify | Owner | Affects |
 | --- | --- | --- | --- | --- | --- | --- |
 | A-1 | A workspace is a new Probe concept, created from the start screen, opened from its dropdown, and managed from the "Workspaces" button; folders are added to it from the "+" modal, with no separate "add folder" step | assumption | verified | Decided by the user, 2026-11-02 | author | FR-2, FR-21 |
-| A-2 | Worktree creation exists in server code outside the chat/orchestration code and can be reused | assumption | unverified | Read it in story 2, before the tree work depends on it | author | FR-4 |
+| A-2 | Worktree creation exists in server code outside the chat/orchestration code and can be reused | assumption | verified | Verified in story 2: `vcs.createWorktree` works with no thread ([spike](../../research/t-002-standalone-shell-spike.md)) | author | FR-4 |
 | A-3 | A fake agent CLI that a shell can run is enough to stand in for a Claude-Code-like tool | assumption | verified | Proved by PRB.T-001 | author | S2 to S8 |
 | A-4 | Playwright, used as a library from a Node runner, can drive a real server in Playwright's headless Chromium (not `channel: "chrome"`) | assumption | verified | Proved by PRB.T-001 | author | KPI |
 | A-5 | The toolchain installs and the app runs in the browser on this machine | assumption | verified | The author confirmed it (2026-11-02); the harness re-proves it in story 1 | author | all |
-| A-6 | A running shell survives a browser reload (the server owns it, so very likely true); if false, the fix is built in story 2 | assumption | unverified | Check in story 2 | author | FR-10, FR-14 |
+| A-6 | A running shell survives a browser reload (the server owns it, so very likely true); if false, the fix is built in story 2 | assumption | verified | Verified in story 2: a reload only detaches; scenario T-002 checks it ([spike](../../research/t-002-standalone-shell-spike.md)) | author | FR-10, FR-14 |
 | A-7 | The harness can stop and restart the server within one scenario | assumption | verified | Proved by PRB.T-001 | author | FR-15 |
 | A-8 | Chat can be hidden everywhere without breaking the app (routes, palette, settings links) | assumption | unverified | Check in story 3 | author | FR-1 |
 | A-9 | A folder's own checkout counts as a worktree in the tree, so local shells sit under it | assumption | verified | Decided by the user, 2026-11-02 | author | FR-3, FR-7 |
@@ -215,10 +215,10 @@ Alternatives considered: keep chat hidden behind a flag (rejected: user wants no
 | A-11 | Probe can learn a shell's current branch: recorded at start, and updated when the user switches branch inside that shell (mechanism TBD (author, 2026-11-16) in story 5) | assumption | unverified | Prove in story 5 | author | FR-7 |
 | A-12 | Probe can list a folder's existing worktrees from git, including those not on a branch | assumption | unverified | Prove in story 5 | author | FR-5 |
 | A-13 | The existing add-project flow can be reused inside the modal's folder step | assumption | unverified | Check in the first step of story 4 | author | FR-21 |
-| A-14 | Terminals can keep running while the server restarts and the new server can reattach to them | assumption | unverified | Spike in story 2 (finding only), build in story 7 | author | FR-15 |
+| A-14 | Terminals can keep running while the server restarts and the new server can reattach to them | assumption | false | False in story 2: a server restart ends every shell; story 7 scope pending ([spike](../../research/t-002-standalone-shell-spike.md)) | author | FR-15 |
 | A-15 | The mock CLI can print a session id and accept a resume command with that id, and continue the same conversation | assumption | verified | Proved by PRB.T-001 | author | FR-18 |
 | A-17 | Forking a worktree needs at least one commit, so a folder without a commit offers only its own checkout (the default worktree) | assumption | unverified | Prove in story 4 (new-folder path), recheck in story 5 | author | FR-4, FR-21 |
-| U-1 | How much of the terminal service and drawer depends on a chat thread, and how to identify a standalone shell | unknown | unverified | Spike at start of story 2 | author | FR-6, FR-8 |
+| U-1 | How much of the terminal service and drawer depends on a chat thread, and how to identify a standalone shell | unknown | verified | Resolved in story 2: `shell:<id>` owner key behind separate `shell.*` RPCs ([spike](../../research/t-002-standalone-shell-spike.md)) | author | FR-6, FR-8 |
 | U-2 | Which branch a new worktree forks from by default | unknown | unverified | Decide in story 5; recommended default is the folder's current branch (the location and name are decided: FR-4) | author | FR-4 |
 | U-3 | What the time from "start shell" to the CLI banner is today | unknown | unverified | Measure in story 4 | author | NFR-1 |
 | U-4 | What a reopened tab shows | unknown | verified | Decided: output history and scrollback (like Paradev), FR-14 | author | FR-10 |
