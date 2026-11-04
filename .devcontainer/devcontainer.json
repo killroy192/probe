@@ -22,10 +22,18 @@
     "memory": "8gb",
     "storage": "32gb"
   },
+  // The image entrypoint (root) does the privileged setup; commands run as this user.
   "remoteUser": "devcontaineruser",
-  "containerUser": "devcontaineruser",
+  "overrideCommand": false,
+  // Runs on the host: writes the git author identity file read by --env-file below.
+  "initializeCommand": "sh .devcontainer/git-identity.sh",
   // One container per worktree, so host-side permission rules can name it exactly.
-  "runArgs": ["--name", "probe-dev-${localWorkspaceFolderBasename}"],
+  "runArgs": [
+    "--name",
+    "probe-dev-${localWorkspaceFolderBasename}",
+    "--env-file",
+    "${localWorkspaceFolder}/.devcontainer/git-identity.env"
+  ],
   "containerEnv": {
     // Keep all runtime state inside the (gitignored) workspace .t3, matching
     // the worktree default. An explicit --home-dir still wins.
@@ -39,7 +47,11 @@
     // Root node_modules holds the whole pnpm virtual store (.pnpm), so one
     // volume keeps the heavy tree off the slow macOS/Windows bind mount.
     // Scoped by devcontainerId so parallel checkouts do not share it.
-    "source=t3code-node-modules-${devcontainerId},target=${containerWorkspaceFolder}/node_modules,type=volume"
+    "source=t3code-node-modules-${devcontainerId},target=${containerWorkspaceFolder}/node_modules,type=volume",
+    // Git config and hooks run code on whichever machine runs git next, and the
+    // host does (pull/push). Read-only here, so the container cannot plant any.
+    "source=${localWorkspaceFolder}/.git/config,target=${containerWorkspaceFolder}/.git/config,type=bind,readonly",
+    "source=${localWorkspaceFolder}/.git/hooks,target=${containerWorkspaceFolder}/.git/hooks,type=bind,readonly"
   ],
   "onCreateCommand": "bash .devcontainer/on-create.sh",
   "updateContentCommand": "bash .devcontainer/update-content.sh",
