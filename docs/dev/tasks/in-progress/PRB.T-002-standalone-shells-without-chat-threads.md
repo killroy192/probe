@@ -3,9 +3,9 @@ id: PRB.T-002
 type: story
 parent: PRB.E-001
 phase: 1
-labels: [terminal-first, plan, implement]
+labels: [terminal-first, plan, implement, verify]
 created: 2026-11-02
-updated: 2026-11-03
+updated: 2026-11-04
 ---
 
 # Standalone shells without chat threads or tabs
