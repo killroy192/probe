@@ -1,10 +1,12 @@
 // Dev container for Probe. Mirrors CI (ubuntu-24.04, Node 26, Rust stable)
 // and the canonical setup in docs/operations/development.md: global `vp`, `vp i`.
-// Also runs Claude Code without permission prompts: the container is the boundary.
+// Claude runs on the host; this container only executes commands (docker exec).
 // Contributor doc: docs/internals/devcontainer.md
 {
   "name": "Probe",
-  "image": "mcr.microsoft.com/devcontainers/base:ubuntu-24.04",
+  "build": {
+    "dockerfile": "Dockerfile"
+  },
   "features": {
     // nodeGypDependencies (default true) brings python3/make/g++, which Linux
     // needs for node-pty's node-gyp fallback (its prebuilds are mac/win only).
@@ -20,31 +22,24 @@
     "memory": "8gb",
     "storage": "32gb"
   },
+  "remoteUser": "devcontaineruser",
+  "containerUser": "devcontaineruser",
+  // One container per worktree, so host-side permission rules can name it exactly.
+  "runArgs": ["--name", "probe-dev-${localWorkspaceFolderBasename}"],
   "containerEnv": {
     // Keep all runtime state inside the (gitignored) workspace .t3, matching
     // the worktree default. An explicit --home-dir still wins.
-    "T3CODE_HOME": "${containerWorkspaceFolder}/.t3",
-    // Keeps ~/.claude.json inside the ~/.claude volume, so login survives rebuilds.
-    "CLAUDE_CONFIG_DIR": "/home/vscode/.claude",
-    // The workspace's .cocoindex_code/ is shared with the host; keep the
-    // container's index (built from Linux paths) out of it. settings.yml stays shared.
-    "COCOINDEX_CODE_DB_PATH_MAPPING": "${containerWorkspaceFolder}=/home/vscode/.cache/cocoindex-code/db",
-    "HF_HOME": "/home/vscode/.cache/cocoindex-code/huggingface"
+    "T3CODE_HOME": "${containerWorkspaceFolder}/.t3"
   },
   "mounts": [
     // vp keeps the pnpm content-addressable store and metadata cache under
     // ~/.cache/pnpm (verified: the v11 store dir lives there); mounting a
     // volume there lets installs survive container rebuilds.
-    "source=t3code-pnpm-store,target=/home/vscode/.cache/pnpm,type=volume",
+    "source=t3code-pnpm-store,target=/home/devcontaineruser/.cache/pnpm,type=volume",
     // Root node_modules holds the whole pnpm virtual store (.pnpm), so one
     // volume keeps the heavy tree off the slow macOS/Windows bind mount.
     // Scoped by devcontainerId so parallel checkouts do not share it.
-    // Codespaces note: prebuild snapshots exclude volumes; drop these mounts
-    // if prebuilt codespaces become the primary workflow.
-    "source=t3code-node-modules-${devcontainerId},target=${containerWorkspaceFolder}/node_modules,type=volume",
-    "source=probe-claude-${devcontainerId},target=/home/vscode/.claude,type=volume",
-    // ccc index database and the embedding model.
-    "source=probe-cocoindex-${devcontainerId},target=/home/vscode/.cache/cocoindex-code,type=volume"
+    "source=t3code-node-modules-${devcontainerId},target=${containerWorkspaceFolder}/node_modules,type=volume"
   ],
   "onCreateCommand": "bash .devcontainer/on-create.sh",
   "updateContentCommand": "bash .devcontainer/update-content.sh",
@@ -60,9 +55,6 @@
     }
   },
   "customizations": {
-    "codespaces": {
-      "openFiles": ["docs/internals/devcontainer.md"]
-    },
     "vscode": {
       "extensions": ["oxc.oxc-vscode", "rust-lang.rust-analyzer"],
       "settings": {
@@ -77,6 +69,5 @@
         }
       }
     }
-  },
-  "remoteUser": "vscode"
+  }
 }
