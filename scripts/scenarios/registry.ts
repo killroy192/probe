@@ -1,4 +1,5 @@
 import { boot } from "./scenarios/boot.ts";
+import { standaloneShell } from "./scenarios/standalone-shell.ts";
 import { deliberateFailure } from "./selftest/deliberate-failure.ts";
 import { restartPersistence } from "./selftest/restart-persistence.ts";
 import type { Scenario } from "./scenario.ts";
@@ -14,5 +15,8 @@ export const scenarios: ReadonlyArray<Scenario> = [
   { id: "S7", title: "pending (story 7)" },
   { id: "S8", title: "pending (story 8)" },
 ];
+
+/** Checks a story owns that are not epic scenarios; they run after S1..S8 and do not count toward 8. */
+export const storyScenarios: ReadonlyArray<Scenario> = [standaloneShell];
 
 export const selftestScenarios: ReadonlyArray<Scenario> = [restartPersistence, deliberateFailure];

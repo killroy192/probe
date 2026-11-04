@@ -1,5 +1,7 @@
 import type {
   EnvironmentId,
+  ShellListStreamEvent,
+  ShellSummary,
   TerminalAttachStreamEvent,
   TerminalMetadataStreamEvent,
   TerminalSessionSnapshot,
@@ -235,4 +237,20 @@ export function applyTerminalMetadataStreamEvent(
       terminal.terminalId !== event.terminal.terminalId,
   );
   return [...next, event.terminal];
+}
+
+export function applyShellListStreamEvent(
+  current: ReadonlyArray<ShellSummary>,
+  event: ShellListStreamEvent,
+): ReadonlyArray<ShellSummary> {
+  switch (event.type) {
+    case "snapshot":
+      return event.shells;
+    case "remove":
+      return current.filter((shell) => shell.shellId !== event.shellId);
+    case "upsert": {
+      const index = current.findIndex((shell) => shell.shellId === event.shell.shellId);
+      return index === -1 ? [...current, event.shell] : current.with(index, event.shell);
+    }
+  }
 }

@@ -1,8 +1,14 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import { EnvironmentId, TerminalSessionSnapshot, ThreadId } from "@t3tools/contracts";
+import {
+  EnvironmentId,
+  type ShellSummary,
+  TerminalSessionSnapshot,
+  ThreadId,
+} from "@t3tools/contracts";
 
 import {
+  applyShellListStreamEvent,
   applyTerminalAttachStreamEvent,
   applyTerminalMetadataStreamEvent,
   combineTerminalSessionState,
@@ -270,5 +276,30 @@ describe("terminal session reducers", () => {
       type: "append",
       data: writes.slice(100).join(""),
     });
+  });
+
+  it("keeps one entry per shell id across list upserts and removals", () => {
+    const shell = (shellId: string, status: ShellSummary["status"]): ShellSummary => ({
+      shellId,
+      cwd: "/repo",
+      status,
+      pid: status === "running" ? 7 : null,
+      exitCode: status === "exited" ? 0 : null,
+      exitSignal: null,
+      label: "Shell",
+      updatedAt: "2026-04-01T00:00:00.000Z",
+    });
+    let list = applyShellListStreamEvent([], {
+      type: "snapshot",
+      shells: [shell("a", "running"), shell("b", "running")],
+    });
+    list = applyShellListStreamEvent(list, { type: "upsert", shell: shell("a", "exited") });
+    list = applyShellListStreamEvent(list, { type: "remove", shellId: "b" });
+    list = applyShellListStreamEvent(list, { type: "upsert", shell: shell("c", "running") });
+
+    expect(list.map(({ shellId, status }) => [shellId, status])).toEqual([
+      ["a", "exited"],
+      ["c", "running"],
+    ]);
   });
 });

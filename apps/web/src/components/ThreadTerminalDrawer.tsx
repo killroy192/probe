@@ -27,6 +27,7 @@ import {
   type ProviderInstanceId,
   type ResolvedKeybindingsConfig,
   type ScopedThreadRef,
+  type ShellId,
   type ThreadId,
 } from "@t3tools/contracts";
 import { getTerminalLabel } from "@t3tools/shared/terminalLabels";
@@ -80,6 +81,7 @@ import { confirmTerminalClose } from "~/lib/terminalCloseConfirm";
 import { useClientSettings } from "../hooks/useSettings";
 import { useLocalStorage } from "../hooks/useLocalStorage";
 import { attachedTerminalSessionAtom } from "../state/terminalSessions";
+import { attachedShellSessionAtom, shellEnvironment } from "../state/shells";
 import { appAtomRegistry } from "../rpc/atomRegistry";
 import { serverEnvironment } from "../state/server";
 import { previewEnvironment } from "../state/preview";
@@ -456,6 +458,8 @@ interface TerminalViewportProps {
   threadRef: ScopedThreadRef;
   threadId: ThreadId;
   terminalId: string;
+  /** Drives a standalone shell through the shell RPCs; `threadId` is then its owner id. */
+  shellId?: ShellId;
   terminalLabel: string;
   cwd: string;
   worktreePath?: string | null;
@@ -492,6 +496,7 @@ function TerminalSessionViewport({
   threadRef,
   threadId,
   terminalId,
+  shellId,
   terminalLabel,
   cwd,
   worktreePath,
@@ -532,6 +537,8 @@ function TerminalSessionViewport({
   const runTerminalResize = useAtomCommand(terminalEnvironment.resize, {
     reportFailure: false,
   });
+  const runShellWrite = useAtomCommand(shellEnvironment.write, { reportFailure: false });
+  const runShellResize = useAtomCommand(shellEnvironment.resize, { reportFailure: false });
   const hasHandledExitRef = useRef(false);
   const selectionActionRequestIdRef = useRef(0);
   const openSelectionMenuRequestIdRef = useRef<number | null>(null);
@@ -560,14 +567,17 @@ function TerminalSessionViewport({
   );
   const terminalFontRef = useRef({ family: terminalFontFamily, size: terminalFontSize });
   // Keyed by the launch (see TerminalViewport), so the atom is fixed for this surface.
-  const terminalSessionAtom = attachedTerminalSessionAtom(environmentId, {
-    threadId,
-    terminalId,
-    cwd,
-    ...(worktreePath !== undefined ? { worktreePath } : {}),
-    ...(runtimeEnv ? { env: runtimeEnv } : {}),
-    ...(providerInstanceId ? { providerInstanceId } : {}),
-  });
+  const terminalSessionAtom =
+    shellId !== undefined
+      ? attachedShellSessionAtom(environmentId, shellId)
+      : attachedTerminalSessionAtom(environmentId, {
+          threadId,
+          terminalId,
+          cwd,
+          ...(worktreePath !== undefined ? { worktreePath } : {}),
+          ...(runtimeEnv ? { env: runtimeEnv } : {}),
+          ...(providerInstanceId ? { providerInstanceId } : {}),
+        });
   // Attaching starts with the viewport, while the WASM surface is still loading;
   // the surface reads the session itself, so output chunks never re-render here.
   useAtomMount(terminalSessionAtom);
@@ -577,19 +587,23 @@ function TerminalSessionViewport({
       appAtomRegistry.subscribe(terminalSessionAtom, listener),
   );
   const writeTerminal = useEffectEvent((data: string) =>
-    runTerminalWrite({
-      environmentId,
-      input: { threadId, terminalId, data },
-    }),
+    shellId !== undefined
+      ? runShellWrite({ environmentId, input: { shellId, data } })
+      : runTerminalWrite({
+          environmentId,
+          input: { threadId, terminalId, data },
+        }),
   );
   const resizeTerminal = useEffectEvent((cols: number, rows: number) => {
     if (writableSessionGeneration(readTerminalSession(), hasTerminalWriteAccess()) === null) {
       return;
     }
-    return runTerminalResize({
-      environmentId,
-      input: { threadId, terminalId, cols, rows },
-    });
+    return shellId !== undefined
+      ? runShellResize({ environmentId, input: { shellId, cols, rows } })
+      : runTerminalResize({
+          environmentId,
+          input: { threadId, terminalId, cols, rows },
+        });
   });
   const outputCursorRef = useRef<TerminalOutputCursor>(INITIAL_TERMINAL_OUTPUT_CURSOR);
   const synchronizedStatusRef = useRef<TerminalSessionState["status"]>("closed");
@@ -992,7 +1006,11 @@ function TerminalSessionViewport({
               );
             });
           };
-          if (!readEnvironmentScope(environmentId, AuthPreviewOperateScope)) {
+          // The preview panel belongs to a chat thread; a shell has none.
+          if (
+            shellId !== undefined ||
+            !readEnvironmentScope(environmentId, AuthPreviewOperateScope)
+          ) {
             fallbackToBrowser();
             return;
           }
@@ -1118,7 +1136,7 @@ function TerminalSessionViewport({
         mount.focus({ preventScroll: true });
       }
     };
-  }, [cwd, environmentId, terminalId]);
+  }, [cwd, environmentId, shellId, terminalId]);
 
   const attachContainer = (mount: HTMLDivElement) => {
     containerRef.current = mount;

@@ -5,6 +5,21 @@ client, including the desktop renderer, attaches through the environment connect
 This lets clients reconnect or share a running session. Renderer choices stay local
 to each client and do not change terminal contracts.
 
+## Shells and thread terminals
+
+A shell is a terminal owned by the environment, not by a chat thread. It has its own
+[`shell.*` RPCs](../../packages/contracts/src/shell.ts) and a server-allocated id. Inside
+the terminal manager it is an ordinary session whose owner key is `shell:<id>` where a
+thread terminal's key is its thread id; [`Shells.ts`](../../apps/server/src/terminal/Shells.ts)
+maps between the two. The thread terminal list (`subscribeTerminalMetadata`) drops shell owners
+and the shell list carries no thread id, so clients never see a shell as a thread's terminal.
+Do not drive a shell through `terminal.*` with its owner key: those inputs can reopen or
+recreate sessions by key, which a shell id must not do.
+
+A shell outlives its viewers: closing or reloading a page only detaches. It does not
+outlive the server. Shutdown ends every PTY, and the `survivesRestart` process-scope
+flag does not change that.
+
 ## Output and retention
 
 [Terminal history](../../apps/server/src/terminal/Manager.ts) is incremental.

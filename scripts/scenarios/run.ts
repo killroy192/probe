@@ -16,7 +16,7 @@ import {
   removeThrowawayHome,
   type RunOptions,
 } from "./environment.ts";
-import { scenarios, selftestScenarios } from "./registry.ts";
+import { scenarios, selftestScenarios, storyScenarios } from "./registry.ts";
 import type { Scenario } from "./scenario.ts";
 import { REPO_ROOT, startServer } from "./server.ts";
 
@@ -109,8 +109,9 @@ async function main(): Promise<number> {
   cleanups.push(() => browser.close());
   NodeProcess.stdout.write("scenarios: ready\n");
 
-  const selected = options.selftest ? selftestScenarios : scenarios;
+  const selected = options.selftest ? selftestScenarios : [...scenarios, ...storyScenarios];
   let passed = 0;
+  let storyPassed = 0;
   let failed = 0;
   let pending = 0;
   for (const scenario of selected) {
@@ -122,7 +123,8 @@ async function main(): Promise<number> {
     }
     try {
       await runScenario(scenario, browser, options);
-      passed += 1;
+      if (storyScenarios.includes(scenario)) storyPassed += 1;
+      else passed += 1;
       NodeProcess.stdout.write(`PASS    ${label}\n`);
     } catch (error) {
       failed += 1;
@@ -134,7 +136,7 @@ async function main(): Promise<number> {
   NodeProcess.stdout.write(
     options.selftest
       ? `scenarios: self-test ${passed} passed, ${failed} failed\n`
-      : `scenarios: ${passed}/${TOTAL} passing, ${pending} pending, ${failed} failed\n`,
+      : `scenarios: ${passed}/${TOTAL} passing, ${pending} pending, ${failed} failed (story checks: ${storyPassed}/${storyScenarios.length} passing)\n`,
   );
   return failed > 0 ? 1 : 0;
 }

@@ -158,10 +158,10 @@ Stories 3 to 8 depend on this one (epic order).
 | SU-1 | U-1 (epic): how a standalone shell is identified without a thread | unknown | verified (see spike note) | Spike; the answer is the output of subtask 1 | author |
 | SU-2 | Where the spike findings are recorded. Default: a note in `research/` (vault), linked from this story. Fallback: a section at the end of this story if the author prefers | unknown | verified | Defaulted 2026-11-02 to avoid blocking; the author may move it | author |
 | SU-3 | Must this story prevent orphan shell processes after a server restart (EC-5)? Closed: no, the spike only records; orphan handling belongs to story 7 | unknown | verified | Decided by the user (epic update) | author |
-| SU-4 | Which `probe/docs/` pages describe terminals and the drawer | unknown | unverified | TBD (author, 2026-11-09): search docs while working | author |
-| SU-5 | Whether CI type-checks desktop or mobile against contract changes | unknown | unverified | TBD (author, 2026-11-09): check CI config | author |
+| SU-4 | Which `probe/docs/` pages describe terminals and the drawer | unknown | verified | Pages are `docs/internals/terminal-runtime.md` and `docs/internals/glossary.md`; `docs/user/terminal.md` covers history only and gets no shell section until a user can start one (story 3+) | author |
+| SU-5 | Whether CI type-checks desktop or mobile against contract changes | unknown | verified | `vp run check:changed` typechecks every dependent package (36, including `apps/mobile` and `apps/desktop`); green on 2026-11-04 | author |
 | SU-6 | Whether a story with no new screen counts as a shippable outcome. Default: yes, as an enabling story (the user accepted one large story with subtasks). Fallback: if the user objects at review, fold this story into story 3 | unknown | verified | Defaulted 2026-11-02; confirmed or reversed at the user's review of this story | author |
-| SU-7 | How the existing terminal view is pointed at a standalone shell before the tree exists; affects AC-5 and AC-15. Default: a direct address that carries the shell id. Fallback: a test-only hook if an address needs a product route this story should not add | unknown | unverified | Decide in the plan stage; the default stands unless the plan finds a problem | author |
+| SU-7 | How the existing terminal view is pointed at a standalone shell before the tree exists; affects AC-5 and AC-15. Default: a direct address that carries the shell id. Fallback: a test-only hook if an address needs a product route this story should not add | unknown | verified | Default kept: route `/shell/$environmentId/$shellId` (`apps/web/src/routes/_chat.shell.$environmentId.$shellId.tsx`), no nav entry | author |
 
 ## Implementation Status and Handoff
 
@@ -180,10 +180,17 @@ Branch `feat/standalone-shells-prb-t-002`. Spike findings: `docs/dev/research/t-
 - ws handlers, auth scopes (`RpcAuthorization.ts`) and `RpcInstrumentation.ts` entries.
 - Tests: `contracts/src/shell.test.ts`, the `Shells` block in `terminal/Manager.test.ts`, extended `RpcAuthorization.test.ts`.
 
+**Done (checkpoints 4, 5 and 7, uncommitted as of 2026-11-04)**
+- Client runtime: `createShellEnvironmentAtoms` (list, attach, open, write, resize, close) in `packages/client-runtime/src/state/terminal.ts`, `applyShellListStreamEvent` reducer with a test row in `terminalSession.test.ts`.
+- Web: `apps/web/src/state/shells.ts`, `ShellView.tsx` and the shell route. `TerminalViewport` takes an optional `shellId` and then attaches, writes and resizes through `shell.*` (links open in the browser, since the preview panel needs a thread). Shells need operate scope to view; there is no read-only observe for them. AC-17 needs no web change: the server already filters shells out of the thread list.
+- No web browser test: the viewport mounts the Ghostty WASM surface, so the end-to-end check is the scenario.
+- Scenario `T-002` in `scripts/scenarios/scenarios/standalone-shell.ts`, registered in `storyScenarios` (runs after S1 to S8, reported as "story checks", not counted in the epic's out-of-8 KPI). It drives the server through `scripts/scenarios/rpc.ts` (WS RPC client signed in with the page's cookie) and reads what the page receives from its websocket frames. Covers AC-1, AC-3, AC-5, AC-7, AC-16, the automated half of AC-15, and A-14 (restart ends shells).
+- Docs: shells section in `docs/internals/terminal-runtime.md`, glossary entry.
+- `vp run check:changed` green.
+
 **Not done**
-- Checkpoint 4, web: a selector for the shell list in `apps/web/src/state/terminalSessions.ts` (shells must not appear in `byThreadId`), and a minimal route that shows a shell in the existing terminal view (SU-7 default, no new controls). Browser test with `render` from `apps/web/test/render.tsx`.
-- Checkpoint 5: a story-2 scenario in `scripts/scenarios/` (start a shell over RPC, open it in a page, reload, check output, `server.restart()` and the A-14 behaviour). Use a new scenario; keep the S1 to S8 pending entries.
-- Docs (SU-4: `docs/user/terminal.md`, `docs/internals/terminal-runtime.md`), `vp run check:changed`, a client-runtime and mobile typecheck (SU-5), then the `verify-story-implementation` skill against AC-1 to AC-18.
+- The browser scenario has not run: the dev container lacks Chromium's system libraries and has no sudo. Run `vp run test:scenarios --rebuild` where Chromium works. Its RPC half (open, write, attach with history, list, unknown id, restart ends the shell) was checked by a throwaway script against a real server.
+- AC-15 manual pass (pointer only) in a real browser, then the `verify-story-implementation` skill against AC-1 to AC-18.
 
 **Known gaps**
 - A shell whose program cannot launch is reported as `status: "error"` with no pid; the reason reaches the client only as an error event on the attach stream, not in the summary (AC-12).

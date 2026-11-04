@@ -1,5 +1,6 @@
 import {
   type EnvironmentId,
+  type ShellSummary,
   type TerminalAttachInput,
   type TerminalCloseInput,
   type TerminalOpenInput,
@@ -23,6 +24,7 @@ import {
 import type { EnvironmentRegistry } from "../connection/registry.ts";
 import { subscribe, subscribeDynamic, type EnvironmentRpcInput } from "../rpc/client.ts";
 import {
+  applyShellListStreamEvent,
   applyTerminalAttachStreamEvent,
   applyTerminalMetadataStreamEvent,
   EMPTY_TERMINAL_BUFFER_STATE,
@@ -119,6 +121,54 @@ export function createTerminalEnvironmentAtoms<R, E>(
   return {
     ...atoms,
     createSession: (options: TerminalSessionOptions) => createTerminalSession(atoms, options),
+  };
+}
+
+/** Standalone shells: terminals owned by the environment rather than a chat thread. */
+export function createShellEnvironmentAtoms<R, E>(
+  runtime: Atom.AtomRuntime<EnvironmentRegistry | R, E>,
+) {
+  const resizeScheduler = createAtomCommandScheduler();
+  return {
+    list: createEnvironmentSubscriptionAtomFamily(runtime, {
+      label: "environment-data:shell:list",
+      subscribe: (_input: null) =>
+        subscribe(WS_METHODS.subscribeShells, {}).pipe(
+          Stream.scan((): ReadonlyArray<ShellSummary> => [], applyShellListStreamEvent),
+          // The scan seed is not an authoritative empty server snapshot.
+          Stream.drop(1),
+        ),
+    }),
+    attach: createEnvironmentSubscriptionAtomFamily(runtime, {
+      label: "environment-data:shell:attach",
+      subscribe: (input: EnvironmentRpcInput<typeof WS_METHODS.shellAttach>) =>
+        Stream.suspend(() =>
+          subscribe(WS_METHODS.shellAttach, input).pipe(
+            Stream.scan(nextTerminalAttachSeedState, applyTerminalAttachStreamEvent),
+          ),
+        ),
+    }),
+    open: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:shell:open",
+      tag: WS_METHODS.shellOpen,
+    }),
+    write: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:shell:write",
+      tag: WS_METHODS.shellWrite,
+    }),
+    resize: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:shell:resize",
+      tag: WS_METHODS.shellResize,
+      scheduler: resizeScheduler,
+      concurrency: {
+        mode: "latest",
+        key: ({ environmentId, input }) => JSON.stringify([environmentId, input.shellId]),
+      },
+    }),
+    close: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:shell:close",
+      tag: WS_METHODS.shellClose,
+    }),
   };
 }
 
