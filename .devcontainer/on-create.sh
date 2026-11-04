@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
-# One-time container setup. Runs as devcontaineruser without sudo; root-only
-# setup is in container-init.sh. Everything here is idempotent.
+# One-time container setup, as vscode. Everything here is idempotent.
 set -euo pipefail
+
+# Docker creates a volume's mount point root-owned when the image lacks the
+# directory; node_modules sits in the workspace bind mount, so the image cannot.
+sudo chown vscode:vscode node_modules
 
 # The Vite+ CLI is the repo task runner (vp i, vp run dev, vp test run).
 # Download to a file first: a curl failure inside $( ) would yield an empty
@@ -25,5 +28,5 @@ CI=true vp i
 # Repairs electron's path.txt and exec bits after install, same as CI.
 vp run --filter @t3tools/desktop ensure:electron
 # Pre-warms Vite's dep optimizer (cache is keyed on the absolute path, which
-# is the host's path here too).
+# is stable inside the container).
 node apps/web/scripts/warm-dep-cache.ts

@@ -1,14 +1,14 @@
 // Dev container for Probe. Mirrors CI (ubuntu-24.04, Node 26, Rust stable)
 // and the canonical setup in docs/operations/development.md: global `vp`, `vp i`.
-// Claude runs on the host; this container only executes commands (docker exec).
-// Start it with up.sh, which sets the variables compose.yaml needs.
+// Open the folder in Cursor or VS Code and reopen it in the container, or run
+// `devcontainer up --workspace-folder .`; init-env.sh prepares compose.yaml.
 // Contributor doc: docs/internals/devcontainer.md
 {
   "name": "Probe",
+  "initializeCommand": "bash .devcontainer/init-env.sh",
   "dockerComposeFile": "compose.yaml",
   "service": "dev",
-  "runServices": ["net", "dev"],
-  "workspaceFolder": "${localWorkspaceFolder}",
+  "workspaceFolder": "/workspaces/${localWorkspaceFolderBasename}",
   "features": {
     // nodeGypDependencies (default true) brings python3/make/g++, which Linux
     // needs for node-pty's node-gyp fallback (its prebuilds are mac/win only).
@@ -17,10 +17,13 @@
     },
     // native/resource-monitor (edition 2024, needs stable >= 1.85). The server
     // degrades gracefully without the binary, but CI checks cargo fmt + test.
-    "ghcr.io/devcontainers/features/rust:1": {}
+    "ghcr.io/devcontainers/features/rust:1": {},
+    "ghcr.io/anthropics/devcontainer-features/claude-code:1": {}
   },
-  // The image entrypoint (root) does the privileged setup; commands run as this user.
-  "remoteUser": "devcontaineruser",
+  "remoteUser": "vscode",
+  // Keep compose's command: the port relay.
   "overrideCommand": false,
-  "onCreateCommand": "bash .devcontainer/on-create.sh"
+  "onCreateCommand": "bash .devcontainer/on-create.sh",
+  // Docker Desktop's forwarded SSH agent socket is root-only.
+  "postStartCommand": "sudo chown vscode /run/host-services/ssh-auth.sock"
 }

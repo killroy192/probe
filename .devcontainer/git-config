@@ -1,13 +1,17 @@
-# The container's .git/config (devcontainer.json mounts it read-only). The host's
+# The container's .git/config (compose.yaml mounts it read-only). The host's
 # own config sets core.hooksPath=/dev/null, so no host tool runs a hook the
 # container could have written; here the include keeps remotes and branches and
 # the lines after it turn the repo's hooks back on.
 # `git config --local` does not follow includes, so the vp keys are repeated:
-# `vp config` (the prepare script) then finds them and writes nothing.
+# `vp config` (the prepare script) then finds them and writes nothing. The
+# repository format keys are repeated too, so relative worktrees always resolve.
 [include]
 	path = /etc/probe/host-git-config
 [core]
+	repositoryformatversion = 1
 	hooksPath = .vite-hooks/_
+[extensions]
+	relativeWorktrees = true
 [vp "hooks"]
 	dir = .vite-hooks
 	prefix = .

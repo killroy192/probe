@@ -13,101 +13,50 @@ vp run dev
 Open the pairing URL printed by the dev runner. The bare origin does not authenticate
 a new browser.
 
-Working with an agent? Run its commands in the [dev container](#dev-container) instead.
+Working with an agent? Run it in the [dev container](#dev-container) instead.
 
 ## Dev container
 
-An isolated Linux container (Ubuntu 24.04, Node 26, Rust, `vp`) that runs the commands an agent on
-your host sends it, whichever harness the agent runs in. Keep the agent itself on the host. It has no
-root, a firewalled network and no git credentials; the reasons are in
-[Dev container](../internals/devcontainer.md). It needs Docker and, on the host, Node (for `npx`).
+A Linux container (Ubuntu 24.04, Node 26, Rust, `vp`, Claude Code) for the agent and everything it
+runs, so mistakes stay off your machine. It sees only the checkout. Why it is built this way:
+[Dev container](../internals/devcontainer.md). It needs Docker Desktop.
+
+- **Cursor or VS Code:** open the checkout and run _Dev Containers: Reopen in Container_.
+- **Terminal:** `devcontainer up --workspace-folder .` (or `npx @devcontainers/cli@0.89.0 up ...`), then
+  `devcontainer exec --workspace-folder . claude` or `bash`, or `docker exec -it probe-dev-<folder> bash`.
+
+Both start the same container, `probe-dev-<folder>`, with the checkout at `/workspaces/<folder>`. Before
+each start, `.devcontainer/init-env.sh` runs on your machine by itself: it disables git hooks on the
+host, finds the repository's shared `.git` and picks the ports. The first start runs `vp i` and installs
+the rest; `node_modules` and Claude Code's login live in volumes and survive rebuilds. Rebuild after
+changing `.devcontainer/`.
+
+- **Claude Code:** run `claude` in the container and log in once.
+- **Git and push:** commit and push from the container; hooks run only there. Push uses your SSH agent,
+  forwarded by Docker Desktop (and by Cursor in an attached window), so your key must be loaded in it:
+  `ssh-add -l` on your Mac lists it. Add `AddKeysToAgent yes` and `UseKeychain yes` to `~/.ssh/config`
+  if it is empty after a restart.
+- **Ports:** the web and backend ports are the dev runner's defaults plus an offset per checkout, published
+  on `127.0.0.1` and the same inside and out, so the pairing URL the dev runner prints works on your
+  machine. Cursor also forwards them itself.
+- **Reusable dev credential:** copy the main checkout's `.env` into the checkout; `worktree.sh` does it for
+  you.
+
+### Worktrees
+
+Each worktree opens in its own container. Create and remove them on your machine; the container cannot
+see the folders next to its checkout:
 
 ```sh
-git config core.hooksPath /dev/null                    # once per clone; the container refuses to start without it
-bash .devcontainer/up.sh                               # create or start
-bash .devcontainer/up.sh --remove-existing-container   # after changing .devcontainer/
+.devcontainer/worktree.sh add <branch>                  # ../<repo>-<branch>, new branch from main
+.devcontainer/worktree.sh add <branch> --path <dir> --from <ref>
+.devcontainer/worktree.sh remove <dir>                  # container, volumes and worktree
 ```
 
-The container is `probe-dev-<folder>`, with the checkout at its host path (same inside and out). Next to
-it runs `probe-net-<folder>`, which owns the firewall and the published ports. Run commands with
-`docker exec`; always the same prefix:
-
-```sh
-docker exec -u devcontaineruser -w /abs/path/to/<folder> probe-dev-<folder> vp test run <file>
-docker exec -u devcontaineruser -w /abs/path/to/<folder> probe-dev-<folder> vp run dev --no-browser
-```
-
-The dev server's web and backend ports are the dev runner's defaults plus an offset that `up.sh` picks
-for the checkout and prints. They are published on `127.0.0.1` only and are the same inside and out, so
-open the pairing URL the dev runner prints. Stop the server by a PID or process group you captured at
-spawn (see AGENTS.md).
-
-Git: `add`, `commit` and read-only commands run in the container, and the repo's hooks run only there;
-commits use your host git identity, which `up.sh` passes in. `pull`, `fetch` and `push` run on the host
-as `git -c core.hooksPath=/dev/null ...`. Hooks are off on the host for every tool, including your
-editor, so commit from the container. The container has no credentials, and git config, hooks and the
-agent and editor config the host loads are read-only in it.
-
-`vp i` runs in the container when `up.sh` creates it; never install on the host.
-
-**Worktrees.** Each worktree gets its own pair of containers, and nothing in the repo runs on the host
-to set one up:
-
-```sh
-git -c core.hooksPath=/dev/null worktree add ../<folder> <branch>   # next to this checkout
-cp .env ../<folder>/.env                                            # only for a reusable dev credential
-bash ../<folder>/.devcontainer/up.sh
-# when done:
-bash ../<folder>/.devcontainer/down.sh                              # containers and node_modules volume
-git -c core.hooksPath=/dev/null worktree remove ../<folder>
-```
-
-The new worktree needs its own agent permissions, with its path and folder in the rules below (for
-Claude Code, its own `.claude/settings.local.json`). The hooks setting carries over: linked worktrees
-share the main checkout's `.git/config`.
-
-**Network.** Outbound traffic is limited to the hosts in `.devcontainer/allowed-domains.txt`. Add a host
-there and rebuild with `--remove-existing-container`; ask first, it widens what agent-run code can reach.
-
-**Claude Code permissions.** Put these in the checkout's `.claude/settings.local.json` (gitignored, so
-repeat it per worktree, with that checkout's folder name and absolute path). Keep the `docker exec`
-rule literal: a wildcard in the path or name would also match an inserted `-u root`:
-
-```json
-{
-  "permissions": {
-    "allow": [
-      "Bash(docker exec -u devcontaineruser -w /abs/path/to/<folder> probe-dev-<folder> *)",
-      "Bash(git -c core.hooksPath=/dev/null pull *)",
-      "Bash(git -c core.hooksPath=/dev/null fetch *)",
-      "Bash(grep *)",
-      "Bash(mkdir /abs/path/to/<folder>/*)",
-      "Bash(mkdir -p /abs/path/to/<folder>/*)"
-    ],
-    "ask": [
-      "Bash(mkdir *..*)",
-      "Edit(.devcontainer/**)",
-      "Edit(.vite-hooks/**)",
-      "Edit(.mcp.json)",
-      "Edit(.claude/settings*.json)",
-      "Edit(.claude/hooks/**)"
-    ],
-    "defaultMode": "acceptEdits"
-  },
-  "sandbox": { "enabled": true, "autoAllowBashIfSandboxed": false }
-}
-```
-
-With `autoAllowBashIfSandboxed` off, every host command that no rule allows asks you first, so nothing
-runs on the host unnoticed. `git push` has no rule and prompts. `grep` is allowed because it only
-reads, and the sandbox confines that to the checkout; `sed` is not, since a prefix rule cannot keep
-out `-i` or its `w` command, and a write to `.git/config` would run on the host outside the sandbox.
-
-**Other harnesses** (Codex, Cursor and the like) read the same rules from `AGENTS.md`. Give each the
-equivalent of the Claude settings above in its own permission system: allow only the literal
-`docker exec` prefix and the host git commands, and ask for everything else, including edits to
-`.devcontainer/`, hooks and agent config. If the harness keeps project config in the repo that the host
-loads or runs, add it to the read-only mounts in `.devcontainer/compose.yaml`.
+Then open the new folder and reopen it in the container. `worktree.sh` creates worktrees with relative
+paths, so the container can mount the main checkout's `.git` without its files, and locks them, so a
+prune run from another container keeps them. Relative worktrees need git 2.48 or newer for every tool
+that opens the repository. Remove a worktree's branch yourself once it is merged.
 
 ## GitCafe mirror (optional)
 
