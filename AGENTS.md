@@ -180,7 +180,8 @@ Most code changes do not need an internal documentation change. Agents can read 
 
 ## Plans and work artifacts
 
-- Plans, research notes, and tickets go in `docs/dev/` (see above). Do not commit agent scratch files; keep temporary working material outside the worktree. `.plans/` is gitignored only as a safety net for legacy tooling.
+- Implementation plans go in `.plans/` in this repo (the `plansDirectory` setting points there). The directory is gitignored: never commit a plan. Anything a later session needs from a plan (decisions, remaining steps) goes into the ticket body in `docs/dev/`.
+- Research notes and tickets go in `docs/dev/` (see above). Claude's auto-memory is kept in `.claude/memory/` (the `autoMemoryDirectory` setting in `.claude/settings.local.json`), also gitignored; do not commit it, and record project decisions in `docs/dev/memory/` instead. Do not commit other agent scratch files.
 - A merged PR is the implementation record. When the work lands, `vp run tm mv <ID> done` and move what still matters from the ticket into `docs/`.
 
 ## How it works

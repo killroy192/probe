@@ -162,3 +162,35 @@ Stories 3 to 8 depend on this one (epic order).
 | SU-5 | Whether CI type-checks desktop or mobile against contract changes | unknown | unverified | TBD (author, 2026-11-09): check CI config | author |
 | SU-6 | Whether a story with no new screen counts as a shippable outcome. Default: yes, as an enabling story (the user accepted one large story with subtasks). Fallback: if the user objects at review, fold this story into story 3 | unknown | verified | Defaulted 2026-11-02; confirmed or reversed at the user's review of this story | author |
 | SU-7 | How the existing terminal view is pointed at a standalone shell before the tree exists; affects AC-5 and AC-15. Default: a direct address that carries the shell id. Fallback: a test-only hook if an address needs a product route this story should not add | unknown | unverified | Decide in the plan stage; the default stands unless the plan finds a problem | author |
+
+## Implementation Status and Handoff
+
+Branch `feat/standalone-shells-prb-t-002`. Spike findings: `docs/dev/memory/research/t-002-standalone-shell-spike.md`. The working plan is `.plans/PRB.T-002-standalone-shells.md` (gitignored, local); this section is enough to continue without it.
+
+**Decisions**
+- Identity (U-1): separate `shell.*` RPCs, a server-allocated shell id, and a `shell:<id>` owner id used as the `threadId` key inside the terminal manager (`packages/contracts/src/shell.ts`). Chosen over a tagged `kind` and over an optional `threadId` because the latter ripples into mobile, MCP and storage cleanup.
+- The shell list (`subscribeShells`) carries `ShellSummary` with no thread id. `shell.attach` reuses `TerminalAttachStreamEvent`, so those events still carry the `shell:<id>` owner in `threadId`.
+- The thread terminal list (`subscribeTerminalMetadata`) filters shells out (`Shells.withoutShells`), which covers AC-17.
+- Story 7 scope is still open (A-14 is false): a restart-surviving process host versus saved history plus a fresh shell. Ask the user before planning story 7.
+
+**Done (checkpoints 0 to 3)**
+- Spike: U-1, A-2, A-6 verified; A-14 false.
+- `packages/contracts/src/shell.ts` and the six `shell.*` / `subscribeShells` methods in `rpc.ts`.
+- `apps/server/src/terminal/Shells.ts` over `TerminalManager`, plus `TerminalManager.has` (the manager ignores a resize for an unknown session, so `Shells.resize` checks `has` first for AC-11).
+- ws handlers, auth scopes (`RpcAuthorization.ts`) and `RpcInstrumentation.ts` entries.
+- Tests: `contracts/src/shell.test.ts`, the `Shells` block in `terminal/Manager.test.ts`, extended `RpcAuthorization.test.ts`.
+
+**Not done**
+- Checkpoint 4, web: a selector for the shell list in `apps/web/src/state/terminalSessions.ts` (shells must not appear in `byThreadId`), and a minimal route that shows a shell in the existing terminal view (SU-7 default, no new controls). Browser test with `render` from `apps/web/test/render.tsx`.
+- Checkpoint 5: a story-2 scenario in `scripts/scenarios/` (start a shell over RPC, open it in a page, reload, check output, `server.restart()` and the A-14 behaviour). Use a new scenario; keep the S1 to S8 pending entries.
+- Docs (SU-4: `docs/user/terminal.md`, `docs/internals/terminal-runtime.md`), `vp run check:changed`, a client-runtime and mobile typecheck (SU-5), then the `verify-story-implementation` skill against AC-1 to AC-18.
+
+**Known gaps**
+- A shell whose program cannot launch is reported as `status: "error"` with no pid; the reason reaches the client only as an error event on the attach stream, not in the summary (AC-12).
+- Bad-size rejection (AC-13) is covered by the contract schema test only.
+- No ws-level test: `ws.test.ts` mocks the manager and has no terminal cases.
+
+**Environment**
+- Run `nvm use`, then `vp` from `node_modules/.bin` (no global `vp`).
+- Local port binds are blocked in the Claude sandbox; the scenario harness and any server run need `sandbox.network.allowLocalBinding: true` or an unsandboxed run.
+- The pre-commit hook runs format, lint and knip; an unused export fails the commit.

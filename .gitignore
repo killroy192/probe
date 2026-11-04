@@ -27,6 +27,8 @@ squashfs-root/
 .vercel
 .gstack/
 .plans/
+.claude/memory/
+.claude/settings.local.json
 /audits/
 dist-electron/
 .electron-runtime/
