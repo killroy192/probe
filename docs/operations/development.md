@@ -13,7 +13,68 @@ vp run dev
 Open the pairing URL printed by the dev runner. The bare origin does not authenticate
 a new browser.
 
-Prefer a container? See [Dev container](../internals/devcontainer.md) for VS Code and Codespaces setup.
+Working with an agent? Run its commands in the [dev container](#dev-container) instead.
+
+## Dev container
+
+An isolated Linux container (Ubuntu 24.04, Node 26, Rust, `vp`) that runs the commands an agent on
+your host sends it. It has no root, a firewalled network and no git credentials; the reasons are in
+[Dev container](../internals/devcontainer.md). It needs Docker and, on the host, Node (for `npx`).
+
+```sh
+bash .devcontainer/up.sh                               # create or start
+bash .devcontainer/up.sh --remove-existing-container   # after changing .devcontainer/
+```
+
+The container is `probe-dev-<folder>`, with the checkout at `/workspaces/<folder>`. Run commands with
+`docker exec`; always the same prefix:
+
+```sh
+docker exec -u devcontaineruser -w /workspaces/<folder> probe-dev-<folder> vp test run <file>
+docker exec -u devcontaineruser -w /workspaces/<folder> probe-dev-<folder> vp run dev --no-browser
+```
+
+The dev server's web and backend ports are the dev runner's defaults plus an offset that `up.sh` picks
+for the checkout and prints. They are published on `127.0.0.1` only and are the same inside and out, so
+open the pairing URL the dev runner prints. Stop the server by a PID or process group you captured at
+spawn (see AGENTS.md).
+
+Git: `add`, `commit` and read-only commands run in the container; commits use your host git identity
+(`up.sh` writes it to the gitignored `.devcontainer/git-identity.env`). `pull`, `fetch` and `push` run
+on the host as `git -c core.hooksPath=/dev/null ...`. The container has no credentials and `.git/config`
+and `.git/hooks` are read-only in it. Linked worktrees are not supported yet.
+
+**Network.** Outbound traffic is limited to the hosts in `.devcontainer/allowed-domains.txt`. Add a host
+there and rebuild with `--remove-existing-container`; ask first, it widens what agent-run code can reach.
+
+**Claude Code permissions.** Put these in the checkout's `.claude/settings.local.json` (gitignored, so
+repeat it per worktree, with that checkout's folder name and absolute path):
+
+```json
+{
+  "permissions": {
+    "allow": [
+      "Bash(docker exec -u devcontaineruser -w /workspaces/<folder> probe-dev-<folder> *)",
+      "Bash(git -c core.hooksPath=/dev/null pull *)",
+      "Bash(git -c core.hooksPath=/dev/null fetch *)",
+      "Bash(mkdir /abs/path/to/<folder>/*)",
+      "Bash(mkdir -p /abs/path/to/<folder>/*)"
+    ],
+    "ask": [
+      "Bash(mkdir *..*)",
+      "Edit(.devcontainer/**)",
+      "Edit(.vite-hooks/**)",
+      "Edit(.claude/settings*.json)",
+      "Edit(.claude/hooks/**)"
+    ],
+    "defaultMode": "acceptEdits"
+  },
+  "sandbox": { "enabled": true, "autoAllowBashIfSandboxed": false }
+}
+```
+
+With `autoAllowBashIfSandboxed` off, every host command that no rule allows asks you first, so nothing
+runs on the host unnoticed. `git push` has no rule and prompts.
 
 ## GitCafe mirror (optional)
 

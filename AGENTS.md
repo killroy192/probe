@@ -80,6 +80,22 @@ Most code changes do not need an internal documentation change. Agents can read 
 2. **Writing to the live install.** `~/.t3/userdata` is the developer's real T3 Code database, in use while you work. Reading it and copying from it are fine, and a good way to get real test data (see Test data). Never start a server against it, never open it read-write, never clean it up.
 3. **Baking in origins.** Never set `VITE_HTTP_URL` or `VITE_WS_URL` for dev. Dev is single-origin and Vite proxies `/api`, `/ws`, `/oauth`, and `/.well-known`. Setting them bakes localhost into the bundle and silently breaks every remote browser.
 
+## Working in the devcontainer
+
+Claude runs on the host; the container runs everything else, so code you start stays off the host and
+off the open network. Setup and permission rules: [Dev container](docs/operations/development.md#dev-container).
+
+- Edit files on the host. Run every other command in the container with exactly this prefix:
+  `docker exec -u devcontaineruser -w /workspaces/<dir> probe-dev-<dir> <cmd>` (`<dir>` is the
+  checkout's folder name). That includes `vp`, `node`, tests, `vp run tm`, and `git status`, `diff`,
+  `log`, `add` and `commit`. Commit in the container, so the hooks run there.
+- On the host run only `git -c core.hooksPath=/dev/null pull`, `fetch` or `push`. Do not run anything
+  else there without an explicit prompt: no tool installs, no other `docker` subcommands.
+- Start or rebuild the container only with `.devcontainer/up.sh`.
+- The dev server runs in the container. Open the pairing URL it prints on the host; never pass `--host`.
+- Do not widen `.devcontainer/allowed-domains.txt`, anything under `.devcontainer/`, or your own
+  permissions to get a command through. If a command fails on the network, report the host it needed.
+
 ## Hit every surface
 
 The most common defect in this repo is a change that works on the path you tested and is missing everywhere else. Before calling frontend work done, walk this list and say which entries applied:
