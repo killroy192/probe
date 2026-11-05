@@ -3,7 +3,7 @@ id: PRB.T-003
 type: story
 parent: PRB.E-001
 phase: 1
-labels: [terminal-first, chat-removal, plan, implement]
+labels: [terminal-first, chat-removal, plan, implement, verify]
 created: 2026-11-02
 updated: 2026-11-05
 ---
@@ -158,10 +158,10 @@ Stories 4 to 8 depend on this one.
 
 ## Implementation Status and Handoff
 
-Plan stage done (2026-11-05). The working plan is `.plans/PRB.T-003-workspaces.md` (gitignored, local); this section is enough to continue without it. Branch to create: `feat/workspaces-prb-t-003`, stacked on `feat/standalone-shells-prb-t-002`.
+Plan and implement done (2026-11-05). The working plan is `.plans/PRB.T-003-workspaces.md` (gitignored, local); this section is enough to continue without it. Branch `feat/workspaces-prb-t-003`, stacked on `feat/standalone-shells-prb-t-002`; nothing pushed.
 
 **Decisions**
-- SU-1: workspace operations are server-side (`workspace.create`, `workspace.remove`, `workspace.open`, `subscribeWorkspaces`) in a `Workspaces` service modeled on `apps/server/src/environmentTheme.ts` (folder read, watch, change stream). The file is `<home>/userdata/workspaces/<name>.json` with `{"version":1}`; the list is the folder listing; an unreadable or invalid file stays listed and fails on open (ER-2). Workspaces live on the primary environment.
+- SU-1: workspace operations are server-side (`workspace.create`, `workspace.remove`, `workspace.open`, `subscribeWorkspaces`) in the `SavedWorkspaces` service (`apps/server/src/savedWorkspaces/`; the existing `workspace/` folder means project directories) modeled on `apps/server/src/environmentTheme.ts` (folder read, watch, change stream). The file is `<home>/userdata/workspaces/<name>.json` with `{"version":1}`; the list is the folder listing; an unreadable or invalid file stays listed and fails on open (ER-2). Workspaces live on the primary environment.
 - Shown workspace (user, 2026-11-05): kept in memory in the web app only; a reload returns to the start screen until story 7. So AC-11's "with a workspace shown" case is checked by in-app navigation (history push), not by a full page load.
 - Command palette (user, 2026-11-05): not mounted in the terminal-first screen; the `chat.new*` route commands and `usage.open` are not installed (AC-12).
 - Settings (user, 2026-11-05): reachable from a "Settings" item in the Workspaces menu. Hidden from nav, search and by redirect: chat, threads, archived, providers, scheduled-tasks, projects, browser, devices, diffs.
@@ -174,8 +174,26 @@ Plan stage done (2026-11-05). The working plan is `.plans/PRB.T-003-workspaces.m
 - Reached only inside the chat view (hidden with it): composer, timeline, PR dialogs, citation links.
 - The `/shell/$environmentId/$shellId` route (PRB.T-002) stays.
 
+**Done**
+- Contracts `packages/contracts/src/workspace.ts` (`workspaceNameProblem` is the one name rule, used by the schema and the create dialog), RPCs in `rpc.ts`, create and remove guarded by settings write on client and server, list and open by orchestration read.
+- `SavedWorkspaces` service with tests (`SavedWorkspaces.test.ts`: create, case-insensitive duplicate, skipped file names, remove leaves folders, unreadable and invalid files stay listed and fail to open, read-only folder makes create and remove fail with the list unchanged, change stream).
+- Client: `packages/client-runtime/src/state/workspaces.ts`; web `apps/web/src/state/workspaces.ts` (shown workspace in memory, cleared when its workspace leaves the list).
+- Web: `components/workspaces/` (start screen, Workspaces menu with create, open, remove and Settings, create dialog, the root-only tree). `/` renders it; settings open over it.
+- Chat hidden through `apps/web/src/terminalFirst.ts`: every chat route redirects to `/`; the root route mounts a `SidebarProvider` (settings need it) but no chat sidebar, palette, wizard or thread coordinator; `appInit.tsx` starts no chat commands or thread notifications; chat settings pages leave nav and search. Unmounted chat modules are listed in `knip.jsonc` until the chat-removal epic.
+- Scenario S1 (`scripts/scenarios/scenarios/boot.ts`) at full scope: AC-1 to AC-9, AC-11 to AC-17, AC-20 and the automated part of AC-10 (settings lists no chat page, no thread sidebar). It seeds files in `<home>/userdata/workspaces/` after start (SA-3 holds) and makes faults with chmod. The restart self-test now keeps a saved workspace. `--only <id>` runs one scenario; the bystander harness test uses it so it stays under the 60 s limit.
+- Docs: `docs/user/workspaces.md`, indexes, notes on the wizard and threads pages, glossary "Workspace", `docs/internals/web-ui.md` "Hidden chat".
+- `vp run test:scenarios --rebuild`: S1 PASS, T-002 PASS (1/8, 7 pending); `--selftest` T1 PASS, T2 FAIL by design; `harness.test.ts` 7/7.
+- `vp run check:changed`: format, lint, knip, tests (16 files) and react compiler pass. Its parallel typecheck step fails twice with no error printed; every affected package (server, web, mobile, contracts, client-runtime, scripts, marketing, provider-core, provider-acp) passes alone. Likely memory pressure on this 7.8 GB container.
+
 **Not done**
-- Everything: contracts, server service, client state, web screen, chat hiding, scenario S1 at full scope, docs (checkpoints 1 to 6 of the plan).
+- AC-10 manual pass (author): click through the start screen, a workspace, the Workspaces menu and every remaining settings page against the SA-1 list.
+- AC-19: reviewer reads the docs diff in the PR.
+- Verify stage.
+
+**Known gaps**
+- AC-11's typed-address case runs a full page load for two addresses; the rest go through in-app navigation, which runs the same redirect.
+- AC-12 dispatches the default `chat.new*` key events from the page; the commands are no longer installed.
+- `apps/web/test/appScenarios.renders.tsx` mounts chat routes, which now redirect; it runs only through `report:renders`, not in CI.
 
 **Known risks**
 - Settings open as a modal over the last thread view (`routes/_chat.tsx`); with no thread it must show the workspace screen behind it.
