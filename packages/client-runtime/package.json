@@ -299,6 +299,10 @@
       "types": "./src/state/terminal.ts",
       "default": "./src/state/terminal.ts"
     },
+    "./state/workspaces": {
+      "types": "./src/state/workspaces.ts",
+      "default": "./src/state/workspaces.ts"
+    },
     "./state/threads": {
       "types": "./src/state/threads.ts",
       "default": "./src/state/threads.ts"

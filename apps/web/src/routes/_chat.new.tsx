@@ -3,6 +3,7 @@ import { createFileRoute, useLocation } from "@tanstack/react-router";
 import { NewThreadLinkView } from "../components/promptLinks/NewThreadLinkView";
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "../components/ui/empty";
 import { SidebarInset } from "../components/ui/sidebar";
+import { redirectHiddenChatRoute } from "../terminalFirst";
 
 // The query is read raw: the router's own search parsing turns `prompt=123` into a number.
 function NewThreadLinkRoute() {
@@ -24,5 +25,6 @@ function NewThreadLinkRoute() {
 }
 
 export const Route = createFileRoute("/_chat/new")({
+  beforeLoad: redirectHiddenChatRoute,
   component: NewThreadLinkRoute,
 });

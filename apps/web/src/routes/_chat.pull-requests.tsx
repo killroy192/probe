@@ -5,6 +5,7 @@ import { type PullRequestListSort } from "../components/pullRequest/pullRequestL
 import { SORT_OPTIONS } from "../components/pullRequest/pullRequestListOptions";
 import { type PullRequestsSearch } from "../components/pullRequest/usePullRequestListView";
 import { PullRequestsPage } from "../components/pullRequest/PullRequestsPage";
+import { redirectHiddenChatRoute } from "../terminalFirst";
 
 const MAX_SEARCH_LABEL_CANDIDATES = 100;
 
@@ -28,6 +29,7 @@ function pullRequestSearchLabels(raw: unknown): Partial<Pick<PullRequestsSearch,
 }
 
 export const Route = createFileRoute("/_chat/pull-requests")({
+  beforeLoad: redirectHiddenChatRoute,
   validateSearch: (raw: Record<string, unknown>): PullRequestsSearch => ({
     involvement:
       raw.involvement === "reviewing" || raw.involvement === "authored" ? raw.involvement : "all",

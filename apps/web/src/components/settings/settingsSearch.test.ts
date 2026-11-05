@@ -20,6 +20,7 @@ import {
   sourceControlHostSettingsSearchId,
   type SettingsSearchItem,
 } from "./settingsSearch";
+import { HIDDEN_SETTINGS_PATHS } from "../../terminalFirst";
 
 vi.mock("~/env", async (importOriginal) => ({
   ...(await importOriginal<typeof import("~/env")>()),
@@ -69,6 +70,12 @@ describe("searchSettings", () => {
   it("hides the Secrets page from nav and search while the secrets feature is disabled", () => {
     expect(SETTINGS_NAV_GROUPS.flatMap((group) => group.paths)).not.toContain("/settings/secrets");
     expect(searchSettings("1password").map((item) => item.to)).not.toContain("/settings/secrets");
+  });
+
+  it("hides chat settings pages from nav", () => {
+    const navPaths = SETTINGS_NAV_GROUPS.flatMap((group) => group.paths);
+    for (const path of HIDDEN_SETTINGS_PATHS) expect(navPaths).not.toContain(path);
+    expect(navPaths).toContain("/settings/connections");
   });
 
   it("matches normalized title substrings", () => {

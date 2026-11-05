@@ -7,6 +7,7 @@ import * as Option from "effect/Option";
 import { NoProjectsHero } from "../components/NoProjectsHero";
 import { WelcomeWizard } from "../components/onboarding/WelcomeWizard";
 import { useNewThreadHandler } from "../hooks/useHandleNewThread";
+import { redirectHiddenChatRoute } from "../terminalFirst";
 
 const decodeEnvironmentId = Schema.decodeOption(EnvironmentId);
 
@@ -16,6 +17,7 @@ export const Route = createFileRoute("/welcome")({
     if (authGateState.status !== "authenticated" && authGateState.status !== "hosted-static") {
       throw redirect({ to: "/pair", replace: true });
     }
+    redirectHiddenChatRoute();
   },
   component: WelcomeRouteView,
 });

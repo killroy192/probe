@@ -86,7 +86,29 @@
       // UI component modules are copied and adapted as cohesive sets. Keep their
       // named subcomponents even before they have callers; the file audit still
       // reports an entire component module when nothing imports it.
-      "ignoreIssues": { "src/components/ui/*.tsx": ["exports", "nsExports", "duplicates"] },
+      // Chat is hidden while the app turns terminal-first (PRB.T-003), not deleted: its
+      // unmounted hosts and coordinators stay until the chat-removal epic deletes them.
+      "ignore": [
+        "src/components/desktop/DesktopAppActivationCoordinator.tsx",
+        "src/components/desktop/RunningThreadKeepAlive.tsx",
+        "src/components/DevReplayHost.tsx",
+        "src/components/LegacyThreadMigrationToast.ts",
+        "src/components/onboarding/FirstRunGate.tsx",
+        "src/components/ProjectCloneToastCoordinator.tsx",
+      ],
+      "ignoreIssues": {
+        "src/components/ui/*.tsx": ["exports", "nsExports", "duplicates"],
+        "src/components/AppSidebarLayout.tsx": ["exports"],
+        "src/components/BackgroundThreadAnnouncer.tsx": ["exports"],
+        "src/components/chat/GuestShareControls.tsx": ["exports"],
+        "src/components/CustomSnoozeDialog.tsx": ["exports"],
+        "src/onboarding/firstRun.logic.ts": ["exports"],
+        "src/state/projectClones.ts": ["exports"],
+      },
+    },
+    "packages/client-runtime": {
+      // Used only by the hidden chat shell's bootstrap navigation (PRB.T-003); see apps/web.
+      "ignoreIssues": { "src/state/projectGrouping.ts": ["exports"] },
     },
     "apps/marketing": {
       // `astro check` runs from the typecheck task in vite.config.ts, which knip does not read.

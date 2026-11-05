@@ -3,6 +3,7 @@ import { EnvironmentId, ProviderInstanceId } from "@t3tools/contracts";
 
 import { ProviderSettingsPanel } from "../components/settings/ProviderSettingsPanel";
 import { useSettingsScope } from "../components/settings/SettingsScopeContext";
+import { redirectHiddenChatRoute } from "../terminalFirst";
 
 function SettingsProvidersRoute() {
   const target = Route.useSearch();
@@ -33,6 +34,7 @@ function SettingsProvidersRoute() {
 }
 
 export const Route = createFileRoute("/_chat/settings/providers")({
+  beforeLoad: redirectHiddenChatRoute,
   validateSearch: (raw: Record<string, unknown>) => ({
     ...(typeof raw.environmentId === "string" && raw.environmentId.trim()
       ? { environmentId: EnvironmentId.make(raw.environmentId) }

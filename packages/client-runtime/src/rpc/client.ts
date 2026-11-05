@@ -73,6 +73,7 @@ export type EnvironmentSubscriptionRpcTag =
   | typeof WS_METHODS.terminalAttach
   | typeof WS_METHODS.terminalObserve
   | typeof WS_METHODS.subscribeShells
+  | typeof WS_METHODS.subscribeWorkspaces
   | typeof WS_METHODS.shellAttach;
 
 export type EnvironmentStreamCommandRpcTag =
