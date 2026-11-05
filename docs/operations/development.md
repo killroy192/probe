@@ -292,6 +292,11 @@ node scripts/mock-agent/mock-agent.ts --resume <id>    # replays that conversati
 It echoes each line as `echo: <line>` and exits 0 on `exit`. Sessions are stored in
 `$MOCK_AGENT_HOME` (default: a `probe-mock-agent` folder in the system temp directory).
 
+`vp run dev` sets `PROBE_AGENT_COMMAND` to this mock CLI unless your environment already sets it,
+so shells started from a workspace run it. The scenario runner does the same per scenario. S2
+prints the time from the start click to the CLI banner as `start-to-banner ms=…`; it is reported,
+not enforced.
+
 ## Desktop artifacts
 
 Local artifact builds are unsigned by default and write to `release/`:

@@ -15,8 +15,15 @@ maps between the two. The thread terminal list (`subscribeTerminalMetadata`) dro
 and the shell list carries no thread id, so clients never see a shell as a thread's terminal.
 The `terminal.*` input schemas reject the `shell:` prefix, because those inputs can reopen
 or recreate sessions by key, which a shell id must not do. Server code that calls the manager
-directly with a shell owner key bypasses that check, so it should go through `Shells`. A shell
-that cannot start is closed again, and `shell.open` fails with the launch reason.
+directly with a shell owner key bypasses that check, so it should go through the `Shells`
+service. A shell that cannot start is closed again, and `shell.open` fails with the launch reason.
+
+`shell.open` with `agent: true` (used by `workspace.startShell`) checks that the first word of
+`PROBE_AGENT_COMMAND` resolves to a file or a program on the server's `PATH`, then starts the
+normal interactive shell and writes the command as its first input. The check runs before
+spawning so a missing CLI fails the start instead of leaving a shell that only printed "command
+not found". Writing the command, rather than spawning the CLI directly, keeps the shell open when
+the CLI exits. `Shells` logs each start, failed start (with the cwd) and end at info level.
 
 A shell outlives its viewers: closing or reloading a page only detaches. It does not
 outlive the server. Shutdown ends every PTY, and the `survivesRestart` process-scope

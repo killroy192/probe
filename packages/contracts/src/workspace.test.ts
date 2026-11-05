@@ -2,11 +2,12 @@ import * as Exit from "effect/Exit";
 import * as Schema from "effect/Schema";
 import { describe, expect, it } from "vite-plus/test";
 
-import { WorkspaceName, workspaceNameProblem } from "./workspace.ts";
+import { WorkspaceAddFolderInput, WorkspaceName, workspaceNameProblem } from "./workspace.ts";
 
 const decodeNameExit = Schema.decodeUnknownExit(WorkspaceName);
 const decodeName = Schema.decodeSync(WorkspaceName);
 const decodes = (input: unknown) => Exit.isSuccess(decodeNameExit(input));
+const decodeAddFolderExit = Schema.decodeUnknownExit(WorkspaceAddFolderInput);
 
 describe("workspace contracts", () => {
   it.each([
@@ -41,5 +42,16 @@ describe("workspace contracts", () => {
 
   it("trims the name it stores", () => {
     expect(decodeName("  sparta ")).toBe("sparta");
+  });
+
+  it.each([
+    [{ mode: "import", name: "w", path: "/repo" }, true],
+    [{ mode: "create", name: "w", parentPath: "/home", folderName: "app" }, true],
+    [{ mode: "create", name: "w", parentPath: "/home", folderName: "a/b" }, false],
+    [{ mode: "create", name: "w", parentPath: "/home", folderName: ".." }, false],
+    [{ mode: "import", name: "w", path: "   " }, false],
+    [{ mode: "create", name: "w", path: "/repo" }, false],
+  ])("decodes add-folder input %j: %s", (input, valid) => {
+    expect(Exit.isSuccess(decodeAddFolderExit(input))).toBe(valid);
   });
 });

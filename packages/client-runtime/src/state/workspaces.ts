@@ -28,5 +28,13 @@ export function createWorkspaceEnvironmentAtoms<R, E>(
       label: "environment-data:workspace:open",
       tag: WS_METHODS.workspaceOpen,
     }),
+    addFolder: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:workspace:add-folder",
+      tag: WS_METHODS.workspaceAddFolder,
+    }),
+    startShell: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:workspace:start-shell",
+      tag: WS_METHODS.workspaceStartShell,
+    }),
   };
 }

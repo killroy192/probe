@@ -3,7 +3,7 @@ id: PRB.T-004
 type: story
 parent: PRB.E-001
 phase: 1
-labels: [terminal-first, plan, implement]
+labels: [terminal-first, plan, implement, verify]
 created: 2026-11-02
 updated: 2026-11-05
 ---
@@ -159,28 +159,40 @@ The reuse of the add-project flow inside the modal is checked by this story (epi
 | SA-2 | The existing add-project flow (import existing, create new with git init) can be reused inside the modal's folder step (epic A-13). | assumption | false | Checked in planning 2026-11-05: only the server parts and client helpers are reusable (`ProjectService`, `VcsProvisioningService`, `filesystem.browse`, `client-runtime` browse helpers). The UI lives in the unmounted `CommandPalette.tsx` and always opens a chat draft (`useNewProject.ts:125`, `CommandPalette.tsx:1766`), so the modal has its own folder step. The create path in the existing flow (`projects.createNew`) cannot choose a location | author |
 | SA-6 | No shell start/end logging and no start-to-banner measurement exist today (not searched exhaustively). | assumption | verified | Checked 2026-11-05: `apps/server/src/terminal/` has no start or exit info logs, and the server logs to the console only | author |
 | SA-8 | Story 1's harness can make the mock CLI unstartable, drop the connection and end a shell's process from outside (needed by AC-16, AC-18, AC-19). Checked 2026-11-03: PRB.T-001 does not provide them (the handle has `restart`, `cli`, `pairingUrl`, `openPage` only). This story adds the three helpers to the harness. | assumption | false | Add them in this story's plan | author |
-| SA-7 | The server logs a shell end for a shell whose process the scenario ends from outside (kill arrives in story 6; the epic tracks the shell process, so `exit` in the mock CLI alone does not end the shell). AC-19's end line is checked that way. | assumption | unverified | Confirm with story 1's mock CLI behavior | author |
-| SA-3 | A shell can be told the pane's size at start and on resize, and the terminal size can be read back for the scenario. Today the contracts carry cols and rows (`packages/contracts/src/terminal.ts`). | assumption | unverified | Prove in the S2 scenario while building | author |
+| SA-7 | The server logs a shell end for a shell whose process the scenario ends from outside (kill arrives in story 6; the epic tracks the shell process, so `exit` in the mock CLI alone does not end the shell). AC-19's end line is checked that way. | assumption | verified | S2 AC-19 (2026-11-05): SIGKILL on the shell pid logs "shell ended" with the shell id; the mock CLI's `exit` returns to the shell | author |
+| SA-3 | A shell can be told the pane's size at start and on resize, and the terminal size can be read back for the scenario. Today the contracts carry cols and rows (`packages/contracts/src/terminal.ts`). | assumption | verified | S2 AC-6 (2026-11-05): after a pane resize, `stty size` in the shell equals the columns the view reports | author |
 | SA-4 | A git folder's own checkout is its default worktree and counts as a worktree in the epic's model (A-9, decided); this story renders no worktree node. | assumption | verified | Decided by the user, 2026-11-02 | author |
-| SA-5 | Folders without a commit run only in their own checkout (epic A-17), so "create new folder" needs no commit to start a shell. | assumption | unverified | Prove while building the create-folder path | author |
-| SU-1 | Time from the start action to the banner today (epic U-3). | unknown | unverified | Measure in this story (AC-21) and confirm the 2-second limit; TBD (author, 2026-11-09) | author |
+| SA-5 | Folders without a commit run only in their own checkout (epic A-17), so "create new folder" needs no commit to start a shell. | assumption | verified | S2 AC-9 (2026-11-05): a created folder has `.git` and no commit, and a shell starts in it with no worktree | author |
+| SU-1 | Time from the start action to the banner today (epic U-3). | unknown | unverified | Measured 2026-11-05 by S2 (AC-21): 350–380 ms in the dev container (headless Chromium, mock CLI). The 2-second limit still needs the author's confirmation (2026-11-09) | author |
 | SU-2 | Where the preselected folder is remembered. | unknown | verified | Decided by the user 2026-11-02: one record per workspace, kept in that workspace's saved layout (FR-22); the format comes from story 3. | author |
 | SU-5 | Wording and form of the "start did not happen" message when the connection is lost (ER-4). | unknown | verified | Default from planning 2026-11-05: "The shell did not start: the connection to the server was lost. Try again." | author |
-| SU-7 | Whether clone and publish stay visible in the modal's folder step. Default: yes, as in the existing flow | unknown | verified | Defaulted 2026-11-02; the user can change it at review | author |
+| SU-7 | Whether clone and publish stay visible in the modal's folder step. Default: yes, as in the existing flow | unknown | false | Not built: the modal has its own folder step (SA-2), with import and create only. Clone and publish are not offered; decide at review whether a later story adds them | author |
 | SU-6 | How the user tells a folder is a git repository in the folder step (epic does not say whether the modal labels it). | unknown | verified | Default from planning 2026-11-05: folder rows show a "git" badge; the server reports `isGitRepository` per folder | author |
 
 ## Implementation Status and Handoff
 
-Plan stage done (2026-11-05). The working plan is `.plans/PRB.T-004-plus-modal.md` (gitignored, local); this section is enough to continue without it. Branch to create: `feat/plus-modal-prb-t-004`, stacked on `feat/workspaces-prb-t-003`.
+Implemented on `feat/plus-modal-prb-t-004` (stacked on `feat/workspaces-prb-t-003`), 2026-11-05. Plan checkpoints 1 to 6 are done.
 
 **Decisions (user, 2026-11-05)**
-- Agent launch is server-side: the server reads `PROBE_AGENT_COMMAND`; the dev runner and the scenario harness set it to the mock CLI (`node scripts/mock-agent/mock-agent.ts`). `shell.open` with `agent: true` checks the command's program resolves (else `ShellLaunchError`, nothing kept, AC-16), starts the normal interactive shell and writes the command as its first input, so exiting the CLI leaves the shell. Unset: "No agent command is configured." The next epic replaces it with a configurable launch command.
-- A folder is a project (registered through `ProjectService`) and its path is saved in the workspace file: `{"version":1,"folders":[{"path"}],"lastFolder":path|null}`, new fields optional so PRB.T-003 files still decode.
-- "Create new folder" takes a parent path and a name: the server makes the directory, runs `git init` (`VcsProvisioningService.initRepository`) and registers the project; on a git init failure it removes the directory it made (ER-3).
-- `Shells` becomes a `Context.Service`, which settles the open question in `docs/dev/questions.md`: the workspace start-shell operation needs it from another service.
-- Tabs, the active tab and folder detail are kept in memory in the web app (story 7 saves the layout); the tree groups shells by matching their cwd to the workspace's folders.
-- Harness: `startServer` takes env and runs at info log level, `ServerHandle.logs()`, `restart({env})` for an unstartable CLI, `dropConnection(page)` via `context.routeWebSocket`, and shared `recorder`/`alive`/`gone`/`pageFrames` helpers. S2 replaces its pending entry.
+- Agent launch is server-side: the server reads `PROBE_AGENT_COMMAND`; the dev runner and the scenario harness set it to the mock CLI. `shell.open` with `agent: true` checks the command's first word resolves (else `ShellLaunchError`, nothing kept), starts the normal interactive shell and writes the command as its first input. The next epic replaces it with a configurable launch command.
+- A folder is a project (registered with `ProjectService.bootstrap`, which reuses an existing one) and its path is saved in the workspace file: `{"version":1,"folders":[{"path"}],"lastFolder":path|null}`; both fields are optional, so PRB.T-003 files still decode.
+- "Create new folder" takes a parent path and a name; a failed `git init` or registration removes the directory it made (ER-3).
+- `Shells` is a `Context.Service` (`t3/terminal/Shells`), and `SavedWorkspaces` uses it for `workspace.startShell`.
+- Tabs and the active tab live in web memory (story 7 saves the layout); the tree groups shells by matching their cwd to the workspace's folders.
 
-**Not done**
-- Everything: contracts, `Shells` service and agent launch, `SavedWorkspaces` folders and start-shell, client state, the "+" modal, tabs and the tree, harness helpers, scenario S2, docs (plan checkpoints 1 to 6).
+**Where things are**
+- Contracts: `WorkspaceDetail`, `WorkspaceAddFolderInput` (import | create), `WorkspaceStartShellInput`, `WorkspaceFolderError`; RPCs `workspace.addFolder` (settings write) and `workspace.startShell` (terminal operate), both client-guarded. `workspace.open` now returns the detail.
+- Server: `apps/server/src/terminal/Shells.ts` (agent command, start, failed-start and end logs), `apps/server/src/savedWorkspaces/SavedWorkspaces.ts` (folders, `lastFolder` only while in the workspace and on disk).
+- Web: `components/workspaces/StartShellDialog.tsx`, the sidebar's "+" and the enabled "Add project" icon, the folder and shell tree, and tabs in `WorkspaceScreen.tsx` (`ShellTerminal` is shared with `ShellView`).
+- Harness: `server.restart({ env })`, `server.logs()`, `connectionCutter` in `browser.ts`, and shared waits in `support.ts`. S2 is `scenarios/plus-modal.ts`.
 
+**Verification so far**
+- Focused tests pass: contracts, RPC authorization, `SavedWorkspaces`, the `Manager.test.ts` Shells block, `ws.test.ts`, CLI config and the dev runner.
+- Per-package typecheck passes for contracts, client-runtime, web, server, scripts, mobile and desktop; knip, lint, format and the React compiler coverage test pass. `check:changed`'s parallel typecheck and knip fail on this container with no errors printed (memory), as in PRB.T-003.
+- `vp run test:scenarios --rebuild`: S1, S2 and T-002 pass (2/8 passing, 6 pending). S2 passed repeatedly. Removing the double-click guard makes S2 fail at AC-24 (mutation check). The selftest and `harness.test.ts` pass.
+- Start to banner: 350–380 ms (AC-21).
+
+**Open**
+- AC-22 is a manual code review: the modal, tabs and tree add no animation. Only the existing button hover and press transitions run.
+- SU-7: clone and publish are not in the folder step (see the table above).
+- The user's manual pass in the dev app is still to do.

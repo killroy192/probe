@@ -47,6 +47,7 @@ import * as DirectEndpoints from "./environment/DirectEndpoints.ts";
 import * as EnvironmentAuth from "./auth/EnvironmentAuth.ts";
 import * as EnvironmentTheme from "./environmentTheme.ts";
 import * as SavedWorkspaces from "./savedWorkspaces/SavedWorkspaces.ts";
+import * as Shells from "./terminal/Shells.ts";
 import * as GitWorkflowService from "./git/GitWorkflowService.ts";
 import * as HostResources from "./resourceTelemetry/HostResources.ts";
 import * as ManagedProjectFolders from "./project/ManagedProjectFolders.ts";
@@ -541,6 +542,7 @@ const layerUnusedConfigRpcServices = Layer.mergeAll(
   Layer.mock(StorageCleanup.StorageCleanup)({}),
   Layer.mock(DatabaseStorage.DatabaseStorage)({}),
   Layer.mock(TerminalManager.TerminalManager)({}),
+  Layer.mock(Shells.Shells)({}),
   Layer.mock(ThreadLaunchService.ThreadLaunchService)({}),
   Layer.mock(ThreadManagement.ThreadManagementService)({}),
   Layer.mock(ThreadSearch.ThreadSearch)({}),

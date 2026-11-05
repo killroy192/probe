@@ -23,6 +23,8 @@ export const ShellOpenInput = Schema.Struct({
   cols: TerminalOpenInput.fields.cols,
   rows: TerminalOpenInput.fields.rows,
   env: TerminalOpenInput.fields.env,
+  // Starts the server's configured agent command as the shell's first input.
+  agent: Schema.optional(Schema.Boolean),
 });
 export type ShellOpenInput = typeof ShellOpenInput.Type;
 

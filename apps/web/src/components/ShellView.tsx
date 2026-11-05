@@ -1,6 +1,12 @@
 import { useAtomValue } from "@effect/atom-react";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
-import { type EnvironmentId, type ShellId, ThreadId, shellOwnerId } from "@t3tools/contracts";
+import {
+  type EnvironmentId,
+  type ShellId,
+  type ShellSummary,
+  ThreadId,
+  shellOwnerId,
+} from "@t3tools/contracts";
 import * as Schema from "effect/Schema";
 
 import { TYPOGRAPHY_ADVANCED_STORAGE_KEY } from "../appearanceFonts";
@@ -23,15 +29,8 @@ export function ShellView({
   readonly shellId: ShellId;
 }) {
   const contentArea = workspaceAreaProps("terminal", 1, "Shell");
-  const keybindings = useAtomValue(primaryServerKeybindingsAtom);
-  const [advancedTypography] = useLocalStorage(
-    TYPOGRAPHY_ADVANCED_STORAGE_KEY,
-    false,
-    Schema.Boolean,
-  );
   const { shells, error } = useShells(environmentId);
   const shell = shells?.find((candidate) => candidate.shellId === shellId) ?? null;
-  const ownerId = ThreadId.make(shellOwnerId(shellId));
 
   return (
     <SidebarInset
@@ -43,19 +42,7 @@ export function ShellView({
         {isElectron ? <WorkspacePageHeader electron /> : null}
         {shell ? (
           <div className="min-h-0 flex-1 p-2" data-testid="shell-view">
-            <TerminalViewport
-              advancedTypography={advancedTypography}
-              threadRef={scopeThreadRef(environmentId, ownerId)}
-              threadId={ownerId}
-              terminalId={shellId}
-              shellId={shellId}
-              terminalLabel={shell.label}
-              cwd={shell.cwd}
-              onSessionExited={() => undefined}
-              autoFocus
-              visible
-              keybindings={keybindings}
-            />
+            <ShellTerminal environmentId={environmentId} shell={shell} visible />
           </div>
         ) : (
           <Empty className="flex-1">
@@ -71,5 +58,39 @@ export function ShellView({
         )}
       </div>
     </SidebarInset>
+  );
+}
+
+/** One shell's terminal surface; a hidden one stays mounted so its output keeps arriving. */
+export function ShellTerminal({
+  environmentId,
+  shell,
+  visible,
+}: {
+  readonly environmentId: EnvironmentId;
+  readonly shell: ShellSummary;
+  readonly visible: boolean;
+}) {
+  const keybindings = useAtomValue(primaryServerKeybindingsAtom);
+  const [advancedTypography] = useLocalStorage(
+    TYPOGRAPHY_ADVANCED_STORAGE_KEY,
+    false,
+    Schema.Boolean,
+  );
+  const ownerId = ThreadId.make(shellOwnerId(shell.shellId));
+  return (
+    <TerminalViewport
+      advancedTypography={advancedTypography}
+      threadRef={scopeThreadRef(environmentId, ownerId)}
+      threadId={ownerId}
+      terminalId={shell.shellId}
+      shellId={shell.shellId}
+      terminalLabel={shell.label}
+      cwd={shell.cwd}
+      onSessionExited={() => undefined}
+      autoFocus={visible}
+      visible={visible}
+      keybindings={keybindings}
+    />
   );
 }

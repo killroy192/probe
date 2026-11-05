@@ -88,6 +88,7 @@ import * as ProcessRunner from "./processRunner.ts";
 import * as GitManager from "./git/GitManager.ts";
 import * as EnvironmentTheme from "./environmentTheme.ts";
 import * as SavedWorkspaces from "./savedWorkspaces/SavedWorkspaces.ts";
+import * as Shells from "./terminal/Shells.ts";
 import * as Keybindings from "./keybindings.ts";
 import * as ServerRuntimeStartup from "./serverRuntimeStartup.ts";
 import * as ServerOwnership from "./serverOwnership.ts";
@@ -443,10 +444,14 @@ const layerCheckpointStore = CheckpointStore.layer.pipe(Layer.provide(layerVcsDr
 
 const layerPortScanner = PortScanner.layer.pipe(Layer.provide(ProcessRunner.layer));
 
-const layerTerminal = TerminalManager.layer.pipe(
-  Layer.provide(layerPtyAdapter),
-  Layer.provide(layerPortScanner),
-  Layer.provide(layerNativeTelemetry),
+const layerTerminal = Shells.layer.pipe(
+  Layer.provideMerge(
+    TerminalManager.layer.pipe(
+      Layer.provide(layerPtyAdapter),
+      Layer.provide(layerPortScanner),
+      Layer.provide(layerNativeTelemetry),
+    ),
+  ),
 );
 
 const layerPreview = Layer.empty.pipe(
@@ -582,6 +587,8 @@ const layerProviderInstallationRefresh = Layer.effectDiscard(
 );
 
 const layerRuntimeCoreDependenciesBase = Layer.mergeAll(
+  // Adds folders as projects and starts shells, so it sits above both.
+  SavedWorkspaces.layer,
   AgentAwarenessRelay.layer,
   HeldHooksWaker.layer,
   layerThreadSettlementWorker,
@@ -636,12 +643,7 @@ const layerRuntimeCoreDependenciesBase = Layer.mergeAll(
   Layer.provideMerge(Layer.mergeAll(layerTerminal, layerPreview, layerDevice)),
   Layer.provideMerge(layerPersistence),
   Layer.provideMerge(
-    Layer.mergeAll(
-      Keybindings.layer,
-      EnvironmentTheme.layer,
-      SavedWorkspaces.layer,
-      UsageLimitSources.layer,
-    ),
+    Layer.mergeAll(Keybindings.layer, EnvironmentTheme.layer, UsageLimitSources.layer),
   ),
   Layer.provideMerge(ProviderRegistry.layer),
   Layer.provideMerge(ProviderInstanceRegistryHydration.layer),

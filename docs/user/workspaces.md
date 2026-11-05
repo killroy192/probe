@@ -22,14 +22,41 @@ workspace's name.
 The left sidebar shows the shown workspace as the root of its shell tree. The
 **Workspaces** button at the top of the sidebar creates a workspace, opens
 another saved one, or removes one. Opening the workspace already shown changes
-nothing. Settings stays at the bottom of the sidebar. Search and **Add project**
-are not active yet: they start working once workspaces hold folders and shells.
+nothing. Settings stays at the bottom of the sidebar. Search is not active yet.
 
 Removing a workspace deletes its saved entry. It never deletes folders on disk.
 Removing the shown workspace returns to the start screen, where **Open
 workspace** lists the rest.
 
 A reload returns to the start screen; the list of saved workspaces stays.
+
+## Folders and shells
+
+A workspace holds folders, and each shell runs in one of them. Click **+** at
+the top of the sidebar to start a shell: pick a folder and click the up-arrow
+button. The shell opens in a new tab and appears in the tree under its folder.
+It starts the server's agent command (see [Agent command](#agent-command)), and
+leaving the agent leaves the shell open.
+
+To add a folder, click **Add folder** in that dialog, or the **Add project**
+icon in the sidebar:
+
+- **Import existing folder** adds a folder that is already on the server's
+  disk. Folders that are git repositories show a `git` badge.
+- **Create new folder** makes a folder in the place you choose and runs
+  `git init` in it. If `git init` fails, the new folder is removed again.
+
+Each folder is also registered as a project on the server. The dialog
+preselects the folder you last started a shell in, as long as it is still in
+the workspace and on disk. Tabs last until the page is reloaded; the shells keep
+running on the server until it stops.
+
+## Agent command
+
+The server types the command in its `PROBE_AGENT_COMMAND` environment variable
+into each shell started from a workspace. Its first word must be a file or a
+program on the server's `PATH`. When it is not set or not found, the shell does
+not start and the dialog shows why.
 
 ## Names
 

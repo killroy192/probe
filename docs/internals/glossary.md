@@ -12,6 +12,7 @@ Terms whose meaning matters across T3 Code. Architecture and lifecycle constrain
 | Project        | An environment-local workspace record rooted at a directory.                                      |
 | Workspace root | The project's base filesystem directory on the environment.                                       |
 | Workspace      | A named set of folders and the layout of their shells, saved as one file per workspace.           |
+| Folder         | A directory in a workspace, registered as a project. Shells from the "+" dialog start in one.     |
 | Worktree       | A separate Git checkout a thread can use instead of the project's main checkout.                  |
 | Thread         | The durable conversation and work history for a project. It survives provider process exits.      |
 | Shell          | A terminal the environment owns instead of a thread. It keeps running with no client attached.    |

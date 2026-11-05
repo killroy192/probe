@@ -199,6 +199,8 @@ const RPC_AGGREGATES = {
   [WS_METHODS.workspaceCreate]: "workspace",
   [WS_METHODS.workspaceRemove]: "workspace",
   [WS_METHODS.workspaceOpen]: "workspace",
+  [WS_METHODS.workspaceAddFolder]: "workspace",
+  [WS_METHODS.workspaceStartShell]: "terminal",
   [WS_METHODS.subscribeWorkspaces]: "workspace",
   [WS_METHODS.previewOpen]: "preview",
   [WS_METHODS.previewResize]: "preview",

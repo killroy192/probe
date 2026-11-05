@@ -164,6 +164,10 @@ const EnvServerConfig = Config.all({
     Config.option,
     Config.map(Option.getOrUndefined),
   ),
+  agentCommand: Config.String("PROBE_AGENT_COMMAND").pipe(
+    Config.option,
+    Config.map(Option.getOrUndefined),
+  ),
 });
 
 const DevAuthTokenConfig = Config.Redacted("T3CODE_DEV_AUTH_TOKEN").pipe(
@@ -505,6 +509,7 @@ export const resolveServerConfig = Effect.fn("config.resolveServerConfig")(funct
     logWebSocketEvents,
     tailscaleServeEnabled,
     tailscaleServePort,
+    ...(env.agentCommand === undefined ? {} : { agentCommand: env.agentCommand }),
   };
 
   return config;

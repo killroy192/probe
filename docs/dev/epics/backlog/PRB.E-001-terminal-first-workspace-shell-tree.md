@@ -220,7 +220,7 @@ Alternatives considered: keep chat hidden behind a flag (rejected: user wants no
 | A-17 | Forking a worktree needs at least one commit, so a folder without a commit offers only its own checkout (the default worktree) | assumption | unverified | Prove in story 4 (new-folder path), recheck in story 5 | author | FR-4, FR-21 |
 | U-1 | How much of the terminal service and drawer depends on a chat thread, and how to identify a standalone shell | unknown | verified | Resolved in story 2: `shell:<id>` owner key behind separate `shell.*` RPCs ([spike](../../research/t-002-standalone-shell-spike.md)) | author | FR-6, FR-8 |
 | U-2 | Which branch a new worktree forks from by default | unknown | unverified | Decide in story 5; recommended default is the folder's current branch (the location and name are decided: FR-4) | author | FR-4 |
-| U-3 | What the time from "start shell" to the CLI banner is today | unknown | unverified | Measure in story 4 | author | NFR-1 |
+| U-3 | What the time from "start shell" to the CLI banner is today | 350–380 ms (S2, dev container, headless Chromium, mock CLI, 2026-11-05) | measured | Confirm the 2 s limit from it | author | NFR-1 |
 | U-4 | What a reopened tab shows | unknown | verified | Decided: output history and scrollback (like Paradev), FR-14 | author | FR-10 |
 | U-5 | How a shell-side kill command reaches the server (name, how it finds its own shell) | unknown | unverified | Design in story 6 | author | FR-12 |
 | U-6 | What happens to a saved layout whose folder was moved or deleted | unknown | verified | Decided: warn that the folder was not found and restore nothing for it, the same for moved and removed (FR-15) | author | FR-15 |

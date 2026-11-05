@@ -19,6 +19,7 @@ import * as Exit from "effect/Exit";
 import * as Fiber from "effect/Fiber";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
+import * as Logger from "effect/Logger";
 import * as PlatformError from "effect/PlatformError";
 import * as Path from "effect/Path";
 import * as Ref from "effect/Ref";
@@ -1814,13 +1815,18 @@ it.layer(
   { excludeTestServices: true },
 )("Shells", (it) => {
   let nextShell = 0;
-  const makeShells = (manager: TerminalManager.TerminalManager["Service"]) =>
+  const makeShells = (
+    manager: TerminalManager.TerminalManager["Service"],
+    options?: Parameters<typeof Shells.makeShells>[2],
+  ) =>
     Shells.makeShells(
       manager,
       Effect.sync(() => `shell-${++nextShell}`),
+      options,
     );
+  type ShellsService = Shells.Shells["Service"];
 
-  const collectList = (shells: ReturnType<typeof makeShells>) =>
+  const collectList = (shells: ShellsService) =>
     Effect.gen(function* () {
       const events = yield* Ref.make<ReadonlyArray<ShellListStreamEvent>>([]);
       const stop = yield* shells.subscribe((event) => Ref.update(events, (all) => [...all, event]));
@@ -1828,7 +1834,7 @@ it.layer(
       return Ref.get(events);
     });
 
-  const liveStatus = (shells: ReturnType<typeof makeShells>, shellId: string) =>
+  const liveStatus = (shells: ShellsService, shellId: string) =>
     shells.attach({ shellId }, "status-check").pipe(
       Stream.take(1),
       Stream.runCollect,
@@ -1838,7 +1844,7 @@ it.layer(
   it.effect("leaves a shell running while a thread's terminals open, run and close", () =>
     Effect.gen(function* () {
       const { manager, ptyAdapter } = yield* createManager();
-      const shells = makeShells(manager);
+      const shells = yield* makeShells(manager);
       const shell = yield* shells.open({ cwd: process.cwd() });
 
       yield* manager.open(openInput());
@@ -1856,7 +1862,7 @@ it.layer(
   it.effect("starts, writes to, resizes and lists a shell with no thread", () =>
     Effect.gen(function* () {
       const { manager, ptyAdapter } = yield* createManager();
-      const shells = makeShells(manager);
+      const shells = yield* makeShells(manager);
       const events = yield* collectList(shells);
 
       const shell = yield* shells.open({ cwd: process.cwd(), cols: 100, rows: 24 });
@@ -1879,7 +1885,7 @@ it.layer(
   it.effect("keeps shells out of the thread terminal list and thread terminals out of shells", () =>
     Effect.gen(function* () {
       const { manager } = yield* createManager();
-      const shells = makeShells(manager);
+      const shells = yield* makeShells(manager);
       const events = yield* collectList(shells);
       const threadEvents: TerminalMetadataStreamEvent[] = [];
       const stop = yield* manager.subscribeMetadata((event) =>
@@ -1905,7 +1911,7 @@ it.layer(
   it.effect("replays output to a shell attached after it was produced", () =>
     Effect.gen(function* () {
       const { manager, ptyAdapter } = yield* createManager();
-      const shells = makeShells(manager);
+      const shells = yield* makeShells(manager);
       const shell = yield* shells.open({ cwd: process.cwd() });
       ptyAdapter.processes[0]!.emitData("made while detached\n");
 
@@ -1924,7 +1930,7 @@ it.layer(
   it.effect("gives two shells in one folder separate output and lifetimes", () =>
     Effect.gen(function* () {
       const { manager, ptyAdapter } = yield* createManager();
-      const shells = makeShells(manager);
+      const shells = yield* makeShells(manager);
       const a = yield* shells.open({ cwd: process.cwd() });
       const b = yield* shells.open({ cwd: process.cwd() });
       ptyAdapter.processes[0]!.emitData("only-a\n");
@@ -1949,7 +1955,7 @@ it.layer(
   it.effect("removes an ended shell from the list and shows a self-exit as ended", () =>
     Effect.gen(function* () {
       const { manager, ptyAdapter } = yield* createManager();
-      const shells = makeShells(manager);
+      const shells = yield* makeShells(manager);
       const events = yield* collectList(shells);
       const closed = yield* shells.open({ cwd: process.cwd() });
       const exited = yield* shells.open({ cwd: process.cwd() });
@@ -1969,7 +1975,7 @@ it.layer(
   it.effect("rejects requests for a shell that does not exist and a folder that does not", () =>
     Effect.gen(function* () {
       const { manager, ptyAdapter } = yield* createManager();
-      const shells = makeShells(manager);
+      const shells = yield* makeShells(manager);
       const events = yield* collectList(shells);
       const other = yield* shells.open({ cwd: process.cwd() });
       const missing = { shellId: "no-such-shell" };
@@ -1996,7 +2002,7 @@ it.layer(
   it.effect("reports a shell whose program cannot be launched as failed, not running", () =>
     Effect.gen(function* () {
       const { manager, ptyAdapter } = yield* createManager();
-      const shells = makeShells(manager);
+      const shells = yield* makeShells(manager);
       const events = yield* collectList(shells);
       for (let attempt = 0; attempt < 8; attempt++) {
         ptyAdapter.spawnFailures.push(new Error("posix_spawnp failed."));
@@ -2014,4 +2020,73 @@ it.layer(
       expect(left).toEqual([]);
     }),
   );
+
+  const captureLogs = () => {
+    const lines: Array<{ readonly message: string; readonly fields: unknown }> = [];
+    const logger = Logger.make(({ message }) => {
+      const [text, fields] = Array.isArray(message) ? message : [message];
+      lines.push({ message: String(text), fields });
+    });
+    return { lines, layer: Logger.layer([logger], { mergeWithExisting: false }) };
+  };
+  const nodeDir = process.execPath.replace(/[\\/][^\\/]*$/, "");
+
+  it.effect("refuses to start an agent shell when the agent command cannot be found", () => {
+    const logs = captureLogs();
+    return Effect.gen(function* () {
+      const { manager, ptyAdapter } = yield* createManager();
+      const missing = yield* makeShells(manager, {
+        agentCommand: "no-such-agent-cli --resume",
+        searchPath: nodeDir,
+      });
+      const unset = yield* makeShells(manager, { agentCommand: null });
+      const events = yield* collectList(missing);
+
+      const notFound = yield* Effect.flip(missing.open({ cwd: process.cwd(), agent: true }));
+      const notConfigured = yield* Effect.flip(unset.open({ cwd: process.cwd(), agent: true }));
+
+      assert.equal(notFound._tag, "ShellLaunchError");
+      expect(notFound.message).toContain("no-such-agent-cli");
+      expect(notConfigured.message).toContain("No agent command is configured.");
+      expect(ptyAdapter.spawnInputs).toHaveLength(0);
+      expect((yield* events).filter((e) => e.type === "upsert")).toEqual([]);
+      expect(logs.lines.filter((line) => line.message === "shell failed to start")).toEqual([
+        {
+          message: "shell failed to start",
+          fields: expect.objectContaining({ cwd: process.cwd() }),
+        },
+        {
+          message: "shell failed to start",
+          fields: expect.objectContaining({ cwd: process.cwd() }),
+        },
+      ]);
+    }).pipe(Effect.provide(logs.layer));
+  });
+
+  it.effect("types the agent command into an agent shell and logs its start and end", () => {
+    const logs = captureLogs();
+    return Effect.gen(function* () {
+      const { manager, ptyAdapter } = yield* createManager();
+      const shells = yield* makeShells(manager, {
+        agentCommand: "node agent.ts",
+        searchPath: nodeDir,
+      });
+      const agent = yield* shells.open({ cwd: process.cwd(), agent: true });
+      yield* shells.open({ cwd: process.cwd() });
+
+      expect(ptyAdapter.processes[0]?.writes).toEqual(["node agent.ts\r"]);
+      expect(ptyAdapter.processes[1]?.writes).toEqual([]);
+      ptyAdapter.processes[0]!.emitExit({ exitCode: 0, signal: 9 });
+      yield* liveStatus(shells, agent.shellId);
+
+      expect(logs.lines.filter((line) => line.message.startsWith("shell "))).toContainEqual({
+        message: "shell started",
+        fields: { shellId: agent.shellId, cwd: process.cwd() },
+      });
+      expect(logs.lines).toContainEqual({
+        message: "shell ended",
+        fields: { shellId: agent.shellId, exitCode: 0, exitSignal: 9 },
+      });
+    }).pipe(Effect.provide(logs.layer));
+  });
 });

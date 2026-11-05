@@ -8,6 +8,12 @@ import * as NodeURL from "node:url";
 
 export const REPO_ROOT = NodePath.resolve(NodeURL.fileURLToPath(import.meta.url), "../../..");
 const DEFAULT_SERVER_BIN = NodePath.join(REPO_ROOT, "apps/server/src/bin.ts");
+/** The agent command the server types into a shell started from a workspace. */
+export const MOCK_AGENT_COMMAND = `node ${NodePath.join(REPO_ROOT, "scripts/mock-agent/mock-agent.ts")}`;
+const LOG_LIMIT = 4 * 1024 * 1024;
+
+/** Variables for the server process; `undefined` removes one the harness would set. */
+export type ServerEnv = Readonly<Record<string, string | undefined>>;
 const HOST = "127.0.0.1";
 
 export interface ServerHandle {
@@ -15,8 +21,10 @@ export interface ServerHandle {
   readonly origin: string;
   readonly pid: () => number;
   readonly stop: () => Promise<void>;
-  /** Stops the server and starts it again on the same home and port. */
-  readonly restart: () => Promise<void>;
+  /** Stops the server and starts it again on the same home and port, with `env` on top of the defaults. */
+  readonly restart: (options?: { readonly env?: ServerEnv }) => Promise<void>;
+  /** Everything the server has printed so far, across restarts (info level). */
+  readonly logs: () => string;
   /** Mints a one-time pairing URL that signs a browser in without a human. */
   readonly pairingUrl: () => Promise<string>;
   /** Runs a `bin.ts` subcommand against this server's home, for fixtures. */
@@ -24,10 +32,16 @@ export interface ServerHandle {
 }
 
 // The child must see only what the harness gives it, never an ambient home or dev URL.
-const childEnv = (): NodeJS.ProcessEnv => {
+const childEnv = (overrides: ServerEnv = {}): NodeJS.ProcessEnv => {
   const env: NodeJS.ProcessEnv = { ...NodeProcess.env, NO_COLOR: "1" };
   for (const key of Object.keys(env)) {
-    if (key.startsWith("T3CODE_") || key.startsWith("VITE_")) delete env[key];
+    if (key.startsWith("T3CODE_") || key.startsWith("VITE_") || key.startsWith("PROBE_")) {
+      delete env[key];
+    }
+  }
+  for (const [key, value] of Object.entries(overrides)) {
+    if (value === undefined) delete env[key];
+    else env[key] = value;
   }
   return env;
 };
@@ -59,11 +73,12 @@ async function stopChild(child: NodeChildProcess.ChildProcess): Promise<void> {
   clearTimeout(escalate);
 }
 
-const waitUntilReady = (child: NodeChildProcess.ChildProcess) =>
+const waitUntilReady = (child: NodeChildProcess.ChildProcess, onOutput: (chunk: string) => void) =>
   new Promise<void>((resolve, reject) => {
     let tail = "";
     let ready = false;
     const onData = (chunk: Buffer) => {
+      onOutput(chunk.toString());
       tail = (tail + chunk.toString()).slice(-4_000);
       if (!ready && tail.includes("server is ready")) {
         ready = true;
@@ -114,8 +129,13 @@ export async function startServer(options: {
   const serverBin = options.serverBin ?? DEFAULT_SERVER_BIN;
   const port = await reservePort();
   let child: NodeChildProcess.ChildProcess | undefined;
+  let logs = "";
+  const defaults: ServerEnv = {
+    PROBE_AGENT_COMMAND: MOCK_AGENT_COMMAND,
+    MOCK_AGENT_HOME: NodePath.join(options.home, "mock-agent"),
+  };
 
-  const start = async () => {
+  const start = async (env: ServerEnv = {}) => {
     const spawned = NodeChildProcess.spawn(
       "node",
       [
@@ -129,13 +149,19 @@ export async function startServer(options: {
         options.home,
         "--no-browser",
         "--log-level",
-        "error",
+        "info",
       ],
-      { cwd: REPO_ROOT, env: childEnv(), stdio: ["ignore", "pipe", "pipe"] },
+      {
+        cwd: REPO_ROOT,
+        env: childEnv({ ...defaults, ...env }),
+        stdio: ["ignore", "pipe", "pipe"],
+      },
     );
     child = spawned;
     try {
-      await waitUntilReady(spawned);
+      await waitUntilReady(spawned, (chunk) => {
+        logs = (logs + chunk).slice(-LOG_LIMIT);
+      });
     } catch (error) {
       await stopChild(spawned);
       throw error;
@@ -157,10 +183,11 @@ export async function startServer(options: {
       return child.pid;
     },
     stop,
-    restart: async () => {
+    restart: async (restartOptions) => {
       await stop();
-      await start();
+      await start(restartOptions?.env);
     },
+    logs: () => logs,
     pairingUrl: async () => {
       const credential = parsePairingCredentialOutput(
         await cli(["auth", "pairing", "create", "--json"]),

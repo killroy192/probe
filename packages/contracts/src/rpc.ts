@@ -275,11 +275,16 @@ import {
   ShellWriteInput,
 } from "./shell.ts";
 import {
+  WorkspaceAddFolderInput,
+  WorkspaceAddFolderResult,
+  WorkspaceDetail,
+  WorkspaceFolderError,
   WorkspaceInput,
   WorkspaceInvalidError,
   WorkspaceListEvent,
   WorkspaceNameTakenError,
   WorkspaceNotFoundError,
+  WorkspaceStartShellInput,
   WorkspaceStorageError,
   WorkspaceSummary,
 } from "./workspace.ts";
@@ -492,6 +497,8 @@ export const WS_METHODS = {
   workspaceCreate: "workspace.create",
   workspaceRemove: "workspace.remove",
   workspaceOpen: "workspace.open",
+  workspaceAddFolder: "workspace.addFolder",
+  workspaceStartShell: "workspace.startShell",
 
   previewOpen: "preview.open",
   previewResize: "preview.resize",
@@ -1641,10 +1648,36 @@ const WsWorkspaceRemoveRpc = Rpc.make(WS_METHODS.workspaceRemove, {
 
 const WsWorkspaceOpenRpc = Rpc.make(WS_METHODS.workspaceOpen, {
   payload: WorkspaceInput,
-  success: WorkspaceSummary,
+  success: WorkspaceDetail,
   error: Schema.Union([
     WorkspaceNotFoundError,
     WorkspaceInvalidError,
+    EnvironmentAuthorizationError,
+  ]),
+});
+
+const WsWorkspaceAddFolderRpc = Rpc.make(WS_METHODS.workspaceAddFolder, {
+  payload: WorkspaceAddFolderInput,
+  success: WorkspaceAddFolderResult,
+  error: Schema.Union([
+    WorkspaceNotFoundError,
+    WorkspaceInvalidError,
+    WorkspaceFolderError,
+    WorkspaceStorageError,
+    EnvironmentAuthorizationError,
+  ]),
+});
+
+const WsWorkspaceStartShellRpc = Rpc.make(WS_METHODS.workspaceStartShell, {
+  payload: WorkspaceStartShellInput,
+  success: ShellSummary,
+  error: Schema.Union([
+    WorkspaceNotFoundError,
+    WorkspaceInvalidError,
+    WorkspaceFolderError,
+    WorkspaceStorageError,
+    TerminalError,
+    ShellLaunchError,
     EnvironmentAuthorizationError,
   ]),
 });
@@ -2208,6 +2241,8 @@ export const WsRpcGroup = RpcGroup.make(
   WsWorkspaceCreateRpc,
   WsWorkspaceRemoveRpc,
   WsWorkspaceOpenRpc,
+  WsWorkspaceAddFolderRpc,
+  WsWorkspaceStartShellRpc,
   WsSubscribeWorkspacesRpc,
   WsSubscribeTerminalMetadataRpc,
   WsPreviewOpenRpc,

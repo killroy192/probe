@@ -22,3 +22,57 @@ export async function launchBrowser(executablePath: string | undefined): Promise
     );
   }
 }
+
+/**
+ * Routes the page's server websockets through the harness so a scenario can cut them. Install it
+ * before the page connects. `dropOn` closes every socket when the page next sends a frame that
+ * contains `marker`, without passing that frame on, so the server never sees the request.
+ */
+export async function connectionCutter(page: PointerPage) {
+  let marker: string | null = null;
+  let dropped: (() => void) | null = null;
+  let served = 0;
+  const servedWaiters = new Set<() => void>();
+  await page.routeWebSocket(/\/ws(\?|$)/, (socket) => {
+    const server = socket.connectToServer();
+    let first = true;
+    server.onMessage((message) => {
+      socket.send(message);
+      if (!first) return;
+      first = false;
+      served++;
+      for (const wake of servedWaiters) wake();
+    });
+    socket.onMessage((message) => {
+      if (marker !== null && typeof message === "string" && message.includes(marker)) {
+        marker = null;
+        void socket.close({ code: 4000, reason: "dropped by the scenario" });
+        void server.close();
+        dropped?.();
+        return;
+      }
+      server.send(message);
+    });
+  });
+  return {
+    /** Resolves once a frame containing `nextMarker` was dropped with its connection. */
+    dropOn: (nextMarker: string) =>
+      new Promise<void>((resolve) => {
+        marker = nextMarker;
+        dropped = resolve;
+      }),
+    /** How many connections the server has answered so far. */
+    served: () => served,
+    /** Resolves once the server has answered more than `count` connections. */
+    servedMoreThan: (count: number) =>
+      new Promise<void>((resolve) => {
+        const check = () => {
+          if (served <= count) return;
+          servedWaiters.delete(check);
+          resolve();
+        };
+        servedWaiters.add(check);
+        check();
+      }),
+  };
+}

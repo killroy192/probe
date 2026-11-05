@@ -107,6 +107,8 @@ export class ServerConfig extends Context.Service<
     readonly logWebSocketEvents: boolean;
     readonly tailscaleServeEnabled: boolean;
     readonly tailscaleServePort: number;
+    /** `PROBE_AGENT_COMMAND`: typed into a shell started from a workspace. */
+    readonly agentCommand?: string | undefined;
   }
 >()("t3/config/ServerConfig") {
   static readonly layerTest = (

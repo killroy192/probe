@@ -1,5 +1,6 @@
 import * as Schema from "effect/Schema";
-import { TrimmedString } from "./baseSchemas.ts";
+import { TrimmedNonEmptyString, TrimmedString } from "./baseSchemas.ts";
+import { TerminalOpenInput } from "./terminal.ts";
 
 // A workspace is saved as one file named after it, so its name must be a portable file name.
 const WORKSPACE_NAME_MAX_LENGTH = 64;
@@ -32,11 +33,66 @@ export const WorkspaceName = TrimmedString.check(
 );
 export type WorkspaceName = typeof WorkspaceName.Type;
 
+/** Why `name` cannot name a new folder, as a sentence for the user, or null when it can. */
+export function folderNameProblem(name: string): string | null {
+  // A workspace name is already a portable single file name, which is what a folder needs.
+  return workspaceNameProblem(name);
+}
+
+export const WorkspaceFolderName = TrimmedString.check(
+  Schema.makeFilter((name: string) => folderNameProblem(name) === null, {
+    expected: "a folder name that is valid on every file system",
+  }),
+);
+
 export const WorkspaceInput = Schema.Struct({ name: WorkspaceName });
 export type WorkspaceInput = typeof WorkspaceInput.Type;
 
 export const WorkspaceSummary = Schema.Struct({ name: WorkspaceName });
 export type WorkspaceSummary = typeof WorkspaceSummary.Type;
+
+export const WorkspaceFolder = Schema.Struct({
+  path: Schema.String.check(Schema.isNonEmpty()),
+  isGitRepository: Schema.Boolean,
+});
+export type WorkspaceFolder = typeof WorkspaceFolder.Type;
+
+export const WorkspaceDetail = Schema.Struct({
+  name: WorkspaceName,
+  folders: Schema.Array(WorkspaceFolder),
+  lastFolder: Schema.NullOr(Schema.String),
+});
+export type WorkspaceDetail = typeof WorkspaceDetail.Type;
+
+export const WorkspaceAddFolderInput = Schema.Union([
+  Schema.Struct({
+    mode: Schema.Literal("import"),
+    name: WorkspaceName,
+    path: TrimmedNonEmptyString,
+  }),
+  Schema.Struct({
+    mode: Schema.Literal("create"),
+    name: WorkspaceName,
+    parentPath: TrimmedNonEmptyString,
+    folderName: WorkspaceFolderName,
+  }),
+]);
+export type WorkspaceAddFolderInput = typeof WorkspaceAddFolderInput.Type;
+
+export const WorkspaceAddFolderResult = Schema.Struct({
+  workspace: WorkspaceDetail,
+  /** The added folder's path as the server stores it. */
+  folder: Schema.String,
+});
+export type WorkspaceAddFolderResult = typeof WorkspaceAddFolderResult.Type;
+
+export const WorkspaceStartShellInput = Schema.Struct({
+  name: WorkspaceName,
+  folder: TrimmedNonEmptyString,
+  cols: TerminalOpenInput.fields.cols,
+  rows: TerminalOpenInput.fields.rows,
+});
+export type WorkspaceStartShellInput = typeof WorkspaceStartShellInput.Type;
 
 export const WorkspaceListEvent = Schema.Struct({
   workspaces: Schema.Array(WorkspaceSummary),
@@ -72,9 +128,19 @@ export class WorkspaceInvalidError extends Schema.TaggedError<WorkspaceInvalidEr
 
 export class WorkspaceStorageError extends Schema.TaggedError<WorkspaceStorageError>()(
   "WorkspaceStorageError",
-  { operation: Schema.Literals(["create", "remove", "list"]), reason: Schema.String },
+  { operation: Schema.Literals(["create", "remove", "list", "update"]), reason: Schema.String },
 ) {
   override get message() {
     return `Could not ${this.operation} the workspace: ${this.reason}`;
+  }
+}
+
+/** A folder could not be added to a workspace, or a shell could not start in it. */
+export class WorkspaceFolderError extends Schema.TaggedError<WorkspaceFolderError>()(
+  "WorkspaceFolderError",
+  { reason: Schema.String },
+) {
+  override get message() {
+    return this.reason;
   }
 }

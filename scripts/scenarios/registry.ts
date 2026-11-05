@@ -1,4 +1,5 @@
 import { boot } from "./scenarios/boot.ts";
+import { plusModal } from "./scenarios/plus-modal.ts";
 import { standaloneShell } from "./scenarios/standalone-shell.ts";
 import { deliberateFailure } from "./selftest/deliberate-failure.ts";
 import { restartPersistence } from "./selftest/restart-persistence.ts";
@@ -7,7 +8,7 @@ import type { Scenario } from "./scenario.ts";
 // S1..S8 from PRB.E-001. A scenario without `run` is pending until its story builds it.
 export const scenarios: ReadonlyArray<Scenario> = [
   boot,
-  { id: "S2", title: "pending (story 4)" },
+  plusModal,
   { id: "S3", title: "pending (story 5)" },
   { id: "S4", title: "pending (story 6)" },
   { id: "S5", title: "pending (story 6)" },

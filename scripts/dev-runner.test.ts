@@ -90,6 +90,7 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
 
         assert.equal(web.T3CODE_DEV_AUTH_TOKEN, input.baseEnv.T3CODE_DEV_AUTH_TOKEN);
         assert.equal(desktop.T3CODE_DEV_AUTH_TOKEN, undefined);
+        assert.match(web.PROBE_AGENT_COMMAND ?? "", /^node .*scripts\/mock-agent\/mock-agent\.ts$/);
       }),
     );
 

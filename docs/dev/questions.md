@@ -16,8 +16,7 @@ it is verified or decided; settled decisions go to `roadmap.md`.
 - PRB.E-001 assumptions its stories depend on (2026-11-02): A-17 forking a worktree needs at least one commit, and a folder without one runs in
   its own checkout (PRB.T-004, PRB.T-005); A-11 Probe can learn and track a shell's current branch
   and A-12 list a folder's worktrees, including detached and shell-less ones (PRB.T-005). Unknowns:
-  U-2 default base branch and worktree location; U-3 time from start to the CLI banner (PRB.T-004);
-  U-5 the kill command's name and how it finds its own shell (PRB.T-006). The 2 s start and 5 s
+  U-2 default base branch and worktree location; U-5 the kill command's name and how it finds its own shell (PRB.T-006). The 2 s start and 5 s
   resume limits are provisional (PRB.T-004, PRB.T-008).
 - Whether a shell exiting on its own closes its tab (PRB.T-006 SU-2, split with PRB.T-007 and
   PRB.T-008).
@@ -29,7 +28,6 @@ it is verified or decided; settled decisions go to `roadmap.md`.
   resume always fail. PRB.T-008 owns both (by 2026-11-16).
 - Whether CI type-checks desktop and mobile after contract changes (PRB.T-008 SA-4). Locally,
   `vp run check:changed` type-checks both as dependents of `packages/contracts`.
-- Which story makes `Shells` a server service, so MCP tools and scheduled tasks can reach shells.
 - Which story brings back the right panel (folders and file preview) next to shells. It lived in the
   chat view, which PRB.T-003 hides; the user wants it back once shells and folders exist (2026-11-05).
   PRB.T-002 builds it inside the ws layer (`apps/server/src/ws.ts`); deferred by the user.

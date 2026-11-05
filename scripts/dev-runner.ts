@@ -337,6 +337,12 @@ export const createDevRunnerEnv = Effect.fn("dev-runner.createDevRunnerEnv")(fun
   delete output.T3_SERVICE_LAUNCHER_CONTEXT;
   delete output.T3_BOOT_SERVICE_UNIT;
 
+  // Shells started from a workspace run the free mock agent CLI unless the developer picks one.
+  const path = yield* Path.Path;
+  output.PROBE_AGENT_COMMAND =
+    baseEnv.PROBE_AGENT_COMMAND ??
+    `node ${path.join(path.dirname(import.meta.dirname), "scripts/mock-agent/mock-agent.ts")}`;
+
   // Each worktree has its own state, so a dev server would count as a new
   // install of the developer's real accounts. Set it explicitly to opt in.
   output.T3CODE_TELEMETRY_ENABLED = baseEnv.T3CODE_TELEMETRY_ENABLED ?? "false";

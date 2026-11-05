@@ -16,9 +16,16 @@ import {
   shellIdFromOwnerId,
   shellOwnerId,
 } from "@t3tools/contracts";
+import * as HostProcess from "@t3tools/shared/HostProcess";
+import * as Context from "effect/Context";
+import * as Crypto from "effect/Crypto";
 import * as Effect from "effect/Effect";
+import * as FileSystem from "effect/FileSystem";
+import * as Layer from "effect/Layer";
+import * as Path from "effect/Path";
 
-import type { TerminalManager } from "./Manager.ts";
+import * as ServerConfig from "../config.ts";
+import { TerminalManager } from "./Manager.ts";
 
 type Manager = TerminalManager["Service"];
 
@@ -77,15 +84,95 @@ export const withoutShells = (
   }
 };
 
-export const makeShells = (manager: Manager, newShellId: Effect.Effect<string>) => {
+interface ShellsOptions {
+  /** Typed into a shell opened with `agent: true`; null when none is configured. */
+  readonly agentCommand?: string | null;
+  readonly searchPath?: string | undefined;
+  readonly platform?: NodeJS.Platform;
+}
+
+// The program is the command's first word; the shell itself parses the rest when it runs the line.
+const programOf = (command: string) =>
+  command
+    .trim()
+    .split(/\s+/)[0]
+    ?.replace(/^["']|["']$/g, "");
+
+export const makeShells = Effect.fn("Shells.make")(function* (
+  manager: Manager,
+  newShellId: Effect.Effect<string>,
+  options: ShellsOptions = {},
+) {
+  const fs = yield* FileSystem.FileSystem;
+  const path = yield* Path.Path;
+  const platform = options.platform ?? (yield* HostProcess.Platform);
+  const agentCommand = options.agentCommand ?? null;
   const session = (shellId: string) => ({
     threadId: shellOwnerId(shellId),
     terminalId: DEFAULT_TERMINAL_ID,
   });
 
+  const isFile = (candidate: string) =>
+    fs.stat(candidate).pipe(
+      Effect.map((info) => info.type === "File"),
+      Effect.orElseSucceed(() => false),
+    );
+
+  const findProgram = Effect.fnUntraced(function* (program: string, cwd: string) {
+    if (program.includes("/") || program.includes("\\")) {
+      return yield* isFile(path.resolve(cwd, program));
+    }
+    const extensions =
+      platform === "win32" ? ["", ...(process.env.PATHEXT ?? ".EXE;.CMD;.BAT").split(";")] : [""];
+    const dirs = (options.searchPath ?? process.env.PATH ?? "")
+      .split(platform === "win32" ? ";" : ":")
+      .filter((dir) => dir.length > 0);
+    for (const dir of dirs) {
+      for (const extension of extensions) {
+        if (yield* isFile(path.join(dir, `${program}${extension}`))) return true;
+      }
+    }
+    return false;
+  });
+
+  const agentProblem = Effect.fnUntraced(function* (cwd: string) {
+    if (agentCommand === null || agentCommand.trim().length === 0) {
+      return "No agent command is configured.";
+    }
+    const program = programOf(agentCommand);
+    if (program === undefined || program.length === 0 || !(yield* findProgram(program, cwd))) {
+      return `The agent command was not found: ${program ?? agentCommand}`;
+    }
+    return null;
+  });
+
+  // A shell that ends on its own or is killed leaves a line in the server log (NFR-6).
+  const stopEndLog = yield* manager.subscribe((event) => {
+    if (event.type !== "exited") return Effect.void;
+    const shellId = shellIdFromOwnerId(event.threadId);
+    return shellId === null
+      ? Effect.void
+      : Effect.logInfo("shell ended", {
+          shellId,
+          exitCode: event.exitCode,
+          exitSignal: event.exitSignal,
+        });
+  });
+  yield* Effect.addFinalizer(() => Effect.sync(stopEndLog));
+
+  const failToStart = (cwd: string, reason: string) =>
+    Effect.logWarning("shell failed to start", { cwd, reason }).pipe(
+      Effect.andThen(Effect.fail(new ShellLaunchError({ reason }))),
+    );
+
   return {
     // A shell that cannot start is not kept: the caller gets the launch error's reason instead.
     open: Effect.fn("Shells.open")(function* (input: ShellOpenInput) {
+      const { agent, ...terminal } = input;
+      if (agent === true) {
+        const problem = yield* agentProblem(input.cwd);
+        if (problem !== null) return yield* failToStart(input.cwd, problem);
+      }
       const shellId = yield* newShellId;
       const owner = session(shellId);
       let reason = "The shell program could not be launched.";
@@ -95,11 +182,18 @@ export const makeShells = (manager: Manager, newShellId: Effect.Effect<string>) 
         }),
       );
       const snapshot = yield* manager
-        .open({ ...owner, ...input })
+        .open({ ...owner, ...terminal })
         .pipe(Effect.ensuring(Effect.sync(stop)));
-      if (snapshot.status !== "error") return toSummary(shellId, snapshot);
-      yield* manager.close({ ...owner, deleteHistory: true });
-      return yield* new ShellLaunchError({ reason });
+      if (snapshot.status === "error") {
+        yield* manager.close({ ...owner, deleteHistory: true });
+        return yield* failToStart(input.cwd, reason);
+      }
+      yield* Effect.logInfo("shell started", { shellId, cwd: snapshot.cwd });
+      if (agent === true && agentCommand !== null) {
+        // The pty buffers this until the shell has read its startup files.
+        yield* manager.write({ ...owner, data: `${agentCommand}\r` });
+      }
+      return toSummary(shellId, snapshot);
     }),
     attach: (input: ShellAttachInput, viewerId: string) =>
       manager.attachOutputStream(
@@ -123,4 +217,22 @@ export const makeShells = (manager: Manager, newShellId: Effect.Effect<string>) 
         return mapped === null ? Effect.void : listener(mapped);
       }),
   };
-};
+});
+
+/** Environment-owned shells, reachable from any server feature, not only the ws layer. */
+export class Shells extends Context.Service<
+  Shells,
+  Effect.Success<ReturnType<typeof makeShells>>
+>()("t3/terminal/Shells") {}
+
+export const layer = Layer.effect(
+  Shells,
+  Effect.gen(function* () {
+    const manager = yield* TerminalManager;
+    const crypto = yield* Crypto.Crypto;
+    const { agentCommand } = yield* ServerConfig.ServerConfig;
+    return yield* makeShells(manager, crypto.randomUUIDv4().pipe(Effect.orDie), {
+      agentCommand: agentCommand ?? null,
+    });
+  }),
+);
