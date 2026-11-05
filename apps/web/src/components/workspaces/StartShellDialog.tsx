@@ -252,7 +252,8 @@ function AddFolderPanel({
   readonly onAdd: (request: AddFolderRequest) => void;
   readonly onCancel: () => void;
 }) {
-  const [path, setPath] = useState("");
+  // Starts in the server's home folder, so the folder list shows before anything is typed.
+  const [path, setPath] = useState("~/");
   const [folderName, setFolderName] = useState("");
   const nameProblem = folderName.trim().length === 0 ? null : folderNameProblem(folderName);
   const ready =
@@ -274,6 +275,9 @@ function AddFolderPanel({
       </ToggleGroup>
       <FolderPathField
         label={mode === "import" ? "Folder" : "Create it in"}
+        purpose={
+          mode === "import" ? "This folder is added." : "The new folder is created inside it."
+        }
         value={path}
         onChange={setPath}
         environmentId={environmentId}
@@ -327,11 +331,14 @@ const parentFolder = (path: string) => {
  */
 function FolderPathField({
   label,
+  purpose,
   value,
   onChange,
   environmentId,
 }: {
   readonly label: string;
+  /** What happens with the selected folder, said next to it. */
+  readonly purpose: string;
   readonly value: string;
   readonly onChange: (value: string) => void;
   readonly environmentId: EnvironmentId | null;
@@ -352,6 +359,12 @@ function FolderPathField({
       : filesystemEnvironment.browse({ environmentId, input: { partialPath: directory } }),
   );
   const listed = query.data?.parentPath ?? null;
+  // A path ending in a separator selects the listed folder itself, shown resolved (~ expanded).
+  const selected = empty
+    ? null
+    : /[\\/]$/.test(value.trim())
+      ? (listed ?? value.trim())
+      : value.trim();
   const { visibleEntries } = filterFilesystemBrowseEntries(
     query.data?.entries ?? [],
     empty ? "" : browse.filterQuery,
@@ -399,7 +412,16 @@ function FolderPathField({
           aria-label="Server folders"
           className="grid rounded-md border border-border"
         >
-          <div className="flex min-w-0 items-center gap-1 border-b border-border px-1 py-1">
+          <div className="grid gap-0.5 border-b border-border px-2 py-1.5 text-xs">
+            <span className="text-muted-foreground">Selected on the server: {purpose}</span>
+            <span
+              className="min-w-0 truncate font-mono text-foreground"
+              data-testid="selected-folder"
+            >
+              {selected ?? "No folder selected"}
+            </span>
+          </div>
+          <div className="flex min-w-0 items-center gap-1 px-1 pt-1">
             <Button
               type="button"
               variant="ghost"
@@ -410,8 +432,8 @@ function FolderPathField({
             >
               <CornerLeftUpIcon />
             </Button>
-            <span className="min-w-0 truncate font-mono text-xs text-muted-foreground">
-              {listed ?? directory}
+            <span className="min-w-0 truncate text-xs text-muted-foreground">
+              Folders in {listed ?? directory}. Click one to select it.
             </span>
           </div>
           {query.error !== null ? (
