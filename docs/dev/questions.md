@@ -13,17 +13,15 @@ it is verified or decided; settled decisions go to `roadmap.md`.
   submitting (the "stage text, no Enter" primitive).
 - Agent CLIs' handling of staged input: bracketed paste, multi-line, kitty keyboard protocol.
 - Claude Code's current support for MCP prompts as slash commands and for server-pushed messages.
-- PRB.E-001 assumptions its stories depend on (2026-11-02): A-17 forking a worktree needs at least one commit, and a folder without one runs in
-  its own checkout (PRB.T-004, PRB.T-005); A-11 Probe can learn and track a shell's current branch
+- PRB.E-001 assumptions its stories depend on (2026-11-02): A-17 forking a worktree needs at least one commit (PRB.T-005; PRB.T-004 showed a folder
+  without one runs in its own checkout); A-11 Probe can learn and track a shell's current branch
   and A-12 list a folder's worktrees, including detached and shell-less ones (PRB.T-005). Unknowns:
-  U-2 default base branch and worktree location; U-5 the kill command's name and how it finds its own shell (PRB.T-006). The 2 s start and 5 s
-  resume limits are provisional (PRB.T-004, PRB.T-008).
+  U-2 default base branch and worktree location; U-5 the kill command's name and how it finds its own shell (PRB.T-006). The 5 s resume limit
+  is provisional (PRB.T-008).
 - Whether a shell exiting on its own closes its tab (PRB.T-006 SU-2, split with PRB.T-007 and
   PRB.T-008).
 - How Probe tells an unexpected end from a normal exit or a Probe kill at the moment of death. The
   rule is decided; the mechanism comes from PRB.T-007, and PRB.T-008 depends on it.
-- How a scenario ends a shell's process before PRB.T-006's kill exists (PRB.T-004 SA-8, PRB.T-005
-  SU-5).
 - Mock CLI gaps left by PRB.T-001: behavior for an unknown session id, and a switch that makes
   resume always fail. PRB.T-008 owns both (by 2026-11-16).
 - Whether CI type-checks desktop and mobile after contract changes (PRB.T-008 SA-4). Locally,

@@ -163,10 +163,10 @@ The reuse of the add-project flow inside the modal is checked by this story (epi
 | SA-3 | A shell can be told the pane's size at start and on resize, and the terminal size can be read back for the scenario. Today the contracts carry cols and rows (`packages/contracts/src/terminal.ts`). | assumption | verified | S2 AC-6 (2026-11-05): after a pane resize, `stty size` in the shell equals the columns the view reports | author |
 | SA-4 | A git folder's own checkout is its default worktree and counts as a worktree in the epic's model (A-9, decided); this story renders no worktree node. | assumption | verified | Decided by the user, 2026-11-02 | author |
 | SA-5 | Folders without a commit run only in their own checkout (epic A-17), so "create new folder" needs no commit to start a shell. | assumption | verified | S2 AC-9 (2026-11-05): a created folder has `.git` and no commit, and a shell starts in it with no worktree | author |
-| SU-1 | Time from the start action to the banner today (epic U-3). | unknown | unverified | Measured 2026-11-05 by S2 (AC-21): 350–380 ms in the dev container (headless Chromium, mock CLI). The 2-second limit still needs the author's confirmation (2026-11-09) | author |
+| SU-1 | Time from the start action to the banner today (epic U-3). | unknown | verified | Measured by S2 (AC-21): 350–380 ms in the dev container; the user kept the 2 s limit (2026-11-05) | author |
 | SU-2 | Where the preselected folder is remembered. | unknown | verified | Decided by the user 2026-11-02: one record per workspace, kept in that workspace's saved layout (FR-22); the format comes from story 3. | author |
 | SU-5 | Wording and form of the "start did not happen" message when the connection is lost (ER-4). | unknown | verified | Default from planning 2026-11-05: "The shell did not start: the connection to the server was lost. Try again." | author |
-| SU-7 | Whether clone and publish stay visible in the modal's folder step. Default: yes, as in the existing flow | unknown | false | Not built: the modal has its own folder step (SA-2), with import and create only. Clone and publish are not offered; decide at review whether a later story adds them | author |
+| SU-7 | Whether clone and publish stay visible in the modal's folder step. Default: yes, as in the existing flow | unknown | verified | Decided by the user 2026-11-05: clone and publish are deferred to a later story; the add-folder dialog offers import and create only | author |
 | SU-6 | How the user tells a folder is a git repository in the folder step (epic does not say whether the modal labels it). | unknown | verified | Default from planning 2026-11-05: folder rows show a "git" badge; the server reports `isGitRepository` per folder | author |
 
 ## Implementation Status and Handoff
@@ -194,7 +194,11 @@ Implemented on `feat/plus-modal-prb-t-004` (stacked on `feat/workspaces-prb-t-00
 - `vp run test:scenarios --rebuild`: S1, S2 and T-002 pass (2/8 passing, 6 pending). S2 passed repeatedly. Removing the double-click guard makes S2 fail at AC-24 (mutation check). The selftest and `harness.test.ts` pass.
 - Start to banner: 350–380 ms (AC-21).
 
-**Open**
+**Closed (2026-11-05)**
+- Accepted by the user after manual passes. AC-22 met (nothing animates while idle). The formal verify-story-implementation report was not produced: its scoring run was stopped, and the user accepted closing on the checks above.
+- Later changes from the manual passes: separate Start shell and Add folder dialogs, deleted folders hidden in "+" and marked "missing" in the tree, the server folder list (Autocomplete, opens on click), "(remote server)" on the path label, the tab strip in the page header, and shell names "Shell N · folder · program". S2 covers each.
+
+**Was open before closing**
 - AC-22 is a manual code review: the modal, tabs and tree add no animation. Only the existing button hover and press transitions run.
 - SU-7: clone and publish are not in the folder step (see the table above).
 - The user's manual pass in the dev app is still to do.

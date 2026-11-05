@@ -33,7 +33,7 @@ Scenarios (`scripts/scenarios/`) prove the terminal-first product end to end in 
 - `harness.test.ts` covers the runner's failure paths; it needs the Playwright Chromium installed, like the web browser tests.
 - A new scenario goes in `scenarios/` and replaces its `pending` entry in `registry.ts`. Self-tests of the harness live in `selftest/` and run only with `--selftest`.
 - The mock agent (`scripts/mock-agent/mock-agent.ts`) stands in for a Claude-Code-like CLI in shells. The runner sets it as the server's `PROBE_AGENT_COMMAND`.
-- Fault helpers: `server.restart({ env })` restarts with changed variables (a missing agent command, a broken `GIT_CONFIG_GLOBAL`), `server.logs()` returns the server's info-level output, and `connectionCutter(page)` in `browser.ts` drops a page's websockets when it sends a given request. Shared waits (`recorder`, `pageFrames`, `gone`) are in `support.ts`.
+- Fault helpers: `server.restart({ env })` restarts with changed variables (a missing agent command, a broken `GIT_CONFIG_GLOBAL`), `server.logs()` returns the server's info-level output, and `connectionCutter(page)` in `browser.ts` drops a page's websockets when it sends a given request. To end a shell from outside the app, kill the `pid` the shell list reports (S2 does this for AC-19). Shared waits (`recorder`, `pageFrames`, `gone`) are in `support.ts`.
 - A failure message passed to `check()` is evaluated even when the check passes, so never `await` a locator inside it.
 
 ## Web browser tests
