@@ -355,9 +355,14 @@ function FolderPathField({
       ? null
       : filesystemEnvironment.browse({ environmentId, input: { partialPath: directory } }),
   );
-  const listed = query.data?.parentPath ?? null;
+  // Each folder is a new query; showing the last listing until the next arrives avoids a
+  // flash of an empty list.
+  const [lastListing, setLastListing] = useState(query.data);
+  if (query.data && query.data !== lastListing) setLastListing(query.data);
+  const listing = query.data ?? lastListing;
+  const listed = listing?.parentPath ?? null;
   const { visibleEntries } = filterFilesystemBrowseEntries(
-    query.data?.entries ?? [],
+    listing?.entries ?? [],
     empty ? "" : browse.filterQuery,
   );
   // The native dialog lists this machine's folders, which are the server's only for the
@@ -403,7 +408,8 @@ function FolderPathField({
         />
       </label>
       {listOpen && directory !== null ? (
-        <div className="max-h-48 overflow-y-auto rounded-md border border-border py-1">
+        // A fixed height keeps the centered modal from resizing as folders change.
+        <div className="h-48 overflow-y-auto rounded-md border border-border py-1">
           {query.error !== null ? (
             <p className="px-2 py-1 text-xs text-destructive-foreground">{query.error}</p>
           ) : (
@@ -436,7 +442,7 @@ function FolderPathField({
                   </Button>
                 </li>
               ))}
-              {visibleEntries.length === 0 && !query.isPending ? (
+              {visibleEntries.length === 0 && listing !== null && !query.isPending ? (
                 <li className="px-2 py-1 text-xs text-muted-foreground">No folders here</li>
               ) : null}
             </ul>
