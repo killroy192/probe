@@ -53,6 +53,15 @@ async function closeFolderList(page: PointerPage) {
   await folderList(page).waitFor({ state: "detached" });
 }
 
+/** Opens the "Add folder to workspace" dialog from the sidebar's Add project icon. */
+async function openAddFolder(page: PointerPage) {
+  await page
+    .getByRole("navigation", { name: "Workspace" })
+    .getByRole("button", { name: "Add project" })
+    .click();
+  await dialog(page).getByTestId("add-folder").waitFor();
+}
+
 /** Opens the "+" modal and waits for its folder step. */
 async function openModal(page: PointerPage) {
   await page
@@ -80,8 +89,8 @@ async function preselected(page: PointerPage): Promise<string | null> {
 }
 
 /**
- * Adds a folder from the open modal; returns the refusal, or null once the folder is listed.
- * The add-folder panel stays open after a refusal, so the next call reuses it.
+ * Adds a folder with the "Add folder to workspace" dialog; returns the refusal, or null once the
+ * dialog closes. The dialog stays open after a refusal, so the next call reuses it.
  */
 async function addFolder(
   page: PointerPage,
@@ -90,9 +99,7 @@ async function addFolder(
     | { readonly parent: string; readonly name: string },
 ): Promise<string | null> {
   const panel = dialog(page).getByTestId("add-folder");
-  if (!(await panel.count())) {
-    await dialog(page).getByRole("button", { name: "Add folder", exact: true }).click();
-  }
+  if (!(await panel.count())) await openAddFolder(page);
   const isImport = "import" in request;
   await panel
     .getByRole("button", { name: isImport ? "Import existing folder" : "Create new folder" })
@@ -109,7 +116,9 @@ async function addFolder(
   await closeFolderList(page);
   const shown = dialog(page).getByRole("alert");
   const previous = (await shown.count()) ? await shown.getAttribute("data-attempt") : "none";
-  await panel.getByRole("button", { name: isImport ? "Add folder" : "Create folder" }).click();
+  await dialog(page)
+    .getByRole("button", { name: isImport ? "Add folder" : "Create folder", exact: true })
+    .click();
   const alert = dialog(page).locator(`[role="alert"]:not([data-attempt="${previous}"])`);
   await Promise.race([panel.waitFor({ state: "detached" }), alert.waitFor()]);
   if (await panel.count()) return alert.textContent();
@@ -215,8 +224,15 @@ export const plusModal: Scenario = {
       stage = "AC-11";
       await openModal(page);
       check(await startButton(page).isDisabled(), "Start is enabled with no folder (AC-11).");
-      // "Add folder" starts at the server's home; its folders show only once the field is clicked.
-      await dialog(page).getByRole("button", { name: "Add folder", exact: true }).click();
+      check(
+        (await dialog(page)
+          .getByRole("button", { name: /add folder/i })
+          .count()) === 0,
+        "The start modal offers to add a folder.",
+      );
+      await cancelModal(page);
+      // Adding starts at the server's home; its folders show only once the field is clicked.
+      await openAddFolder(page);
       const field = dialog(page).getByRole("combobox", { name: "Folder" });
       check((await field.inputValue()) === "~/", "The folder field does not start at ~/.");
       check((await folderList(page).count()) === 0, "The folder list shows before a click.");
@@ -236,7 +252,10 @@ export const plusModal: Scenario = {
         deniedReason?.includes("may not create") === true,
         `Denied create: ${deniedReason} (AC-17).`,
       );
+      await cancelModal(page);
+      await openModal(page);
       check((await dialog(page).getByRole("radio").count()) === 0, "A refused folder was added.");
+      await cancelModal(page);
 
       // AC-1, AC-8: import an existing git folder; it is selected and has the git badge.
 
@@ -246,6 +265,8 @@ export const plusModal: Scenario = {
         (await addFolder(page, { import: `${folders}/`, pick: "repo" })) === null,
         "Importing the git folder failed.",
       );
+      check(shells.current().length === 0, "Adding a folder started a shell.");
+      await openModal(page);
       await folderRadio(page, repo).click();
       check(
         (await folderRadio(page, repo).getAttribute("aria-checked")) === "true",
@@ -370,11 +391,11 @@ export const plusModal: Scenario = {
 
       stage = "AC-9";
       const fresh = NodePath.join(folders, "fresh");
-      await openModal(page);
       check((await addFolder(page, { parent: folders, name: "fresh" })) === null, "Create failed.");
-      check((await preselected(page)) === fresh, "The created folder is not selected (AC-9).");
       check((await git(fresh, ["rev-parse", "--git-dir"])).ok, "The new folder has no git (AC-9).");
       check(!(await git(fresh, ["rev-parse", "HEAD"])).ok, "The new folder has a commit.");
+      await openModal(page);
+      await folderRadio(page, fresh).click();
       await startButton(page).click();
       await shellNodes(page, fresh).first().waitFor();
       await shellsIn(shells.lists, fresh, 1);
@@ -387,25 +408,15 @@ export const plusModal: Scenario = {
       // AC-10: a plain folder starts directly under its node.
 
       stage = "AC-10";
-      await openModal(page);
       check(
         (await addFolder(page, { import: plain })) === null,
         "Importing the plain folder failed.",
       );
+      await openModal(page);
+      await folderRadio(page, plain).click();
       await startButton(page).click();
       await shellNodes(page, plain).first().waitFor();
       await shellsIn(shells.lists, plain, 1);
-
-      // The add-project icon opens the modal on "Add folder"; Cancel closes that panel only.
-      await page
-        .getByRole("navigation", { name: "Workspace" })
-        .getByRole("button", { name: "Add project" })
-        .click();
-      await dialog(page).getByTestId("add-folder").waitFor();
-      await dialog(page).getByTestId("add-folder").getByRole("button", { name: "Cancel" }).click();
-      await dialog(page).getByTestId("add-folder").waitFor({ state: "detached" });
-      check((await dialog(page).count()) === 1, "Cancelling the add panel closed the modal.");
-      await cancelModal(page);
 
       // AC-13: closing the modal without starting changes nothing.
 
@@ -421,11 +432,10 @@ export const plusModal: Scenario = {
       // AC-14, AC-15: a deleted last folder is not preselected and cannot start.
 
       stage = "AC-14, AC-15";
-      await NodeFSP.rm(plain, { recursive: true });
+      // Deleted while the modal is open: starting there shows why and changes nothing.
       await openModal(page);
-      await dialog(page).getByRole("radio").first().waitFor();
-      check((await preselected(page)) === null, "A deleted folder is preselected (AC-14).");
-      await folderRadio(page, plain).click();
+      check((await preselected(page)) === plain, "The last folder is not preselected.");
+      await NodeFSP.rm(plain, { recursive: true });
       await startButton(page).click();
       const missing = await dialog(page).getByRole("alert").textContent();
       check(missing?.includes("no longer exists") === true, `Deleted folder: ${missing} (AC-15).`);
@@ -435,6 +445,13 @@ export const plusModal: Scenario = {
         shells.current().length === before.shells && (await tabs(page).count()) === before.tabs,
         "A start in a deleted folder left a shell or tab (AC-15).",
       );
+      // Once deleted, the folder is neither offered nor preselected (AC-14); the tree marks it.
+      await openModal(page);
+      await folderRadio(page, repo).waitFor();
+      check((await folderRadio(page, plain).count()) === 0, "A deleted folder is offered.");
+      check((await preselected(page)) === null, "A deleted folder is preselected (AC-14).");
+      await cancelModal(page);
+      await page.locator(`[data-folder="${plain}"]`).getByText("missing").waitFor();
 
       // AC-14: a last folder removed from the workspace is not preselected either.
 
@@ -509,13 +526,14 @@ export const plusModal: Scenario = {
       // AC-17: git init fails; the half-made folder is gone and not in the workspace.
 
       stage = "AC-17";
-      await openModal(page);
       const initReason = await addFolder(page, { parent: folders, name: "broken" });
       check(initReason?.startsWith("git init failed") === true, `git init: ${initReason} (AC-17).`);
       check(
         !(await NodeFSP.stat(NodePath.join(folders, "broken")).catch(() => null)),
         "A folder whose git init failed was left on disk (AC-17).",
       );
+      await cancelModal(page);
+      await openModal(page);
       check(
         (await dialog(page)
           .getByRole("radio", { name: /broken/ })
@@ -567,8 +585,8 @@ export const plusModal: Scenario = {
       await createWorkspace(page, "athens");
       await openModal(page);
       check(await startButton(page).isDisabled(), "Start is enabled in a new workspace (AC-25).");
-      check((await addFolder(page, { import: repo })) === null, "Adding to athens failed.");
       await cancelModal(page);
+      check((await addFolder(page, { import: repo })) === null, "Adding to athens failed.");
       await openModal(page);
       check(
         (await preselected(page)) === null,

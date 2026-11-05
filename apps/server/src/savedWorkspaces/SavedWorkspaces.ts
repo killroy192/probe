@@ -276,17 +276,23 @@ const make = Effect.gen(function* () {
     const folderPaths = (file.folders ?? []).map((folder) => folder.path);
     const folders = yield* Effect.forEach(
       folderPaths,
-      (folder) =>
-        vcs.detect({ cwd: folder }).pipe(
-          Effect.map((handle) => ({ path: folder, isGitRepository: handle !== null })),
-          Effect.orElseSucceed(() => ({ path: folder, isGitRepository: false })),
-        ),
+      Effect.fnUntraced(function* (folder) {
+        if (!(yield* isDirectory(folder))) {
+          return { path: folder, isGitRepository: false, exists: false };
+        }
+        const isGitRepository = yield* vcs.detect({ cwd: folder }).pipe(
+          Effect.map((handle) => handle !== null),
+          Effect.orElseSucceed(() => false),
+        );
+        return { path: folder, isGitRepository, exists: true };
+      }),
       { concurrency: "unbounded" },
     );
     // A remembered folder that left the workspace or the disk is not offered again.
     const last = file.lastFolder ?? null;
-    const lastFolder =
-      last !== null && folderPaths.includes(last) && (yield* isDirectory(last)) ? last : null;
+    const lastFolder = folders.some((folder) => folder.path === last && folder.exists)
+      ? last
+      : null;
     return { name, folders, lastFolder } satisfies WorkspaceDetail;
   });
 

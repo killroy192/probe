@@ -27,6 +27,7 @@ import {
 } from "../ui/menu";
 import { SidebarContent, SidebarGroup, SidebarInput, SidebarMenuButton } from "../ui/sidebar";
 import { CreateWorkspaceDialog } from "./CreateWorkspaceDialog";
+import { AddFolderDialog } from "./AddFolderDialog";
 import { StartShellDialog } from "./StartShellDialog";
 
 const NEEDS_WORKSPACE = "Open a workspace first";
@@ -35,14 +36,13 @@ const NEEDS_WORKSPACE = "Open a workspace first";
 export function WorkspaceSidebar() {
   const view = useWorkspaces();
   const [creating, setCreating] = useState(false);
-  // "start" opens the folder list; "add" opens it on "Add folder".
-  const [starting, setStarting] = useState<"start" | "add" | null>(null);
+  const [dialog, setDialog] = useState<"start" | "add" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const act = async (action: Promise<string | null>) => setError(await action);
   const savedWorkspaces = view.workspaces ?? [];
   const { shells } = useShells(view.environmentId);
-  const openStart = (mode: "start" | "add") => {
-    setStarting(mode);
+  const openDialog = (which: "start" | "add") => {
+    setDialog(which);
     // Folders deleted on disk since the workspace was opened must not be preselected.
     void act(view.refresh());
   };
@@ -71,7 +71,7 @@ export function WorkspaceSidebar() {
                   label="Add project"
                   tooltip={view.shown === null ? NEEDS_WORKSPACE : "Add a folder to the workspace"}
                   disabled={view.shown === null || !view.canChange}
-                  onClick={() => openStart("add")}
+                  onClick={() => openDialog("add")}
                 >
                   <FolderPlusIcon />
                 </SidebarHeaderIconButton>
@@ -79,7 +79,7 @@ export function WorkspaceSidebar() {
                   label="Start shell"
                   tooltip={view.shown === null ? NEEDS_WORKSPACE : "Start shell"}
                   disabled={view.shown === null || !view.canStartShell}
-                  onClick={() => openStart("start")}
+                  onClick={() => openDialog("start")}
                 >
                   <PlusIcon />
                 </SidebarHeaderIconButton>
@@ -154,19 +154,23 @@ export function WorkspaceSidebar() {
       <SidebarChromeFooter />
       <CreateWorkspaceDialog open={creating} onOpenChange={setCreating} onCreate={view.create} />
       {view.shown === null ? null : (
-        <StartShellDialog
-          key={view.shown.name}
-          open={starting !== null}
-          initialAdding={starting === "add"}
-          onOpenChange={(open) => {
-            if (!open) setStarting(null);
-          }}
-          environmentId={view.environmentId}
-          workspace={view.shown}
-          canAddFolder={view.canChange}
-          onAddFolder={view.addFolder}
-          onStart={(folder) => view.startShell(folder, null)}
-        />
+        <>
+          <StartShellDialog
+            key={`start:${view.shown.name}`}
+            open={dialog === "start"}
+            onOpenChange={(open) => setDialog(open ? "start" : null)}
+            workspace={view.shown}
+            onStart={(folder) => view.startShell(folder, null)}
+          />
+          <AddFolderDialog
+            key={`add:${view.shown.name}`}
+            open={dialog === "add"}
+            onOpenChange={(open) => setDialog(open ? "add" : null)}
+            environmentId={view.environmentId}
+            workspaceName={view.shown.name}
+            onAddFolder={view.addFolder}
+          />
+        </>
       )}
     </>
   );
@@ -225,6 +229,9 @@ function ShellTree({
               >
                 <FolderIcon className="size-3.5 shrink-0 text-(--sidebar-icon-color)" />
                 <span className="truncate">{folderLabel(folder.path)}</span>
+                {folder.exists ? null : (
+                  <span className="shrink-0 text-xs text-muted-foreground">missing</span>
+                )}
               </div>
               {inFolder.length === 0 ? null : (
                 <div role="group" className="pl-6">

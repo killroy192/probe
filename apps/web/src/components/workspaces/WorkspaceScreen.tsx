@@ -5,7 +5,9 @@ import { useState } from "react";
 import { cn } from "~/lib/utils";
 import { useShells } from "../../state/shells";
 import { useWorkspaces, type WorkspacesView } from "../../state/workspaces";
+import { isElectron } from "../../env";
 import { ShellTerminal } from "../ShellView";
+import { WorkspacePageHeader } from "../WorkspacePageHeader";
 import { Button } from "../ui/button";
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "../ui/empty";
 import { Menu, MenuPopup, MenuTrigger } from "../ui/menu";
@@ -80,30 +82,33 @@ function ShellTabs({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div role="tablist" aria-label="Shells" className="flex shrink-0 gap-1 border-b px-2 pt-1">
-        {tabShells.map((shell) => {
-          const active = shell.shellId === view.tabs.activeShellId;
-          return (
-            <button
-              key={shell.shellId}
-              type="button"
-              role="tab"
-              aria-selected={active}
-              data-shell-id={shell.shellId}
-              onClick={() => view.activateShell(shell.shellId)}
-              className={cn(
-                "flex items-center gap-1.5 rounded-t-md border-b-2 px-3 py-1.5 text-xs",
-                active
-                  ? "border-primary text-foreground"
-                  : "border-transparent text-muted-foreground hover:text-foreground",
-              )}
-            >
-              <SquareTerminalIcon className="size-3.5" />
-              {label(shell)}
-            </button>
-          );
-        })}
-      </div>
+      {/* The page header leaves room for the sidebar toggle when the sidebar is collapsed. */}
+      <WorkspacePageHeader electron={isElectron} className="border-b">
+        <div role="tablist" aria-label="Shells" className="flex h-full min-w-0 items-end gap-1">
+          {tabShells.map((shell) => {
+            const active = shell.shellId === view.tabs.activeShellId;
+            return (
+              <button
+                key={shell.shellId}
+                type="button"
+                role="tab"
+                aria-selected={active}
+                data-shell-id={shell.shellId}
+                onClick={() => view.activateShell(shell.shellId)}
+                className={cn(
+                  "flex items-center gap-1.5 rounded-t-md border-b-2 px-3 py-1.5 text-xs",
+                  active
+                    ? "border-primary text-foreground"
+                    : "border-transparent text-muted-foreground hover:text-foreground",
+                )}
+              >
+                <SquareTerminalIcon className="size-3.5" />
+                {label(shell)}
+              </button>
+            );
+          })}
+        </div>
+      </WorkspacePageHeader>
       {tabShells.map((shell) => {
         const active = shell.shellId === view.tabs.activeShellId;
         return (

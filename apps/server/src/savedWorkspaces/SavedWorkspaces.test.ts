@@ -267,8 +267,8 @@ it.layer(NodeServices.layer)("saved workspaces", (it) => {
         assert.deepStrictEqual(detail, {
           name: "sparta",
           folders: [
-            { path: plain, isGitRepository: false },
-            { path: `${dir}/fresh`, isGitRepository: true },
+            { path: plain, isGitRepository: false, exists: true },
+            { path: `${dir}/fresh`, isGitRepository: true, exists: true },
           ],
           lastFolder: null,
         });
@@ -358,7 +358,11 @@ it.layer(NodeServices.layer)("saved workspaces", (it) => {
         const outside = yield* Effect.flip(workspaces.startShell({ name: "sparta", folder: dir }));
         expect(outside.message).toContain("not in the workspace");
         yield* fs.remove(app, { recursive: true });
-        assert.strictEqual((yield* workspaces.open({ name: "sparta" })).lastFolder, null);
+        assert.deepStrictEqual(yield* workspaces.open({ name: "sparta" }), {
+          name: "sparta",
+          folders: [{ path: app, isGitRepository: false, exists: false }],
+          lastFolder: null,
+        });
         const gone = yield* Effect.flip(workspaces.startShell({ name: "sparta", folder: app }));
         assert.strictEqual(gone.message, `The folder no longer exists: ${app}`);
         assert.strictEqual(fakes.opened.length, 1);

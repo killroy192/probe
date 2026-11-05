@@ -38,8 +38,8 @@ button. The shell opens in a new tab and appears in the tree under its folder.
 It starts the server's agent command (see [Agent command](#agent-command)), and
 leaving the agent leaves the shell open.
 
-To add a folder, click **Add folder** in that dialog, or the **Add project**
-icon in the sidebar:
+To add a folder, click the **Add project** icon in the sidebar. Adding a folder
+starts no shell:
 
 - **Import existing folder** adds a folder that is already on the server's
   disk. Folders that are git repositories show a `git` badge.
@@ -53,9 +53,10 @@ a path. When the server runs on another machine, the field's label says
 with its own server, **Choose in Finder…** opens the system folder dialog
 instead.
 
-Each folder is also registered as a project on the server. The dialog
-preselects the folder you last started a shell in, as long as it is still in
-the workspace and on disk. Tabs last until the page is reloaded; the shells keep
+Each folder is also registered as a project on the server. The **+** dialog
+lists only folders that still exist on disk, and preselects the folder you last
+started a shell in. A folder deleted from disk stays in the tree, marked
+"missing". Tabs last until the page is reloaded; the shells keep
 running on the server until it stops.
 
 ## Agent command

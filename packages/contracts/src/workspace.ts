@@ -54,6 +54,8 @@ export type WorkspaceSummary = typeof WorkspaceSummary.Type;
 export const WorkspaceFolder = Schema.Struct({
   path: Schema.String.check(Schema.isNonEmpty()),
   isGitRepository: Schema.Boolean,
+  /** False once the folder is gone from disk; it stays in the workspace but cannot start shells. */
+  exists: Schema.Boolean,
 });
 export type WorkspaceFolder = typeof WorkspaceFolder.Type;
 

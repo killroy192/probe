@@ -180,10 +180,12 @@ Implemented on `feat/plus-modal-prb-t-004` (stacked on `feat/workspaces-prb-t-00
 - `Shells` is a `Context.Service` (`t3/terminal/Shells`), and `SavedWorkspaces` uses it for `workspace.startShell`.
 - Tabs and the active tab live in web memory (story 7 saves the layout); the tree groups shells by matching their cwd to the workspace's folders.
 
+**Decision (user, 2026-11-05, after the manual pass): two dialogs.** "+" opens **Start shell**, which only picks a folder and starts a shell: it has no "Add folder", and folders gone from disk are not listed. The sidebar's "Add project" icon opens **Add folder to workspace**, which only imports or creates a folder and starts no shell. ACs that say a folder is added "in the modal" (AC-1, AC-8 to AC-11, AC-17, AC-23) are met through the second dialog; S2 adds a folder there, then picks it in "+". The tree keeps a deleted folder, marked "missing" (`WorkspaceFolder.exists`).
+
 **Where things are**
 - Contracts: `WorkspaceDetail`, `WorkspaceAddFolderInput` (import | create), `WorkspaceStartShellInput`, `WorkspaceFolderError`; RPCs `workspace.addFolder` (settings write) and `workspace.startShell` (terminal operate), both client-guarded. `workspace.open` now returns the detail.
 - Server: `apps/server/src/terminal/Shells.ts` (agent command, start, failed-start and end logs), `apps/server/src/savedWorkspaces/SavedWorkspaces.ts` (folders, `lastFolder` only while in the workspace and on disk).
-- Web: `components/workspaces/StartShellDialog.tsx`, the sidebar's "+" and the enabled "Add project" icon, the folder and shell tree, and tabs in `WorkspaceScreen.tsx` (`ShellTerminal` is shared with `ShellView`).
+- Web: `components/workspaces/StartShellDialog.tsx` and `AddFolderDialog.tsx` (the server folder list is the shared Autocomplete; `serverLocation.ts` decides the "(remote server)" label), the sidebar's "+" and the enabled "Add project" icon, the folder and shell tree, and tabs in `WorkspaceScreen.tsx` (`ShellTerminal` is shared with `ShellView`).
 - Harness: `server.restart({ env })`, `server.logs()`, `connectionCutter` in `browser.ts`, and shared waits in `support.ts`. S2 is `scenarios/plus-modal.ts`.
 
 **Verification so far**
