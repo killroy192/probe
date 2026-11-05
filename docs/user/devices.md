@@ -1,5 +1,8 @@
 # Devices
 
+> **Not relevant in the terminal-first build.** This page describes chat, which Probe hides
+> ([Workspaces](./workspaces.md)). It is kept for history until the chat code is removed.
+
 The Device panel shows a live iOS Simulator or Android Emulator next to a
 thread, so you can watch an agent verify mobile work and tap the device
 yourself. Agents get the same device through `device_*` tools and the

@@ -1,5 +1,8 @@
 # fx
 
+> **Not relevant in the terminal-first build.** This page describes chat, which Probe hides
+> ([Workspaces](./workspaces.md)). It is kept for history until the chat code is removed.
+
 T3 Code can run [fx](https://fx.sh). fx uses the login on the machine that runs the T3 Code server.
 
 ## Set up fx

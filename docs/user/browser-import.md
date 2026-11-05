@@ -1,5 +1,8 @@
 # Import browser sessions
 
+> **Not relevant in the terminal-first build.** This page describes chat, which Probe hides
+> ([Workspaces](./workspaces.md)). It is kept for history until the chat code is removed.
+
 The desktop app can import cookies from another browser so you can reuse its signed-in sessions
 in the preview browser.
 

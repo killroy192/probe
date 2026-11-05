@@ -1,5 +1,8 @@
 # Muse Code
 
+> **Not relevant in the terminal-first build.** This page describes chat, which Probe hides
+> ([Workspaces](./workspaces.md)). It is kept for history until the chat code is removed.
+
 Muse Code is disabled by default. Install
 [Muse Code](https://dev.meta.ai/docs/muse-code) on the machine hosting your
 environment, then run `muse login` as the account that runs T3 Code.

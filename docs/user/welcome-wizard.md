@@ -1,6 +1,7 @@
 # Welcome wizard
 
-The browser app no longer shows this flow; it opens on [Workspaces](./workspaces.md).
+> **Not relevant in the terminal-first build.** This page describes chat, which Probe hides
+> ([Workspaces](./workspaces.md)). It is kept for history until the chat code is removed.
 
 T3 Code shows a setup flow when you open a new installation. Existing
 workspaces skip this flow.

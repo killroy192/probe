@@ -1,5 +1,8 @@
 # Triage an issue
 
+> **Not relevant in the terminal-first build.** This page describes chat, which Probe hides
+> ([Workspaces](./workspaces.md)). It is kept for history until the chat code is removed.
+
 Triage lets your own coding agent investigate a T3 Code problem. The agent
 reads the logs and state of the machine, checks the T3 Code source for that
 version, finds known issues, and can help you write a good GitHub issue. It asks

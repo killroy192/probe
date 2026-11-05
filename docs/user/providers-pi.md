@@ -1,5 +1,8 @@
 # Pi
 
+> **Not relevant in the terminal-first build.** This page describes chat, which Probe hides
+> ([Workspaces](./workspaces.md)). It is kept for history until the chat code is removed.
+
 T3 Code can use your existing Pi coding agent installation while keeping Pi's models, auth,
 extensions, skills, context files, and native session history.
 

@@ -1,5 +1,8 @@
 # Antigravity
 
+> **Not relevant in the terminal-first build.** This page describes chat, which Probe hides
+> ([Workspaces](./workspaces.md)). It is kept for history until the chat code is removed.
+
 T3 Code runs Google's official Antigravity ACP agent on your selected environment.
 It has its own sign-in, separate from the Antigravity IDE or CLI. Google controls
 which models and account access are available through this agent.

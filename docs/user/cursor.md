@@ -1,5 +1,8 @@
 # Cursor
 
+> **Not relevant in the terminal-first build.** This page describes chat, which Probe hides
+> ([Workspaces](./workspaces.md)). It is kept for history until the chat code is removed.
+
 Cursor V2 runs through the official [`@cursor/sdk`](https://cursor.com/docs/api/sdk/typescript)
 TypeScript package. It does not use Cursor's ACP transport for V2 execution.
 

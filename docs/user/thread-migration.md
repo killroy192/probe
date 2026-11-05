@@ -1,5 +1,8 @@
 # Threads from older T3 Code versions
 
+> **Not relevant in the terminal-first build.** This page describes chat, which Probe hides
+> ([Workspaces](./workspaces.md)). It is kept for history until the chat code is removed.
+
 On your first V2 launch, T3 Code copies the V1 database, `state.sqlite`, into `statev2.sqlite`
 in the same data directory and migrates the copy. Your threads appear automatically, with full
 transcripts imported as needed. You do not need to run an import command.

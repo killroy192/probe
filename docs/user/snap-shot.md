@@ -1,5 +1,8 @@
 # SnapShots
 
+> **Not relevant in the terminal-first build.** This page describes chat, which Probe hides
+> ([Workspaces](./workspaces.md)). It is kept for history until the chat code is removed.
+
 A SnapShot captures the window you are working in and attaches it to your current draft. The
 attachment carries the app name and window title, and when available the app icon and the window's
 accessibility data (its controls, text, and their positions in the image). Agents can use that data

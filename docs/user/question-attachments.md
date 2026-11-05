@@ -1,5 +1,8 @@
 # Files in question answers
 
+> **Not relevant in the terminal-first build.** This page describes chat, which Probe hides
+> ([Workspaces](./workspaces.md)). It is kept for history until the chat code is removed.
+
 When an agent asks a question that accepts a custom answer, use **Attach files** or paste an image into the answer field. On mobile, use the attachment button to choose photos or files. You can send a file by itself, with a selected option, or with a typed answer.
 
 Each question keeps its own attachments as you move between questions. Your normal prompt draft stays separate. Wait for uploads to finish before submitting; retry or remove any failed upload. A failed response keeps the draft available to try again.

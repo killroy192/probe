@@ -1,5 +1,8 @@
 # ACP providers
 
+> **Not relevant in the terminal-first build.** This page describes chat, which Probe hides
+> ([Workspaces](./workspaces.md)). It is kept for history until the chat code is removed.
+
 T3 Code can run installed ACP commands or coding agents from the official
 [ACP Registry](https://agentclientprotocol.com/get-started/registry). Registry agents bring their
 own models, tools, and sign-in, while T3 Code provides projects, threads, checkpoints, and task

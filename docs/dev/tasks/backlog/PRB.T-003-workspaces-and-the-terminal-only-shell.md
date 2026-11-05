@@ -188,9 +188,10 @@ Plan and implement done (2026-11-05). The working plan is `.plans/PRB.T-003-work
 - `vp run test:scenarios --rebuild`: S1 PASS, T-002 PASS (1/8, 7 pending); `--selftest` T1 PASS, T2 FAIL by design; `harness.test.ts` 7/7.
 - `vp run check:changed`: format, lint, knip, tests (16 files) and react compiler pass. Its parallel typecheck step fails twice with no error printed; every affected package (server, web, mobile, contracts, client-runtime, scripts, marketing, provider-core, provider-acp) passes alone. Likely memory pressure on this 7.8 GB container.
 
+- AC-10 manual pass (author, 2026-11-05): the first pass found the layout and settings issues fixed above; the second pass over the restored sidebar and trimmed settings passed.
+- AC-19 (user, 2026-11-05): deferred. Docs cannot describe the terminal-first product fully before stories 4 to 8 build it. This story instead marks every chat-only user page "Not relevant in the terminal-first build", kept for history until the chat code is removed, and lists them apart in `docs/README.md`.
+
 **Not done**
-- AC-10 manual pass (author): first pass 2026-11-05 found the layout and settings issues fixed above (start screen, creating a workspace and old chat addresses were fine); a second pass over the restored sidebar and the trimmed settings is due.
-- AC-19: reviewer reads the docs diff in the PR.
 - Verify stage, second run. First run (2026-11-05) failed on: AC-10 and AC-19 evidence, `/guest` not hidden, an AC-12 check that could not fail, create and remove shown without settings write. Fixed since: `/guest` redirects, Create and Remove show only with settings write (`permissionAtom`), the AC-12 check, and a contract test that only mirrored types was dropped.
 
 **Known gaps**

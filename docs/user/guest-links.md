@@ -1,7 +1,7 @@
 # Guest links
 
-Guest links are hidden in the browser app while chat is; opening one shows the app's start page.
-See [Workspaces](./workspaces.md).
+> **Not relevant in the terminal-first build.** This page describes chat, which Probe hides
+> ([Workspaces](./workspaces.md)). It is kept for history until the chat code is removed.
 
 A guest link lets a teammate follow one thread in their browser and ask the agent questions, with no
 account. They see your messages and the agent's replies as they stream. Each message they send waits

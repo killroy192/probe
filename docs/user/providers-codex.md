@@ -1,5 +1,8 @@
 # Codex
 
+> **Not relevant in the terminal-first build.** This page describes chat, which Probe hides
+> ([Workspaces](./workspaces.md)). It is kept for history until the chat code is removed.
+
 Use your ChatGPT plan or an existing Codex CLI login to code in T3 Code.
 
 ## Connect with ChatGPT

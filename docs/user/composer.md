@@ -1,5 +1,8 @@
 # Messages and context
 
+> **Not relevant in the terminal-first build.** This page describes chat, which Probe hides
+> ([Workspaces](./workspaces.md)). It is kept for history until the chat code is removed.
+
 Give the agent a task in the composer. Add files, quote a previous response, or
 include a skill when the task needs more context.
 

@@ -1,5 +1,8 @@
 # Permission modes
 
+> **Not relevant in the terminal-first build.** This page describes chat, which Probe hides
+> ([Workspaces](./workspaces.md)). It is kept for history until the chat code is removed.
+
 Permission modes control when an agent needs your approval to act. Choose a mode in the message
 composer; it applies to that thread. A new thread names its mode under the composer. In a thread
 on your default mode, open **Permissions** from the effort menu or press `mod+shift+a`. A thread on

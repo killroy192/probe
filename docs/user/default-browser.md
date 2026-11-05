@@ -1,5 +1,8 @@
 # Use T3 Code as your default browser
 
+> **Not relevant in the terminal-first build.** This page describes chat, which Probe hides
+> ([Workspaces](./workspaces.md)). It is kept for history until the chat code is removed.
+
 On macOS, the desktop app can be your default web browser. Links you open from other apps then
 open in T3 Code. When the thread on screen shows its browser panel, the link opens there as a new
 tab. Otherwise it starts a new thread without a project, with the browser panel maximized on the
