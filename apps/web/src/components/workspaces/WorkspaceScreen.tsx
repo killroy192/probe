@@ -43,10 +43,12 @@ export function WorkspaceScreen() {
               <ChevronDownIcon />
             </MenuTrigger>
             <MenuPopup align="start">
-              <MenuItem onClick={() => setCreating(true)}>
-                <PlusIcon />
-                Create workspace
-              </MenuItem>
+              {view.canChange ? (
+                <MenuItem onClick={() => setCreating(true)}>
+                  <PlusIcon />
+                  Create workspace
+                </MenuItem>
+              ) : null}
               <MenuSub>
                 <MenuSubTrigger>
                   <FolderOpenIcon />
@@ -56,18 +58,20 @@ export function WorkspaceScreen() {
                   <WorkspaceItems workspaces={savedWorkspaces} onChoose={open} />
                 </MenuSubPopup>
               </MenuSub>
-              <MenuSub>
-                <MenuSubTrigger>
-                  <TrashIcon />
-                  Remove workspace
-                </MenuSubTrigger>
-                <MenuSubPopup>
-                  <WorkspaceItems
-                    workspaces={savedWorkspaces}
-                    onChoose={(name) => void act(view.remove(name))}
-                  />
-                </MenuSubPopup>
-              </MenuSub>
+              {view.canChange ? (
+                <MenuSub>
+                  <MenuSubTrigger>
+                    <TrashIcon />
+                    Remove workspace
+                  </MenuSubTrigger>
+                  <MenuSubPopup>
+                    <WorkspaceItems
+                      workspaces={savedWorkspaces}
+                      onChoose={(name) => void act(view.remove(name))}
+                    />
+                  </MenuSubPopup>
+                </MenuSub>
+              ) : null}
               <MenuSeparator />
               <MenuItem onClick={() => void navigate({ to: "/settings" })}>
                 <SettingsIcon />
@@ -94,10 +98,12 @@ export function WorkspaceScreen() {
               <WorkspaceItems workspaces={savedWorkspaces} onChoose={open} />
             </MenuPopup>
           </Menu>
-          <Button size="lg" onClick={() => setCreating(true)}>
-            <PlusIcon />
-            Create workspace
-          </Button>
+          {view.canChange ? (
+            <Button size="lg" onClick={() => setCreating(true)}>
+              <PlusIcon />
+              Create workspace
+            </Button>
+          ) : null}
         </div>
       ) : (
         <ShellTree workspace={view.shown} />

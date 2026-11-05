@@ -91,6 +91,8 @@ export const boot: Scenario = {
     // A folder on disk that removing a workspace must leave alone (AC-5).
     const folder = NodePath.join(server.home, "project-folder");
     await NodeFSP.mkdir(folder);
+    // A project gives chat shortcuts something to start a thread in, had they stayed installed (AC-12).
+    await server.cli(["project", "add", folder, "--title", "project-folder"]);
     const envId = await environmentId(server.origin);
     const chatAddresses = [
       `/${envId}/thread-1`,
@@ -105,6 +107,7 @@ export const boot: Scenario = {
       "/settings/archived",
       "/settings/providers",
       "/settings/scheduled-tasks",
+      "/guest",
     ];
 
     const page = await openPage();
@@ -195,6 +198,18 @@ export const boot: Scenario = {
       await navigateInApp(page, address);
       await shownWorkspace(page, "sparta");
     }
+    // Count every navigation the page starts, so a working chat shortcut is caught even though
+    // the draft address it opens would redirect back to "/".
+    await page.evaluate(`(() => {
+      window.__probeNavigations = 0;
+      for (const method of ["pushState", "replaceState"]) {
+        const original = window.history[method].bind(window.history);
+        window.history[method] = (...args) => {
+          window.__probeNavigations += 1;
+          return original(...args);
+        };
+      }
+    })()`);
     for (const key of ["n", "N", "o", "O"]) {
       for (const modifiers of [
         { ctrlKey: true },
@@ -207,7 +222,8 @@ export const boot: Scenario = {
         await page.evaluate(`window.dispatchEvent(new KeyboardEvent("keydown", ${init}))`);
       }
     }
-    check(new URL(page.url()).pathname === "/", `A chat shortcut navigated to ${page.url()}.`);
+    const navigations = await page.evaluate("window.__probeNavigations");
+    check(navigations === 0, `Chat shortcuts started ${String(navigations)} navigations.`);
     await shownWorkspace(page, "sparta");
 
     // AC-20, AC-7: a reload keeps every saved workspace listed; a seeded one opens.

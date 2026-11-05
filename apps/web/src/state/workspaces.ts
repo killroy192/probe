@@ -35,6 +35,8 @@ export interface WorkspacesView {
   /** Null until the first list arrives. */
   readonly workspaces: ReadonlyArray<WorkspaceSummary> | null;
   readonly listError: string | null;
+  /** Whether this client may create and remove workspaces (settings write). */
+  readonly canChange: boolean;
   /** The shown workspace, or null for the start screen. */
   readonly shown: WorkspaceSummary | null;
   readonly create: (name: string) => WorkspaceActionResult;
@@ -56,6 +58,7 @@ export function useWorkspaces(): WorkspacesView {
   const createCommand = useAtomCommand(workspaceEnvironment.create, { reportFailure: false });
   const openCommand = useAtomCommand(workspaceEnvironment.open, { reportFailure: false });
   const removeCommand = useAtomCommand(workspaceEnvironment.remove, { reportFailure: false });
+  const canChange = useAtomValue(workspaceEnvironment.create.permissionAtom(environmentId));
 
   const workspaces = query.data;
   // A workspace removed elsewhere stops being shown as soon as the list drops it.
@@ -81,6 +84,7 @@ export function useWorkspaces(): WorkspacesView {
     environmentId,
     workspaces,
     listError: query.error,
+    canChange,
     shown,
     create: (name) =>
       run(

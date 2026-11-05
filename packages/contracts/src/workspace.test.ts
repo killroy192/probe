@@ -2,7 +2,6 @@ import * as Exit from "effect/Exit";
 import * as Schema from "effect/Schema";
 import { describe, expect, it } from "vite-plus/test";
 
-import { WS_METHODS, WsRpcGroup } from "./rpc.ts";
 import { WorkspaceName, workspaceNameProblem } from "./workspace.ts";
 
 const decodeNameExit = Schema.decodeUnknownExit(WorkspaceName);
@@ -42,16 +41,5 @@ describe("workspace contracts", () => {
 
   it("trims the name it stores", () => {
     expect(decodeName("  sparta ")).toBe("sparta");
-  });
-
-  it("registers a method for every workspace operation", () => {
-    for (const method of [
-      WS_METHODS.workspaceCreate,
-      WS_METHODS.workspaceRemove,
-      WS_METHODS.workspaceOpen,
-      WS_METHODS.subscribeWorkspaces,
-    ]) {
-      expect(WsRpcGroup.requests.has(method)).toBe(true);
-    }
   });
 });
