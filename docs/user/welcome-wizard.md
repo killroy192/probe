@@ -1,5 +1,7 @@
 # Welcome wizard
 
+The browser app no longer shows this flow; it opens on [Workspaces](./workspaces.md).
+
 T3 Code shows a setup flow when you open a new installation. Existing
 workspaces skip this flow.
 

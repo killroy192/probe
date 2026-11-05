@@ -1,5 +1,7 @@
 # Working with threads
 
+Chat threads are hidden in the browser app, which opens on [Workspaces](./workspaces.md).
+
 Use a new thread for a separate task. Choose **New worktree** when its code changes
 need a separate branch and working directory.
 

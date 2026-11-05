@@ -74,3 +74,13 @@ that calls no hook. Lint misses some bailouts, notably `try` with `finally` and
 compiles every file and fails on any skip. Async handlers rarely need `try`: an
 atom command settles into a result, so cleanup can follow the `await`. `useStableCallback` still
 marks handlers that leave a large component, as described above.
+
+## Hidden chat
+
+The web app is terminal-first: `/` shows the workspace screen, and chat is hidden but not deleted
+until a later epic removes it. Every chat route's `beforeLoad` calls `redirectHiddenChatRoute` and
+chat settings pages are listed in `HIDDEN_SETTINGS_PATHS`, both in
+[`terminalFirst.ts`](../../apps/web/src/terminalFirst.ts). The root route mounts no chat sidebar,
+command palette, first-run wizard or thread coordinator; the unmounted modules are listed in
+`knip.jsonc`. A route, settings page or app-wide host added for chat needs the same treatment, or it
+reopens a way into chat.

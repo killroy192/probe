@@ -3,6 +3,7 @@
 ## Using T3 Code
 
 - [Install T3 Code](./user/install.md)
+- [Workspaces](./user/workspaces.md): the start screen; chat is hidden in this build
 - [Messages and context](./user/composer.md)
 - [Working with threads](./user/thread-sidebar.md)
 - [Permission modes](./user/permission-modes.md)
