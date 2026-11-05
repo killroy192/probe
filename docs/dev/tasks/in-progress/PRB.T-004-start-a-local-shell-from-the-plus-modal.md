@@ -3,9 +3,9 @@ id: PRB.T-004
 type: story
 parent: PRB.E-001
 phase: 1
-labels: [terminal-first, plan]
+labels: [terminal-first, plan, implement]
 created: 2026-11-02
-updated: 2026-11-02
+updated: 2026-11-05
 ---
 
 # Start a local shell from the plus modal
