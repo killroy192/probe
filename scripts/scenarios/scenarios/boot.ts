@@ -62,10 +62,11 @@ async function createWorkspace(page: PointerPage, name: string): Promise<string 
 
 /** Client-side navigation, the way an in-app link or the back button reaches an address. */
 async function navigateInApp(page: PointerPage, path: string) {
-  await page.evaluate((target) => {
-    window.history.pushState({}, "", target);
-    window.dispatchEvent(new PopStateEvent("popstate"));
-  }, path);
+  // A string, since this package has no DOM types; it runs in the page.
+  await page.evaluate(
+    `window.history.pushState({}, "", ${JSON.stringify(path)});
+     window.dispatchEvent(new PopStateEvent("popstate"));`,
+  );
   await page.waitForURL((url) => url.pathname === "/");
 }
 
@@ -202,13 +203,8 @@ export const boot: Scenario = {
         { metaKey: true, shiftKey: true },
         { ctrlKey: true, altKey: true },
       ]) {
-        await page.evaluate(
-          ([eventKey, init]) =>
-            window.dispatchEvent(
-              new KeyboardEvent("keydown", { key: eventKey, bubbles: true, ...init }),
-            ),
-          [key, modifiers] as const,
-        );
+        const init = JSON.stringify({ key, bubbles: true, ...modifiers });
+        await page.evaluate(`window.dispatchEvent(new KeyboardEvent("keydown", ${init}))`);
       }
     }
     check(new URL(page.url()).pathname === "/", `A chat shortcut navigated to ${page.url()}.`);
