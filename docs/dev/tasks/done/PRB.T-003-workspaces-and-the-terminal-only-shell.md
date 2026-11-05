@@ -144,9 +144,9 @@ Stories 4 to 8 depend on this one.
 
 | ID | Statement | Kind (assumption / unknown) | Status (unverified / verified / false) | How and when to verify | Owner |
 | --- | --- | --- | --- | --- | --- |
-| SA-1 | Chat can be hidden everywhere without breaking the app (routes, palette, settings links, sidebar); this is epic A-8 | assumption | unverified | Entry-point list made in the plan stage (2026-11-05, see the handoff); verified once AC-10 to AC-12 pass | author |
+| SA-1 | Chat can be hidden everywhere without breaking the app (routes, palette, settings links, sidebar); this is epic A-8 | assumption | verified | Entry-point list made in planning; hidden everywhere, checked by S1 and the author's AC-10 pass (2026-11-05) | author |
 | SA-2 | The chat routes and code can stay and be hidden, because the epic defers deletion | assumption | verified | Epic Out and Approach state it | author |
-| SA-3 | The S1 scenario can drive the "Open workspace" dropdown by pointer and seed saved workspaces into the throwaway Probe folder | assumption | unverified | Prove while building S1; harness is story 1 | author |
+| SA-3 | The S1 scenario can drive the "Open workspace" dropdown by pointer and seed saved workspaces into the throwaway Probe folder | assumption | verified | S1 seeds workspace files after start and drives the dropdown by pointer (2026-11-05) | author |
 | SU-1 | The inner format of a workspace file and whether workspace operations are server-side. Decided: files live in Probe's internal folder, one per workspace, name from the file name, dropdown list, no file picking (epic U-8) | unknown | verified | Decided in the plan stage 2026-11-05: operations are server-side over WS RPC (so AC-16 and AC-17 apply); each file is `<home>/userdata/workspaces/<name>.json` holding `{"version":1}`; storage decided by the user 2026-11-02 | author |
 | SU-2 | Decided: the list of saved workspaces persists across a reload already in this story (each is a saved file with its name); which workspace is shown after a reload and its layout are story 7 | unknown | verified | Follows from the user's 2026-11-02 decision that Open workspace lists saved workspace files | author |
 | SU-3 | Decided: an old chat address (a bookmarked or typed link to the former chat UI such as /threads/<id>) lands on the shown workspace, or on the start screen when none is shown | unknown | verified | Decided by the user 2026-11-02 (recommendation accepted by default; the user asked what the term meant) | author |
@@ -158,7 +158,7 @@ Stories 4 to 8 depend on this one.
 
 ## Implementation Status and Handoff
 
-Plan and implement done (2026-11-05). The working plan is `.plans/PRB.T-003-workspaces.md` (gitignored, local); this section is enough to continue without it. Branch `feat/workspaces-prb-t-003`, stacked on `feat/standalone-shells-prb-t-002`; nothing pushed.
+Done (2026-11-05). The working plan is `.plans/PRB.T-003-workspaces.md` (gitignored, local); this section is enough to continue without it. Branch `feat/workspaces-prb-t-003`, stacked on `feat/standalone-shells-prb-t-002`; nothing pushed.
 
 **Decisions**
 - SU-1: workspace operations are server-side (`workspace.create`, `workspace.remove`, `workspace.open`, `subscribeWorkspaces`) in the `SavedWorkspaces` service (`apps/server/src/savedWorkspaces/`; the existing `workspace/` folder means project directories) modeled on `apps/server/src/environmentTheme.ts` (folder read, watch, change stream). The file is `<home>/userdata/workspaces/<name>.json` with `{"version":1}`; the list is the folder listing; an unreadable or invalid file stays listed and fails on open (ER-2). Workspaces live on the primary environment.
@@ -192,7 +192,7 @@ Plan and implement done (2026-11-05). The working plan is `.plans/PRB.T-003-work
 - AC-19 (user, 2026-11-05): deferred. Docs cannot describe the terminal-first product fully before stories 4 to 8 build it. This story instead marks every chat-only user page "Not relevant in the terminal-first build", kept for history until the chat code is removed, and lists them apart in `docs/README.md`.
 
 **Not done**
-- Verify stage, second run. First run (2026-11-05) failed on: AC-10 and AC-19 evidence, `/guest` not hidden, an AC-12 check that could not fail, create and remove shown without settings write. Fixed since: `/guest` redirects, Create and Remove show only with settings write (`permissionAtom`), the AC-12 check, and a contract test that only mirrored types was dropped.
+- Nothing for this story. Closed by the user 2026-11-05 after the AC-10 pass, with AC-19 deferred. The first verify run (2026-11-05) failed on AC-10 and AC-19 evidence, `/guest`, the AC-12 check and the permission gating; all but AC-19 were fixed and AC-10 passed; verify was not rerun.
 
 **Known gaps**
 - AC-11's typed-address case runs a full page load for two addresses; the rest go through in-app navigation, which runs the same redirect.

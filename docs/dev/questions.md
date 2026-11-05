@@ -13,16 +13,12 @@ it is verified or decided; settled decisions go to `roadmap.md`.
   submitting (the "stage text, no Enter" primitive).
 - Agent CLIs' handling of staged input: bracketed paste, multi-line, kitty keyboard protocol.
 - Claude Code's current support for MCP prompts as slash commands and for server-pushed messages.
-- PRB.E-001 assumptions its stories depend on (2026-11-02): A-8 chat can be hidden everywhere
-  (PRB.T-003); A-13 the existing add-project flow can be reused inside the "+" modal's folder step
-  (PRB.T-004); A-17 forking a worktree needs at least one commit, and a folder without one runs in
+- PRB.E-001 assumptions its stories depend on (2026-11-02): A-17 forking a worktree needs at least one commit, and a folder without one runs in
   its own checkout (PRB.T-004, PRB.T-005); A-11 Probe can learn and track a shell's current branch
   and A-12 list a folder's worktrees, including detached and shell-less ones (PRB.T-005). Unknowns:
   U-2 default base branch and worktree location; U-3 time from start to the CLI banner (PRB.T-004);
   U-5 the kill command's name and how it finds its own shell (PRB.T-006). The 2 s start and 5 s
   resume limits are provisional (PRB.T-004, PRB.T-008).
-- The inner format of a workspace file, and whether workspace operations are server-side. Decided
-  in PRB.T-003 (SU-1); PRB.T-007 builds on it.
 - Whether a shell exiting on its own closes its tab (PRB.T-006 SU-2, split with PRB.T-007 and
   PRB.T-008).
 - How Probe tells an unexpected end from a normal exit or a Probe kill at the moment of death. The
