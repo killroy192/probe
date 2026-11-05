@@ -31,6 +31,7 @@ type Env =
 interface Fakes {
   readonly registered: string[];
   readonly opened: ShellOpenInput[];
+  readonly titles: Array<string | undefined>;
   initFails?: boolean;
   launchFails?: boolean;
 }
@@ -48,11 +49,12 @@ const layerDependencies = (fakes: Fakes) =>
         }),
     }),
     Layer.mock(Shells.Shells)({
-      open: (input) =>
+      open: (input, options) =>
         fakes.launchFails
           ? Effect.fail(new ShellLaunchError({ reason: "No agent command is configured." }))
           : Effect.sync(() => {
               fakes.opened.push(input);
+              fakes.titles.push(options?.title);
               return {
                 shellId: `shell-${fakes.opened.length}`,
                 cwd: input.cwd,
@@ -61,6 +63,8 @@ const layerDependencies = (fakes: Fakes) =>
                 exitCode: null,
                 exitSignal: null,
                 label: "shell",
+                title: options?.title ?? null,
+                process: null,
                 updatedAt: "now",
               };
             }),
@@ -89,7 +93,7 @@ const layerDependencies = (fakes: Fakes) =>
 const withWorkspaces = <A, E>(
   seeds: Readonly<Record<string, string>>,
   body: (dir: string, fakes: Fakes) => Effect.Effect<A, E, Env>,
-  fakes: Fakes = { registered: [], opened: [] },
+  fakes: Fakes = { registered: [], opened: [], titles: [] },
 ) =>
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
@@ -337,7 +341,7 @@ it.layer(NodeServices.layer)("saved workspaces", (it) => {
           assert.deepStrictEqual(fakes.registered, []);
           assert.deepStrictEqual((yield* workspaces.open({ name: "sparta" })).folders, []);
         }),
-      { registered: [], opened: [], initFails: true },
+      { registered: [], opened: [], titles: [], initFails: true },
     ),
   );
 
@@ -352,6 +356,7 @@ it.layer(NodeServices.layer)("saved workspaces", (it) => {
 
         const shell = yield* workspaces.startShell({ name: "sparta", folder: app, cols: 90 });
         assert.strictEqual(shell.cwd, app);
+        assert.strictEqual(shell.title, "Shell 1");
         assert.deepStrictEqual(fakes.opened, [{ cwd: app, agent: true, cols: 90 }]);
         assert.strictEqual((yield* workspaces.open({ name: "sparta" })).lastFolder, app);
 
@@ -366,6 +371,13 @@ it.layer(NodeServices.layer)("saved workspaces", (it) => {
         const gone = yield* Effect.flip(workspaces.startShell({ name: "sparta", folder: app }));
         assert.strictEqual(gone.message, `The folder no longer exists: ${app}`);
         assert.strictEqual(fakes.opened.length, 1);
+        yield* workspaces.create({ name: "athens" });
+        yield* fs.makeDirectory(app);
+        yield* workspaces.addFolder({ mode: "import", name: "athens", path: app });
+        yield* workspaces.startShell({ name: "athens", folder: app });
+        yield* workspaces.startShell({ name: "sparta", folder: app });
+        // Each workspace numbers its own shells in start order.
+        assert.deepStrictEqual(fakes.titles, ["Shell 1", "Shell 1", "Shell 2"]);
       }),
     ),
   );
@@ -373,7 +385,7 @@ it.layer(NodeServices.layer)("saved workspaces", (it) => {
   it.effect("does not remember a folder whose shell failed to start", () =>
     withWorkspaces(
       { "sparta.json": '{"version":1}' },
-      (dir) =>
+      (dir, fakes) =>
         Effect.gen(function* () {
           const workspaces = yield* service;
           const fs = yield* FileSystem.FileSystem;
@@ -384,8 +396,12 @@ it.layer(NodeServices.layer)("saved workspaces", (it) => {
           );
           assert.strictEqual(error._tag, "ShellLaunchError");
           assert.strictEqual((yield* workspaces.open({ name: "sparta" })).lastFolder, null);
+          // The failed start gives its number back.
+          fakes.launchFails = false;
+          const shell = yield* workspaces.startShell({ name: "sparta", folder: `${dir}/app` });
+          assert.strictEqual(shell.title, "Shell 1");
         }),
-      { registered: [], opened: [], launchFails: true },
+      { registered: [], opened: [], titles: [], launchFails: true },
     ),
   );
 });

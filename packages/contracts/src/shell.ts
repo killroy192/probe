@@ -59,6 +59,10 @@ export const ShellSummary = Schema.Struct({
   exitCode: Schema.NullOr(Schema.Int),
   exitSignal: Schema.NullOr(Schema.Int),
   label: Schema.String.check(Schema.isMaxLength(128)),
+  /** A fixed name such as "Shell 2", numbered within the workspace that started the shell. */
+  title: Schema.NullOr(Schema.String),
+  /** The short name of the program running in the shell right now, or null when it is idle. */
+  process: Schema.NullOr(Schema.String),
   updatedAt: Schema.String,
 });
 export type ShellSummary = typeof ShellSummary.Type;

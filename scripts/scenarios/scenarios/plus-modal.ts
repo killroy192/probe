@@ -310,6 +310,13 @@ export const plusModal: Scenario = {
       const [first] = await shellsIn(shells.lists, repo, 1);
       check(first !== undefined && first.status === "running", "The started shell is not running.");
       check((await tabs(page).count()) === 1, "Starting a shell did not open one tab (AC-2).");
+      // A shell is named by its fixed number in the workspace, its folder and what runs in it.
+      await tabs(page)
+        .filter({ hasText: /^Shell 1 · repo · node$/ })
+        .waitFor();
+      await shellNodes(page, repo)
+        .filter({ hasText: /^Shell 1 · node$/ })
+        .waitFor();
 
       // AC-4: no chat thread exists and the tab shows no chat chrome.
 
@@ -347,6 +354,9 @@ export const plusModal: Scenario = {
       const output = recorder<TerminalAttachStreamEvent>();
       follow(rpc.client["shell.attach"]({ shellId: first.shellId }), output.push);
       await typeLine(page, "exit");
+      await tabs(page)
+        .filter({ hasText: /^Shell 1 · repo$/ })
+        .waitFor();
       const resizedFrom = output.seen.length;
       await page.setViewportSize({ width: 900, height: 600 });
       const grid = await output.until(
@@ -374,6 +384,7 @@ export const plusModal: Scenario = {
       const two = await shellsIn(shells.lists, repo, 2);
       await shellNodes(page, repo).nth(1).waitFor();
       const second = two.find((shell) => shell.shellId !== first.shellId)!;
+      check(second.title === "Shell 2", `The second shell is named ${second.title}.`);
       await frames.until("the second banner", (frame) => frame.includes("Mock Agent v1"));
       check(
         shells.current().filter((shell) => shell.cwd === repo).length === 2 &&

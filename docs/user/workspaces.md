@@ -35,6 +35,8 @@ A reload returns to the start screen; the list of saved workspaces stays.
 A workspace holds folders, and each shell runs in one of them. Click **+** at
 the top of the sidebar to start a shell: pick a folder and click the up-arrow
 button. The shell opens in a new tab and appears in the tree under its folder.
+Shells are named by their number in the workspace, their folder and the
+program running in them, such as "Shell 2 · repo · node".
 It starts the server's agent command (see [Agent command](#agent-command)), and
 leaving the agent leaves the shell open.
 

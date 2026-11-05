@@ -7,6 +7,7 @@ import { useShells } from "../../state/shells";
 import { useWorkspaces, type WorkspacesView } from "../../state/workspaces";
 import { isElectron } from "../../env";
 import { ShellTerminal } from "../ShellView";
+import { shellName } from "./shellName";
 import { WorkspacePageHeader } from "../WorkspacePageHeader";
 import { Button } from "../ui/button";
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "../ui/empty";
@@ -78,7 +79,7 @@ function ShellTabs({
     const shell = shells?.find((candidate) => candidate.shellId === id);
     return shell === undefined ? [] : [shell];
   });
-  const label = (shell: ShellSummary) => `${shell.label} · ${folderName(shell.cwd)}`;
+  const label = (shell: ShellSummary) => shellName(shell, { folder: true });
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -127,6 +128,3 @@ function ShellTabs({
     </div>
   );
 }
-
-const folderName = (path: string) =>
-  path.split(/[\\/]/).findLast((part) => part.length > 0) ?? path;

@@ -28,6 +28,7 @@ import {
 import { SidebarContent, SidebarGroup, SidebarInput, SidebarMenuButton } from "../ui/sidebar";
 import { CreateWorkspaceDialog } from "./CreateWorkspaceDialog";
 import { AddFolderDialog } from "./AddFolderDialog";
+import { folderName, shellName } from "./shellName";
 import { StartShellDialog } from "./StartShellDialog";
 
 const NEEDS_WORKSPACE = "Open a workspace first";
@@ -228,7 +229,7 @@ function ShellTree({
                 className="flex items-center gap-1.5 truncate py-1 pr-2 pl-4 text-sm text-sidebar-foreground"
               >
                 <FolderIcon className="size-3.5 shrink-0 text-(--sidebar-icon-color)" />
-                <span className="truncate">{folderLabel(folder.path)}</span>
+                <span className="truncate">{folderName(folder.path)}</span>
                 {folder.exists ? null : (
                   <span className="shrink-0 text-xs text-muted-foreground">missing</span>
                 )}
@@ -246,7 +247,7 @@ function ShellTree({
                       onClick={() => onChooseShell(shell.shellId)}
                     >
                       <SquareTerminalIcon />
-                      <span className="truncate">{shell.label}</span>
+                      <span className="truncate">{shellName(shell, { folder: false })}</span>
                     </SidebarMenuButton>
                   ))}
                 </div>
@@ -258,6 +259,3 @@ function ShellTree({
     </div>
   );
 }
-
-const folderLabel = (path: string) =>
-  path.split(/[\\/]/).findLast((part) => part.length > 0) ?? path;

@@ -33,6 +33,7 @@ type Manager = TerminalManager["Service"];
 const toSummary = (
   shellId: string,
   terminal: TerminalSessionSnapshot | TerminalSummary,
+  title: string | null,
 ): ShellSummary => ({
   shellId,
   cwd: terminal.cwd,
@@ -41,24 +42,30 @@ const toSummary = (
   exitCode: terminal.exitCode,
   exitSignal: terminal.exitSignal,
   label: terminal.label,
+  title,
+  // The manager's label is the running program's name while one runs, else a generic default.
+  process: "hasRunningSubprocess" in terminal && terminal.hasRunningSubprocess ? terminal.label : null,
   updatedAt: terminal.updatedAt,
 });
 
-const listEvent = (event: TerminalMetadataStreamEvent): ShellListStreamEvent | null => {
+const listEvent = (
+  event: TerminalMetadataStreamEvent,
+  titleOf: (shellId: string) => string | null,
+): ShellListStreamEvent | null => {
   switch (event.type) {
     case "snapshot":
       return {
         type: "snapshot",
         shells: event.terminals.flatMap((terminal) => {
           const shellId = shellIdFromOwnerId(terminal.threadId);
-          return shellId === null ? [] : [toSummary(shellId, terminal)];
+          return shellId === null ? [] : [toSummary(shellId, terminal, titleOf(shellId))];
         }),
       };
     case "upsert": {
       const shellId = shellIdFromOwnerId(event.terminal.threadId);
       return shellId === null
         ? null
-        : { type: "upsert", shell: toSummary(shellId, event.terminal) };
+        : { type: "upsert", shell: toSummary(shellId, event.terminal, titleOf(shellId)) };
     }
     case "remove": {
       const shellId = shellIdFromOwnerId(event.threadId);
@@ -111,6 +118,9 @@ export const makeShells = Effect.fn("Shells.make")(function* (
     threadId: shellOwnerId(shellId),
     terminalId: DEFAULT_TERMINAL_ID,
   });
+  // Titles live as long as the server; a shell does not outlive it either.
+  const titles = new Map<string, string>();
+  const titleOf = (shellId: string) => titles.get(shellId) ?? null;
 
   const isFile = (candidate: string) =>
     fs.stat(candidate).pipe(
@@ -167,7 +177,10 @@ export const makeShells = Effect.fn("Shells.make")(function* (
 
   return {
     // A shell that cannot start is not kept: the caller gets the launch error's reason instead.
-    open: Effect.fn("Shells.open")(function* (input: ShellOpenInput) {
+    open: Effect.fn("Shells.open")(function* (
+      input: ShellOpenInput,
+      options?: { readonly title?: string },
+    ) {
       const { agent, ...terminal } = input;
       if (agent === true) {
         const problem = yield* agentProblem(input.cwd);
@@ -175,6 +188,7 @@ export const makeShells = Effect.fn("Shells.make")(function* (
       }
       const shellId = yield* newShellId;
       const owner = session(shellId);
+      if (options?.title !== undefined) titles.set(shellId, options.title);
       let reason = "The shell program could not be launched.";
       const stop = yield* manager.subscribe((event) =>
         Effect.sync(() => {
@@ -185,6 +199,7 @@ export const makeShells = Effect.fn("Shells.make")(function* (
         .open({ ...owner, ...terminal })
         .pipe(Effect.ensuring(Effect.sync(stop)));
       if (snapshot.status === "error") {
+        titles.delete(shellId);
         yield* manager.close({ ...owner, deleteHistory: true });
         return yield* failToStart(input.cwd, reason);
       }
@@ -193,7 +208,7 @@ export const makeShells = Effect.fn("Shells.make")(function* (
         // The pty buffers this until the shell has read its startup files.
         yield* manager.write({ ...owner, data: `${agentCommand}\r` });
       }
-      return toSummary(shellId, snapshot);
+      return toSummary(shellId, snapshot, titleOf(shellId));
     }),
     attach: (input: ShellAttachInput, viewerId: string) =>
       manager.attachOutputStream(
@@ -210,10 +225,13 @@ export const makeShells = Effect.fn("Shells.make")(function* (
       }
       yield* manager.resize({ threadId, terminalId, cols: input.cols, rows: input.rows }, viewerId);
     }),
-    close: (input: ShellInput) => manager.close({ ...session(input.shellId), deleteHistory: true }),
+    close: (input: ShellInput) =>
+      manager
+        .close({ ...session(input.shellId), deleteHistory: true })
+        .pipe(Effect.tap(() => Effect.sync(() => titles.delete(input.shellId)))),
     subscribe: (listener: (event: ShellListStreamEvent) => Effect.Effect<void>) =>
       manager.subscribeMetadata((event) => {
-        const mapped = listEvent(event);
+        const mapped = listEvent(event, titleOf);
         return mapped === null ? Effect.void : listener(mapped);
       }),
   };

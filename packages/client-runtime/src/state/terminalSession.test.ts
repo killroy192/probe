@@ -287,6 +287,8 @@ describe("terminal session reducers", () => {
       exitCode: status === "exited" ? 0 : null,
       exitSignal: null,
       label: "Shell",
+      title: null,
+      process: null,
       updatedAt: "2026-04-01T00:00:00.000Z",
     });
     let list = applyShellListStreamEvent([], {

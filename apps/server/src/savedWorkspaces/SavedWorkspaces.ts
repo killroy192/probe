@@ -133,6 +133,7 @@ const make = Effect.gen(function* () {
   const workspacePaths = yield* WorkspacePaths.WorkspacePaths;
   const shells = yield* Shells.Shells;
   const randomId = (yield* Crypto.Crypto).randomUUIDv4().pipe(Effect.orDie);
+  const shellNumbers = new Map<string, number>();
   const fileOf = (name: string) => path.join(workspacesDir, `${name}${FILE_SUFFIX}`);
 
   const changes = yield* PubSub.sliding<PublishedWorkspaces>(1);
@@ -393,12 +394,26 @@ const make = Effect.gen(function* () {
     if (!(yield* isDirectory(input.folder))) {
       return yield* folderError(`The folder no longer exists: ${input.folder}`);
     }
-    const shell = yield* shells.open({
-      cwd: input.folder,
-      agent: true,
-      ...(input.cols === undefined ? {} : { cols: input.cols }),
-      ...(input.rows === undefined ? {} : { rows: input.rows }),
-    });
+    // Numbered per workspace in start order; a failed start gives its number back.
+    const number = (shellNumbers.get(input.name) ?? 0) + 1;
+    shellNumbers.set(input.name, number);
+    const shell = yield* shells
+      .open(
+        {
+          cwd: input.folder,
+          agent: true,
+          ...(input.cols === undefined ? {} : { cols: input.cols }),
+          ...(input.rows === undefined ? {} : { rows: input.rows }),
+        },
+        { title: `Shell ${number}` },
+      )
+      .pipe(
+        Effect.tapError(() =>
+          Effect.sync(() => {
+            if (shellNumbers.get(input.name) === number) shellNumbers.set(input.name, number - 1);
+          }),
+        ),
+      );
     // The shell is running either way; failing here would hide it from the caller.
     yield* rememberFolder(input.name, input.folder).pipe(
       Effect.catch((error) =>

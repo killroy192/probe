@@ -355,7 +355,8 @@ function normalizeChildCommandName(raw: string, platform: NodeJS.Platform): stri
   ) {
     trimmed = trimmed.slice(1, -1).trim();
   }
-  const firstToken = (trimmed.split(/\s+/)[0] ?? trimmed).trim();
+  // Node names its main thread "node-MainThread", which Linux reports as the process name.
+  const firstToken = (trimmed.split(/\s+/)[0] ?? trimmed).trim().replace(/-MainThread$/, "");
   if (firstToken.length === 0) return null;
   const separators = platform === "win32" ? /[\\/]/ : /\//;
   const base = firstToken.split(separators).at(-1) ?? firstToken;
