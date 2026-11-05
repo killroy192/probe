@@ -3,11 +3,20 @@ import {
   getFilesystemBrowsePath,
 } from "@t3tools/client-runtime/state/filesystem";
 import { type EnvironmentId, folderNameProblem, type WorkspaceDetail } from "@t3tools/contracts";
-import { ArrowUpIcon, FolderIcon, FolderPlusIcon } from "lucide-react";
+import {
+  ArrowUpIcon,
+  CornerLeftUpIcon,
+  FolderIcon,
+  FolderOpenIcon,
+  FolderPlusIcon,
+} from "lucide-react";
 import { useRef, useState } from "react";
 
+import { isElectron } from "../../env";
+import { readLocalApi } from "../../localApi";
 import { filesystemEnvironment, useFilesystemReadAccess } from "../../state/filesystem";
 import { useEnvironmentQuery } from "../../state/query";
+import { readPreparedConnection } from "../../state/session";
 import type { AddFolderRequest } from "../../state/workspaces";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
@@ -305,7 +314,17 @@ function AddFolderPanel({
   );
 }
 
-/** A path field that lists the folders under what has been typed, for picking with a pointer. */
+/** The folder above `path`, with a trailing separator; the root stays the root. */
+const parentFolder = (path: string) => {
+  const trimmed = path.replace(/[\\/]+$/, "");
+  const cut = Math.max(trimmed.lastIndexOf("/"), trimmed.lastIndexOf("\\"));
+  return cut <= 0 ? "/" : `${trimmed.slice(0, cut)}/`;
+};
+
+/**
+ * A path field over a browser of the server's folders. The browser lists the folder the field
+ * points at (the home folder when empty), so a folder can be picked with the pointer alone.
+ */
 function FolderPathField({
   label,
   value,
@@ -319,19 +338,37 @@ function FolderPathField({
 }) {
   const access = useFilesystemReadAccess(environmentId);
   const browse = getFilesystemBrowsePath(value, "", access.canReadFiles);
+  const empty = value.trim().length === 0;
+  const directory = !access.canReadFiles
+    ? null
+    : empty
+      ? "~/"
+      : browse.isBrowsing && browse.directoryPath.length > 0
+        ? browse.directoryPath
+        : null;
   const query = useEnvironmentQuery(
-    environmentId === null || !browse.isBrowsing || browse.directoryPath.length === 0
+    environmentId === null || directory === null
       ? null
-      : filesystemEnvironment.browse({
-          environmentId,
-          input: { partialPath: browse.directoryPath },
-        }),
+      : filesystemEnvironment.browse({ environmentId, input: { partialPath: directory } }),
   );
+  const listed = query.data?.parentPath ?? null;
   const { visibleEntries } = filterFilesystemBrowseEntries(
     query.data?.entries ?? [],
-    browse.filterQuery,
+    empty ? "" : browse.filterQuery,
   );
-  const suggestions = visibleEntries.slice(0, 8);
+  // The native dialog lists this machine's folders, which are the server's only for the
+  // desktop app's own server; a browser never learns a picked folder's real path.
+  const nativePicker =
+    isElectron &&
+    environmentId !== null &&
+    readPreparedConnection(environmentId)?.target._tag === "PrimaryConnectionTarget";
+
+  const pickNatively = async () => {
+    const picked = await readLocalApi()?.dialogs.pickFolder(
+      empty ? undefined : { initialPath: value.trim() },
+    );
+    if (picked) onChange(picked);
+  };
 
   return (
     <div className="grid gap-1.5">
@@ -344,23 +381,64 @@ function FolderPathField({
           spellCheck={false}
         />
       </label>
-      {suggestions.length === 0 ? null : (
-        <ul aria-label="Folder suggestions" className="grid max-h-40 overflow-y-auto">
-          {suggestions.map((entry) => (
-            <li key={entry.fullPath}>
-              <Button
-                type="button"
-                variant="ghost"
-                size="compact"
-                className="w-full justify-start"
-                onClick={() => onChange(`${entry.fullPath}/`)}
-              >
-                <FolderIcon />
-                {entry.name}
-              </Button>
-            </li>
-          ))}
-        </ul>
+      {nativePicker ? (
+        <Button
+          type="button"
+          variant="outline"
+          size="compact"
+          className="justify-self-start"
+          onClick={() => void pickNatively()}
+        >
+          <FolderOpenIcon />
+          Choose in Finder…
+        </Button>
+      ) : null}
+      {directory === null ? null : (
+        <div
+          role="group"
+          aria-label="Server folders"
+          className="grid rounded-md border border-border"
+        >
+          <div className="flex min-w-0 items-center gap-1 border-b border-border px-1 py-1">
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-xs"
+              aria-label="Up one folder"
+              disabled={listed === null || listed === "/"}
+              onClick={() => listed !== null && onChange(parentFolder(listed))}
+            >
+              <CornerLeftUpIcon />
+            </Button>
+            <span className="min-w-0 truncate font-mono text-xs text-muted-foreground">
+              {listed ?? directory}
+            </span>
+          </div>
+          {query.error !== null ? (
+            <p className="px-2 py-1.5 text-xs text-destructive-foreground">{query.error}</p>
+          ) : visibleEntries.length === 0 ? (
+            <p className="px-2 py-1.5 text-xs text-muted-foreground">
+              {query.isPending ? "Loading folders…" : "No folders here."}
+            </p>
+          ) : (
+            <ul aria-label="Folders on the server" className="grid max-h-48 overflow-y-auto py-1">
+              {visibleEntries.map((entry) => (
+                <li key={entry.fullPath}>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="compact"
+                    className="w-full justify-start"
+                    onClick={() => onChange(`${entry.fullPath}/`)}
+                  >
+                    <FolderIcon />
+                    {entry.name}
+                  </Button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
       )}
     </div>
   );

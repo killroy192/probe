@@ -73,7 +73,9 @@ async function preselected(page: PointerPage): Promise<string | null> {
  */
 async function addFolder(
   page: PointerPage,
-  request: { readonly import: string } | { readonly parent: string; readonly name: string },
+  request:
+    | { readonly import: string; readonly pick?: string }
+    | { readonly parent: string; readonly name: string },
 ): Promise<string | null> {
   const panel = dialog(page).getByTestId("add-folder");
   if (!(await panel.count())) {
@@ -87,6 +89,13 @@ async function addFolder(
     .getByRole("textbox", { name: isImport ? "Folder" : "Create it in" })
     .fill(isImport ? request.import : request.parent);
   if (!isImport) await panel.getByRole("textbox", { name: "New folder name" }).fill(request.name);
+  if (isImport && request.pick !== undefined) {
+    // Picks a folder in the server folder browser, which lists the folder the field points at.
+    await panel
+      .getByRole("list", { name: "Folders on the server" })
+      .getByRole("button", { name: request.pick, exact: true })
+      .click();
+  }
   const shown = dialog(page).getByRole("alert");
   const previous = (await shown.count()) ? await shown.getAttribute("data-attempt") : "none";
   await panel.getByRole("button", { name: isImport ? "Add folder" : "Create folder" }).click();
@@ -211,7 +220,11 @@ export const plusModal: Scenario = {
       // AC-1, AC-8: import an existing git folder; it is selected and has the git badge.
 
       stage = "AC-1, AC-8";
-      check((await addFolder(page, { import: repo })) === null, "Importing the git folder failed.");
+      // The folder is picked by clicking it in the server folder browser, under its typed parent.
+      check(
+        (await addFolder(page, { import: `${folders}/`, pick: "repo" })) === null,
+        "Importing the git folder failed.",
+      );
       await folderRadio(page, repo).click();
       check(
         (await folderRadio(page, repo).getAttribute("aria-checked")) === "true",
