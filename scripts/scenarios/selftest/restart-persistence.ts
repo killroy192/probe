@@ -1,23 +1,25 @@
-// @effect-diagnostics nodeBuiltinImport:off - Creates a workspace directory inside the throwaway home.
+import * as Effect from "effect/Effect";
 
-import * as NodeFSP from "node:fs/promises";
-import * as NodePath from "node:path";
-
+import { connectRpc } from "../rpc.ts";
 import type { Scenario } from "../scenario.ts";
 
-const TITLE = "persisted-project";
+const NAME = "persisted-workspace";
 
 export const restartPersistence: Scenario = {
   id: "T1",
   title: "restart keeps data",
   run: async ({ server, openPage }) => {
-    const workspace = NodePath.join(server.home, "workspace");
-    await NodeFSP.mkdir(workspace);
-    await server.cli(["project", "add", workspace, "--title", TITLE]);
+    const rpc = await connectRpc(server.origin, await openPage());
+    try {
+      await Effect.runPromise(rpc.client["workspace.create"]({ name: NAME }));
+    } finally {
+      await rpc.close();
+    }
 
     await server.restart();
 
     const page = await openPage();
-    await page.getByText(TITLE).first().waitFor();
+    await page.getByRole("button", { name: "Open workspace" }).click();
+    await page.getByRole("menuitem", { name: NAME }).waitFor();
   },
 };

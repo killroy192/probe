@@ -109,7 +109,12 @@ async function main(): Promise<number> {
   cleanups.push(() => browser.close());
   NodeProcess.stdout.write("scenarios: ready\n");
 
-  const selected = options.selftest ? selftestScenarios : [...scenarios, ...storyScenarios];
+  const all = options.selftest ? selftestScenarios : [...scenarios, ...storyScenarios];
+  const selected = options.only === undefined ? all : all.filter(({ id }) => id === options.only);
+  if (selected.length === 0) {
+    NodeProcess.stderr.write(`scenarios: no scenario has the id ${options.only}.\n`);
+    return 2;
+  }
   let passed = 0;
   let storyPassed = 0;
   let failed = 0;

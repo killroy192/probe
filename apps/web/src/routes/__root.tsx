@@ -31,6 +31,7 @@ import { isLocalEnvironmentDisabled } from "../localEnvironment";
 
 import { getDesktopSnapShotBridge } from "../lib/desktopSnapShot";
 import { shouldResumeSnapShotSetupOnStartup } from "../lib/snapShotSetupResume";
+import { SidebarProvider } from "../components/ui/sidebar";
 
 export const Route = createRootRoute({
   beforeLoad: async ({ location }) => {
@@ -143,7 +144,10 @@ function RootRouteBranch() {
       <SshPasswordPromptDialog />
       <SnapShotCoordinator />
       <ConfirmDialogHost />
-      <Outlet />
+      {/* Settings and the terminal views read sidebar state, though no app sidebar is shown. */}
+      <SidebarProvider className="h-dvh! min-h-0!" defaultOpen>
+        <Outlet />
+      </SidebarProvider>
       {/* Keep the theme editor above the router so drafts survive navigation. */}
       <ThemeEditorHost />
     </>

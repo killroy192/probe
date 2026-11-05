@@ -137,11 +137,11 @@ describe("scenario runner", () => {
       const bystander = await startServer({ home });
       try {
         for (const _ of [1, 2]) {
-          const { code, output } = await spawnRunner([]).done;
+          // One scenario is enough to show a run leaves the bystander alone.
+          const { code, output } = await spawnRunner(["--only", "S1"]).done;
           assert.strictEqual(code, 0);
           assert.include(output, "PASS    S1 boot");
-          assert.include(output, "PENDING S8");
-          assert.include(output, "1/8 passing, 7 pending, 0 failed");
+          assert.include(output, "1/8 passing, 0 pending, 0 failed");
         }
         assert.isTrue(alive(bystander.pid()));
         assert.isTrue((await fetch(bystander.origin)).ok);

@@ -9,9 +9,11 @@ export interface RunOptions {
   readonly rebuild: boolean;
   readonly browser: string | undefined;
   readonly serverBin: string | undefined;
+  /** Runs only the scenario with this id. */
+  readonly only: string | undefined;
 }
 
-const VALUE_FLAGS = ["--browser", "--server-bin"] as const;
+const VALUE_FLAGS = ["--browser", "--server-bin", "--only"] as const;
 // Pointing the harness at existing data or a server is never allowed; these flags only exist to
 // be refused with a clear message.
 const TARGET_FLAGS = ["--base-dir", "--home-dir", "--server", "--server-url", "--url"] as const;
@@ -30,6 +32,7 @@ export function parseArgs(argv: ReadonlyArray<string>): RunOptions {
     rebuild: argv.includes("--rebuild"),
     browser: flagValue("--browser"),
     serverBin: flagValue("--server-bin"),
+    only: flagValue("--only"),
   };
 }
 
