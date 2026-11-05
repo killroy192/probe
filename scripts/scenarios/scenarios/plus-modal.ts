@@ -12,7 +12,6 @@ import * as Stream from "effect/Stream";
 import { connectionCutter, type PointerPage } from "../browser.ts";
 import { connectRpc, type WsClient } from "../rpc.ts";
 import type { Scenario } from "../scenario.ts";
-import { MOCK_AGENT_COMMAND } from "../server.ts";
 import { follow, gone, pageFrames, recorder } from "../support.ts";
 
 const CONNECTION_LOST =
@@ -431,11 +430,14 @@ export const plusModal: Scenario = {
         "The log has no end line for the killed shell (AC-19).",
       );
 
-      // AC-16: an agent command that cannot start is refused and logged with the cwd.
+      // AC-16, AC-17: one restart carries both faults, an agent command that cannot start
+      // and a git config that makes `git init` fail; a second restart clears them.
 
       stage = "AC-16";
       await rpc.close();
-      await server.restart({ env: { PROBE_AGENT_COMMAND: "no-such-agent-cli --start" } });
+      await server.restart({
+        env: { PROBE_AGENT_COMMAND: "no-such-agent-cli --start", GIT_CONFIG_GLOBAL: badGitConfig },
+      });
       await reopen(page);
       rpc = await connectRpc(server.origin, page);
       shells = shellList(rpc.client);
@@ -462,11 +464,6 @@ export const plusModal: Scenario = {
       // AC-17: git init fails; the half-made folder is gone and not in the workspace.
 
       stage = "AC-17";
-      await rpc.close();
-      await server.restart({ env: { GIT_CONFIG_GLOBAL: badGitConfig } });
-      await reopen(page);
-      rpc = await connectRpc(server.origin, page);
-      shells = shellList(rpc.client);
       await openModal(page);
       const initReason = await addFolder(page, { parent: folders, name: "broken" });
       check(initReason?.startsWith("git init failed") === true, `git init: ${initReason} (AC-17).`);
@@ -482,7 +479,7 @@ export const plusModal: Scenario = {
       );
       await cancelModal(page);
       await rpc.close();
-      await server.restart({ env: { PROBE_AGENT_COMMAND: MOCK_AGENT_COMMAND } });
+      await server.restart();
       await reopen(page);
       rpc = await connectRpc(server.origin, page);
       shells = shellList(rpc.client);

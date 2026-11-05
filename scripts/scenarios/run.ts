@@ -22,6 +22,7 @@ import { REPO_ROOT, startServer } from "./server.ts";
 
 const WEB_INDEX = NodePath.join(REPO_ROOT, "apps/web/dist/index.html");
 const TOTAL = 8;
+const ACTION_TIMEOUT_MS = 10_000;
 
 // Everything the run started, so an interrupt or a failure stops exactly that and nothing else.
 const cleanups: Array<() => Promise<void>> = [];
@@ -77,6 +78,8 @@ async function runScenario(
   try {
     const newPage = async (signedIn: boolean): Promise<PointerPage> => {
       const context = await browser.newContext();
+      // A broken step should fail in seconds; Playwright's 30 s default makes each failure slow.
+      context.setDefaultTimeout(ACTION_TIMEOUT_MS);
       const page = await context.newPage();
       if (signedIn) {
         await page.goto(await server.pairingUrl());

@@ -5,7 +5,8 @@ import * as Stream from "effect/Stream";
 
 import type { PointerPage } from "./browser.ts";
 
-const WAIT_MS = 20_000;
+// Matches the page action timeout in run.ts, so a missing event fails as fast as a missing element.
+const WAIT_MS = 10_000;
 
 /** Values seen so far, and a wait for the first one (from `from` on) that matches. */
 export function recorder<A>() {
