@@ -31,6 +31,19 @@ installer=$(mktemp)
 curl -fsSL https://raw.githubusercontent.com/oleg-koval/glint/main/install.sh -o "$installer"
 bash "$installer" --no-bars
 rm -f "$installer"
+# Its git calls must not take index.lock, which would race the agent's own git.
+python3 - "$CLAUDE_CONFIG_DIR/settings.json" <<'EOF'
+import json, sys
+path = sys.argv[1]
+with open(path) as f:
+    settings = json.load(f)
+command = settings["statusLine"]["command"]
+if not command.startswith("GIT_OPTIONAL_LOCKS=0 "):
+    settings["statusLine"]["command"] = "GIT_OPTIONAL_LOCKS=0 " + command
+with open(path, "w") as f:
+    json.dump(settings, f, indent=2)
+    f.write("\n")
+EOF
 
 CI=true vp i
 # Headless Chromium at the repo's pinned Playwright version. Both the scenario
