@@ -46,10 +46,12 @@ icon in the sidebar:
 - **Create new folder** makes a folder in the place you choose and runs
   `git init` in it. If `git init` fails, the new folder is removed again.
 
-Both list the server's folders under the path field, starting in the home
-folder: click a folder to go into it, or the up arrow to go back. You can also
-type a path. In the desktop app with its own server, **Choose in Finder…**
-opens the system folder dialog instead.
+Both start at the server's home folder (`~/`). Click the path field to list the
+folders there: click a folder to go into it, or `..` to go up. You can also type
+a path. When the server runs on another machine, the field's label says
+(remote server), because the folder is created or read there. In the desktop app
+with its own server, **Choose in Finder…** opens the system folder dialog
+instead.
 
 Each folder is also registered as a project on the server. The dialog
 preselects the folder you last started a shell in, as long as it is still in

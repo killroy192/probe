@@ -2,7 +2,6 @@
 
 import * as NodeChildProcess from "node:child_process";
 import * as NodeFSP from "node:fs/promises";
-import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
 import * as NodeProcess from "node:process";
 
@@ -205,11 +204,16 @@ export const plusModal: Scenario = {
       stage = "AC-11";
       await openModal(page);
       check(await startButton(page).isDisabled(), "Start is enabled with no folder (AC-11).");
-      // Opening "Add folder" selects the server's home folder and lists it before any typing.
+      // "Add folder" starts at the server's home; its folders show only once the field is clicked.
       await dialog(page).getByRole("button", { name: "Add folder", exact: true }).click();
-      const selected = dialog(page).getByTestId("selected-folder");
-      await selected.filter({ hasText: NodeOS.homedir() }).waitFor();
-      await dialog(page).getByText(`Folders in ${NodeOS.homedir()}.`).waitFor();
+      const field = dialog(page).getByRole("textbox", { name: "Folder" });
+      check((await field.inputValue()) === "~/", "The folder field does not start at ~/.");
+      const listing = dialog(page)
+        .getByRole("list", { name: "Folders on the server" })
+        .filter({ visible: true });
+      check((await listing.count()) === 0, "The folder list shows before the field is clicked.");
+      await field.click();
+      await listing.waitFor();
 
       // AC-17: a file, a denied create and a failed git init are refused with their reason.
 

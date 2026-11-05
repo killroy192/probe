@@ -16,6 +16,7 @@ import { isElectron } from "../../env";
 import { readLocalApi } from "../../localApi";
 import { filesystemEnvironment, useFilesystemReadAccess } from "../../state/filesystem";
 import { useEnvironmentQuery } from "../../state/query";
+import { useEnvironments } from "../../state/environments";
 import { readPreparedConnection } from "../../state/session";
 import type { AddFolderRequest } from "../../state/workspaces";
 import { Badge } from "../ui/badge";
@@ -32,6 +33,7 @@ import {
 import { Input } from "../ui/input";
 import { Radio, RadioGroup } from "../ui/radio-group";
 import { ToggleGroup, ToggleGroupItem } from "../ui/toggle-group";
+import { isServerRemote } from "./serverLocation";
 
 type AddMode = "import" | "create";
 
@@ -275,9 +277,6 @@ function AddFolderPanel({
       </ToggleGroup>
       <FolderPathField
         label={mode === "import" ? "Folder" : "Create it in"}
-        purpose={
-          mode === "import" ? "This folder is added." : "The new folder is created inside it."
-        }
         value={path}
         onChange={setPath}
         environmentId={environmentId}
@@ -327,18 +326,16 @@ const parentFolder = (path: string) => {
 
 /**
  * A path field over a browser of the server's folders. The browser lists the folder the field
- * points at (the home folder when empty), so a folder can be picked with the pointer alone.
+ * points at (the home folder when empty) while the field has focus, so a folder can be picked
+ * with the pointer alone.
  */
 function FolderPathField({
   label,
-  purpose,
   value,
   onChange,
   environmentId,
 }: {
   readonly label: string;
-  /** What happens with the selected folder, said next to it. */
-  readonly purpose: string;
   readonly value: string;
   readonly onChange: (value: string) => void;
   readonly environmentId: EnvironmentId | null;
@@ -359,12 +356,6 @@ function FolderPathField({
       : filesystemEnvironment.browse({ environmentId, input: { partialPath: directory } }),
   );
   const listed = query.data?.parentPath ?? null;
-  // A path ending in a separator selects the listed folder itself, shown resolved (~ expanded).
-  const selected = empty
-    ? null
-    : /[\\/]$/.test(value.trim())
-      ? (listed ?? value.trim())
-      : value.trim();
   const { visibleEntries } = filterFilesystemBrowseEntries(
     query.data?.entries ?? [],
     empty ? "" : browse.filterQuery,
@@ -376,6 +367,18 @@ function FolderPathField({
     environmentId !== null &&
     readPreparedConnection(environmentId)?.target._tag === "PrimaryConnectionTarget";
 
+  const { environments } = useEnvironments();
+  const serverOs =
+    environments.find((environment) => environment.environmentId === environmentId)?.serverConfig
+      ?.environment.platform.os ?? null;
+  const remote = isServerRemote({
+    desktopOwnServer: nativePicker,
+    serverOs,
+    clientPlatform: navigator.platform,
+    pageHost: window.location.hostname,
+  });
+  const [listOpen, setListOpen] = useState(false);
+
   const pickNatively = async () => {
     const picked = await readLocalApi()?.dialogs.pickFolder(
       empty ? undefined : { initialPath: value.trim() },
@@ -386,64 +389,39 @@ function FolderPathField({
   return (
     <div className="grid gap-1.5">
       <label className="grid gap-1.5">
-        <span className="text-xs font-medium text-foreground">{label}</span>
+        <span className="text-xs font-medium text-foreground">
+          {label}
+          {remote ? " (remote server)" : ""}
+        </span>
         <Input
           placeholder="/path/to/folder"
           value={value}
           onChange={(event) => onChange(event.target.value)}
+          // Stays open once shown: closing on blur would move the buttons under a pending click.
+          onFocus={() => setListOpen(true)}
           spellCheck={false}
         />
       </label>
-      {nativePicker ? (
-        <Button
-          type="button"
-          variant="outline"
-          size="compact"
-          className="justify-self-start"
-          onClick={() => void pickNatively()}
-        >
-          <FolderOpenIcon />
-          Choose in Finder…
-        </Button>
-      ) : null}
-      {directory === null ? null : (
-        <div
-          role="group"
-          aria-label="Server folders"
-          className="grid rounded-md border border-border"
-        >
-          <div className="grid gap-0.5 border-b border-border px-2 py-1.5 text-xs">
-            <span className="text-muted-foreground">Selected on the server: {purpose}</span>
-            <span
-              className="min-w-0 truncate font-mono text-foreground"
-              data-testid="selected-folder"
-            >
-              {selected ?? "No folder selected"}
-            </span>
-          </div>
-          <div className="flex min-w-0 items-center gap-1 px-1 pt-1">
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon-xs"
-              aria-label="Up one folder"
-              disabled={listed === null || listed === "/"}
-              onClick={() => listed !== null && onChange(parentFolder(listed))}
-            >
-              <CornerLeftUpIcon />
-            </Button>
-            <span className="min-w-0 truncate text-xs text-muted-foreground">
-              Folders in {listed ?? directory}. Click one to select it.
-            </span>
-          </div>
+      {listOpen && directory !== null ? (
+        <div className="max-h-48 overflow-y-auto rounded-md border border-border py-1">
           {query.error !== null ? (
-            <p className="px-2 py-1.5 text-xs text-destructive-foreground">{query.error}</p>
-          ) : visibleEntries.length === 0 ? (
-            <p className="px-2 py-1.5 text-xs text-muted-foreground">
-              {query.isPending ? "Loading folders…" : "No folders here."}
-            </p>
+            <p className="px-2 py-1 text-xs text-destructive-foreground">{query.error}</p>
           ) : (
-            <ul aria-label="Folders on the server" className="grid max-h-48 overflow-y-auto py-1">
+            <ul aria-label="Folders on the server" className="grid">
+              {listed !== null && listed !== "/" ? (
+                <li>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="compact"
+                    className="w-full justify-start"
+                    onClick={() => onChange(parentFolder(listed))}
+                  >
+                    <CornerLeftUpIcon />
+                    ..
+                  </Button>
+                </li>
+              ) : null}
               {visibleEntries.map((entry) => (
                 <li key={entry.fullPath}>
                   <Button
@@ -458,10 +436,25 @@ function FolderPathField({
                   </Button>
                 </li>
               ))}
+              {visibleEntries.length === 0 && !query.isPending ? (
+                <li className="px-2 py-1 text-xs text-muted-foreground">No folders here</li>
+              ) : null}
             </ul>
           )}
         </div>
-      )}
+      ) : null}
+      {nativePicker ? (
+        <Button
+          type="button"
+          variant="outline"
+          size="compact"
+          className="justify-self-start"
+          onClick={() => void pickNatively()}
+        >
+          <FolderOpenIcon />
+          Choose in Finder…
+        </Button>
+      ) : null}
     </div>
   );
 }
