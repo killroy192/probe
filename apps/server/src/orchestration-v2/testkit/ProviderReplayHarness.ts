@@ -143,6 +143,7 @@ export function makeReplayServerConfig(
       attachmentsDir,
       browserArtifactsDir: path.join(stateDir, "browser-artifacts"),
       environmentThemesDir,
+      workspacesDir: path.join(stateDir, "workspaces"),
       logsDir,
       serverLogPath: path.join(logsDir, "server.log"),
       serverTracePath: path.join(logsDir, "server.trace.ndjson"),

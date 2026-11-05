@@ -111,6 +111,7 @@ import { RpcGroup, RpcSerialization, RpcServer } from "effect/rpc";
 import * as CheckpointDiffQuery from "./checkpointing/CheckpointDiffQuery.ts";
 import * as ServerConfig from "./config.ts";
 import * as EnvironmentTheme from "./environmentTheme.ts";
+import * as SavedWorkspaces from "./savedWorkspaces/SavedWorkspaces.ts";
 import * as Keybindings from "./keybindings.ts";
 import * as ExternalLauncher from "./process/externalLauncher.ts";
 import * as ThreadManagementService from "./orchestration-v2/ThreadManagementService.ts";
@@ -1311,6 +1312,7 @@ export const layerWsRpc = (
       const checkpointDiffQuery = yield* CheckpointDiffQuery.CheckpointDiffQuery;
       const keybindings = yield* Keybindings.Keybindings;
       const environmentTheme = yield* EnvironmentTheme.EnvironmentThemeService;
+      const savedWorkspaces = yield* SavedWorkspaces.SavedWorkspaces;
       const externalLauncher = yield* ExternalLauncher.ExternalLauncher;
       const remoteOpenTargets = yield* RemoteOpenTargets.RemoteOpenTargets;
       const directEndpoints = yield* DirectEndpoints.DirectEndpoints;
@@ -3040,6 +3042,11 @@ export const layerWsRpc = (
               (unsubscribe) => Effect.sync(unsubscribe),
             ),
           ),
+        [WS_METHODS.workspaceCreate]: (input) => savedWorkspaces.create(input),
+        [WS_METHODS.workspaceRemove]: (input) => savedWorkspaces.remove(input),
+        [WS_METHODS.workspaceOpen]: (input) => savedWorkspaces.open(input),
+        [WS_METHODS.subscribeWorkspaces]: (_input) =>
+          savedWorkspaces.streamChanges.pipe(Stream.map((workspaces) => ({ workspaces }))),
         [WS_METHODS.previewOpen]: (input) => previewManager.open(input),
         [WS_METHODS.previewResize]: (input) => previewManager.resize(input),
         [WS_METHODS.previewAdjust]: (input) => previewManager.adjust(input),

@@ -76,6 +76,15 @@ describe("RPC authorization scopes", () => {
     }
   });
 
+  it("lets readers list and open workspaces but needs settings write to create or remove one", () => {
+    for (const method of [WS_METHODS.subscribeWorkspaces, WS_METHODS.workspaceOpen]) {
+      expect(requiredScopeForRpcMethod(method)).toBe(AuthOrchestrationReadScope);
+    }
+    for (const method of [WS_METHODS.workspaceCreate, WS_METHODS.workspaceRemove]) {
+      expect(requiredScopeForRpcMethod(method)).toBe(AuthSettingsWriteScope);
+    }
+  });
+
   it("rejects unknown RPC method names", () => {
     for (const method of ["server.notRegistered", "toString", "constructor"]) {
       expect(() => requiredScopeForRpcMethod(method)).toThrow(

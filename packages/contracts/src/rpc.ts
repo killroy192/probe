@@ -275,6 +275,15 @@ import {
   ShellWriteInput,
 } from "./shell.ts";
 import {
+  WorkspaceInput,
+  WorkspaceInvalidError,
+  WorkspaceListEvent,
+  WorkspaceNameTakenError,
+  WorkspaceNotFoundError,
+  WorkspaceStorageError,
+  WorkspaceSummary,
+} from "./workspace.ts";
+import {
   DiscoveredLocalServerList,
   ConfiguredLocalServerUrls,
   PreviewCloseInput,
@@ -480,6 +489,9 @@ export const WS_METHODS = {
   shellWrite: "shell.write",
   shellResize: "shell.resize",
   shellClose: "shell.close",
+  workspaceCreate: "workspace.create",
+  workspaceRemove: "workspace.remove",
+  workspaceOpen: "workspace.open",
 
   previewOpen: "preview.open",
   previewResize: "preview.resize",
@@ -610,6 +622,7 @@ export const WS_METHODS = {
   worktreeSetupCancel: "worktreeSetup.cancel",
   subscribeTerminalMetadata: "subscribeTerminalMetadata",
   subscribeShells: "subscribeShells",
+  subscribeWorkspaces: "subscribeWorkspaces",
   subscribePreviewEvents: "subscribePreviewEvents",
   subscribeDiscoveredLocalServers: "subscribeDiscoveredLocalServers",
   subscribeDeviceState: "subscribeDeviceState",
@@ -1607,6 +1620,42 @@ const WsSubscribeShellsRpc = Rpc.make(WS_METHODS.subscribeShells, {
   stream: true,
 });
 
+const WsWorkspaceCreateRpc = Rpc.make(WS_METHODS.workspaceCreate, {
+  payload: WorkspaceInput,
+  success: WorkspaceSummary,
+  error: Schema.Union([
+    WorkspaceNameTakenError,
+    WorkspaceStorageError,
+    EnvironmentAuthorizationError,
+  ]),
+});
+
+const WsWorkspaceRemoveRpc = Rpc.make(WS_METHODS.workspaceRemove, {
+  payload: WorkspaceInput,
+  error: Schema.Union([
+    WorkspaceNotFoundError,
+    WorkspaceStorageError,
+    EnvironmentAuthorizationError,
+  ]),
+});
+
+const WsWorkspaceOpenRpc = Rpc.make(WS_METHODS.workspaceOpen, {
+  payload: WorkspaceInput,
+  success: WorkspaceSummary,
+  error: Schema.Union([
+    WorkspaceNotFoundError,
+    WorkspaceInvalidError,
+    EnvironmentAuthorizationError,
+  ]),
+});
+
+const WsSubscribeWorkspacesRpc = Rpc.make(WS_METHODS.subscribeWorkspaces, {
+  payload: Schema.Struct({}),
+  success: WorkspaceListEvent,
+  error: Schema.Union([WorkspaceStorageError, EnvironmentAuthorizationError]),
+  stream: true,
+});
+
 const WsPreviewOpenRpc = Rpc.make(WS_METHODS.previewOpen, {
   payload: PreviewOpenInput,
   success: PreviewSessionSnapshot,
@@ -2156,6 +2205,10 @@ export const WsRpcGroup = RpcGroup.make(
   WsShellResizeRpc,
   WsShellCloseRpc,
   WsSubscribeShellsRpc,
+  WsWorkspaceCreateRpc,
+  WsWorkspaceRemoveRpc,
+  WsWorkspaceOpenRpc,
+  WsSubscribeWorkspacesRpc,
   WsSubscribeTerminalMetadataRpc,
   WsPreviewOpenRpc,
   WsPreviewResizeRpc,
