@@ -690,7 +690,7 @@ function ConfiguredCloudLinkRow({ canManageRelay }: { readonly canManageRelay: b
       ) : null}
       {signedOut && isElectron ? null : (
         <SettingsRow
-          title={searchableSetting("publish-agent-activity").title}
+          {...searchableSetting("publish-agent-activity")}
           description={
             signedOut
               ? "Sign in to send activity to mobile notifications and Live Activities."
@@ -713,7 +713,7 @@ function ConfiguredCloudLinkRow({ canManageRelay }: { readonly canManageRelay: b
       )}
       {managedTunnelActive && !signedOut ? (
         <SettingsRow
-          title={searchableSetting("hold-webhooks-while-offline").title}
+          {...searchableSetting("hold-webhooks-while-offline")}
           description="Keep webhook requests for up to 24 hours while this environment is offline, then deliver them. Off: T3 Connect only forwards requests and stores nothing."
           control={
             <CloudLinkSwitch

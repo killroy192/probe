@@ -31,7 +31,7 @@ import { isLocalEnvironmentDisabled } from "../localEnvironment";
 
 import { getDesktopSnapShotBridge } from "../lib/desktopSnapShot";
 import { shouldResumeSnapShotSetupOnStartup } from "../lib/snapShotSetupResume";
-import { SidebarProvider } from "../components/ui/sidebar";
+import { AppSidebarLayout } from "../components/AppSidebarLayout";
 
 export const Route = createRootRoute({
   beforeLoad: async ({ location }) => {
@@ -135,8 +135,9 @@ function RootRouteBranch() {
     return <Outlet />;
   }
 
-  // Terminal-first: the chat sidebar, command palette, first-run wizard and the thread
-  // coordinators are not mounted; chat routes redirect through `terminalFirst.ts`.
+  // Terminal-first: the app sidebar shows the workspace instead of threads; the command palette,
+  // first-run wizard and thread coordinators are not mounted; chat routes redirect through
+  // `terminalFirst.ts`.
   return (
     <>
       <RelayClientInstallDialog />
@@ -144,10 +145,9 @@ function RootRouteBranch() {
       <SshPasswordPromptDialog />
       <SnapShotCoordinator />
       <ConfirmDialogHost />
-      {/* Settings and the terminal views read sidebar state, though no app sidebar is shown. */}
-      <SidebarProvider className="h-dvh! min-h-0!" defaultOpen>
+      <AppSidebarLayout>
         <Outlet />
-      </SidebarProvider>
+      </AppSidebarLayout>
       {/* Keep the theme editor above the router so drafts survive navigation. */}
       <ThemeEditorHost />
     </>

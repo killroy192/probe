@@ -75,6 +75,7 @@ import { SettingsPageContainer, SettingsRow, SettingsSection } from "./settingsL
 import { keybindingSearchAnchorId, searchableSetting } from "./settingsSearch";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { useAtomCommand } from "../../state/use-atom-command";
+import { isHiddenChatCommand } from "../../terminalFirst";
 
 function KeybindingPill({ value }: { value: string }) {
   // Keys dedupe repeated parts; a literal "+" in a shortcut splits into empty strings.
@@ -1282,7 +1283,7 @@ function useKeybindingCatalog() {
   const merged = mergeWithDefaultKeybindings(serverKeybindings ?? []);
   return {
     commandOptions: buildKeybindingCommandOptions(merged),
-    allRows: buildKeybindingRows(merged),
+    allRows: buildKeybindingRows(merged).filter((row) => !isHiddenChatCommand(row.command)),
   };
 }
 

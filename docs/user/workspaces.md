@@ -19,9 +19,11 @@ workspace's name.
 
 ## Switch, create and remove
 
-The **Workspaces** button at the top left creates a workspace, opens another
-saved one, removes one, and opens Settings. Opening the workspace already shown
-changes nothing.
+The left sidebar shows the shown workspace as the root of its shell tree. The
+**Workspaces** button at the top of the sidebar creates a workspace, opens
+another saved one, or removes one. Opening the workspace already shown changes
+nothing. Settings stays at the bottom of the sidebar. Search and **Add project**
+are not active yet: they start working once workspaces hold folders and shells.
 
 Removing a workspace deletes its saved entry. It never deletes folders on disk.
 Removing the shown workspace returns to the start screen, where **Open

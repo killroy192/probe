@@ -15,6 +15,7 @@ import {
   movedSettingsPath,
   searchSettings,
   SETTINGS_NAV_GROUPS,
+  searchableSetting,
   SETTINGS_SEARCH_ITEMS,
   sourceControlHostSearchItems,
   sourceControlHostSettingsSearchId,
@@ -72,10 +73,12 @@ describe("searchSettings", () => {
     expect(searchSettings("1password").map((item) => item.to)).not.toContain("/settings/secrets");
   });
 
-  it("hides chat settings pages from nav", () => {
+  it("hides chat settings pages from nav and names reused rows for shells", () => {
     const navPaths = SETTINGS_NAV_GROUPS.flatMap((group) => group.paths);
     for (const path of HIDDEN_SETTINGS_PATHS) expect(navPaths).not.toContain(path);
     expect(navPaths).toContain("/settings/connections");
+    expect(searchableSetting("chat-width").title).toBe("Shell width");
+    expect(searchableSetting("thread-notifications").title).toBe("Shell notifications");
   });
 
   it("matches normalized title substrings", () => {

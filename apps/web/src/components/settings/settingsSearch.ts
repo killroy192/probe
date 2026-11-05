@@ -14,7 +14,7 @@ import { TYPOGRAPHY_ADVANCED_STORAGE_KEY } from "../../appearanceFonts";
 import { writeLocalStorageValue } from "../../hooks/useLocalStorage";
 import { commandLabel } from "./KeybindingsSettings.logic";
 import type { ResolvedSettingsScope } from "./settingsScope";
-import { HIDDEN_SETTINGS_PATHS } from "../../terminalFirst";
+import { HIDDEN_SETTINGS_PATHS, RENAMED_SETTINGS_ROWS } from "../../terminalFirst";
 
 export type SettingsPath =
   | "/settings/projects"
@@ -1314,7 +1314,7 @@ export function searchableSetting(id: SettingsSearchItemId): {
   readonly title: string;
 } {
   const { id: anchorId, title } = SEARCH_ITEMS_BY_ID.get(id)!;
-  return { id: anchorId, title };
+  return { id: anchorId, title: RENAMED_SETTINGS_ROWS[id] ?? title };
 }
 
 export function filterAvailableSettingsSearchItems(

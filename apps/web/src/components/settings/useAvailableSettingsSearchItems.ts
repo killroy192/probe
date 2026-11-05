@@ -16,7 +16,11 @@ import {
   filterAvailableSettingsSearchItems,
   getThreadAutoSettlementSearchAvailability,
 } from "./settingsSearch";
-import { HIDDEN_SETTINGS_PATHS } from "../../terminalFirst";
+import {
+  HIDDEN_SETTINGS_PATHS,
+  HIDDEN_SETTINGS_ROWS,
+  RENAMED_SETTINGS_ROWS,
+} from "../../terminalFirst";
 
 export function useAvailableSettingsSearchItems(scopeSearch: SettingsScopeSearch = {}) {
   const { environments } = useEnvironments();
@@ -71,5 +75,9 @@ export function useAvailableSettingsSearchItems(scopeSearch: SettingsScopeSearch
     managedTunnelActive,
     hasPeerLinkHost,
   });
-  return available.filter((item) => !HIDDEN_SETTINGS_PATHS.has(item.to));
+  return available.flatMap((item) => {
+    if (HIDDEN_SETTINGS_PATHS.has(item.to) || HIDDEN_SETTINGS_ROWS.has(item.id)) return [];
+    const renamed = RENAMED_SETTINGS_ROWS[item.id as keyof typeof RENAMED_SETTINGS_ROWS];
+    return [renamed === undefined ? item : { ...item, title: renamed }];
+  });
 }

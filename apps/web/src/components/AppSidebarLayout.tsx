@@ -37,11 +37,9 @@ import {
   usePanelAnimationSettings,
   usePanelNavigationSuppression,
 } from "../panelAnimations";
-import { BackgroundThreadAnnouncer } from "./BackgroundThreadAnnouncer";
-import ThreadSidebar from "./Sidebar";
+import { WorkspaceSidebar } from "./workspaces/WorkspaceSidebar";
 import { SidebarBrandWidthProbe } from "./sidebar/SidebarChrome";
 import { isAppModalPage } from "./sidebar/mainAppLocation";
-import type { SidebarRouteReveal } from "./sidebar/routeReveal";
 import { useSidebarStageBackdropVariant } from "./SidebarStageBackdrop";
 import {
   clampThreadSidebarWidth,
@@ -401,11 +399,7 @@ function SidebarControl() {
 }
 
 export function AppSidebarLayout({ children }: { children: ReactNode }) {
-  const sidebarArea = workspaceAreaProps("sidebar", 0, "Threads");
-  const [sidebarRouteReveal] = useState<SidebarRouteReveal>(() => ({
-    observedKey: null,
-    pendingKey: null,
-  }));
+  const sidebarArea = workspaceAreaProps("sidebar", 0, "Workspace");
   const { active: panelAnimationsActive, durationMs: panelAnimationDurationMs } =
     usePanelAnimationSettings();
   const pathname = useLocation({ select: (location) => location.pathname });
@@ -456,7 +450,7 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
           data-app-sidebar=""
           {...sidebarArea}
           role="navigation"
-          aria-label="Threads"
+          aria-label="Workspace"
           resizable={{
             maxWidth: sidebarMaximumWidth,
             minWidth: sidebarMinimumWidth,
@@ -468,11 +462,11 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
           }}
           style={windowControlsInsetStyle}
         >
-          <ThreadSidebar routeReveal={sidebarRouteReveal} />
+          {/* Terminal-first: the thread list is replaced by the workspace and its shell tree. */}
+          <WorkspaceSidebar />
           <SidebarRail onDoubleClick={resetSidebarWidth} />
         </Sidebar>
         {children}
-        <BackgroundThreadAnnouncer />
         <SidebarControl />
       </SidebarProvider>
     </PanelAnimationSuppressionProvider>

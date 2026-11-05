@@ -80,7 +80,10 @@ marks handlers that leave a large component, as described above.
 The web app is terminal-first: `/` shows the workspace screen, and chat is hidden but not deleted
 until a later epic removes it. Every chat route's `beforeLoad` calls `redirectHiddenChatRoute` and
 chat settings pages are listed in `HIDDEN_SETTINGS_PATHS`, both in
-[`terminalFirst.ts`](../../apps/web/src/terminalFirst.ts). The root route mounts no chat sidebar,
-command palette, first-run wizard or thread coordinator; the unmounted modules are listed in
-`knip.jsonc`. A route, settings page or app-wide host added for chat needs the same treatment, or it
-reopens a way into chat.
+[`terminalFirst.ts`](../../apps/web/src/terminalFirst.ts). On visible pages, chat-only rows are in
+`HIDDEN_SETTINGS_ROWS` (`SettingsRow` renders nothing for them), chat keybinding commands are left off
+the keybindings page, and chat settings kept for shells carry their shell names in
+`RENAMED_SETTINGS_ROWS`. The app sidebar keeps its chrome but shows the workspace instead of threads,
+and `CHAT_VISIBLE` hides its chat utilities. The root route mounts no command palette, first-run
+wizard or thread coordinator; the unmounted modules are listed in `knip.jsonc`. A route, settings
+row or app-wide host added for chat needs the same treatment, or it reopens a way into chat.

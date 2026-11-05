@@ -15,6 +15,7 @@ import { toastManager } from "../ui/toast";
 import { EnvironmentRow, environmentTransportLabel } from "./EnvironmentRow";
 import { FoldedSettingsSection } from "./FoldedSettingsSection";
 import { searchableSetting } from "./settingsSearch";
+import { HIDDEN_SETTINGS_ROWS } from "../../terminalFirst";
 
 const options: ReadonlyArray<{ value: PullRequestRoutingPermission; label: string }> = [
   { value: "off", label: "Off" },
@@ -49,7 +50,7 @@ export function PullRequestRoutingSettings({
   const update = useAtomCommand(environmentCatalog.setPullRequestRoutingPermission);
   const [saving, setSaving] = useState(false);
 
-  if (environments.length < 2) return null;
+  if (environments.length < 2 || HIDDEN_SETTINGS_ROWS.has("pull-request-routing")) return null;
 
   const { id, title } = searchableSetting("pull-request-routing");
   return (

@@ -15,7 +15,7 @@ function check(condition: boolean, message: string): asserts condition {
 
 const screen = (page: PointerPage) => page.getByTestId("workspace-screen");
 const treeRoot = (page: PointerPage) => page.getByRole("tree").getByRole("treeitem");
-const alert = (page: PointerPage) => screen(page).getByRole("alert");
+const alert = (page: PointerPage) => page.getByRole("alert");
 
 async function shownWorkspace(page: PointerPage, name: string) {
   await treeRoot(page).filter({ hasText: name }).waitFor();
@@ -40,7 +40,8 @@ async function menuNames(page: PointerPage, expected: ReadonlyArray<string>) {
 }
 
 async function closeMenu(page: PointerPage) {
-  await page.mouse.click(2, 2);
+  // An empty spot of the main pane, away from the sidebar's controls.
+  await page.mouse.click(900, 600);
   await page.getByRole("menu").first().waitFor({ state: "detached" });
 }
 
@@ -127,6 +128,14 @@ export const boot: Scenario = {
       (await page.getByRole("navigation", { name: "Threads" }).count()) === 0,
       "The chat thread sidebar is shown.",
     );
+    // The app sidebar stays, holding the workspace; its chat utilities do not.
+    await page.getByRole("navigation", { name: "Workspace" }).waitFor();
+    for (const label of ["Pull requests", "Usage"]) {
+      check(
+        (await page.getByRole("button", { name: label }).count()) === 0,
+        `The sidebar offers ${label}.`,
+      );
+    }
 
     // AC-13: an empty or file-unsafe name is refused with a reason.
     await screen(page).getByRole("button", { name: "Create workspace" }).click();
@@ -181,13 +190,17 @@ export const boot: Scenario = {
     await closeMenu(page);
     await NodeFSP.access(folder);
 
-    // AC-10 (automated part): settings is reachable and lists no chat page.
-    await workspacesMenu(page);
-    await page.getByRole("menuitem", { name: "Settings" }).click();
+    // AC-10 (automated part): settings opens from the sidebar footer and lists no chat page.
+    await page.getByRole("button", { name: "Settings" }).click();
     await page.waitForURL((url) => url.pathname.startsWith("/settings"));
     const section = (path: string) => page.locator(`[data-settings-section="${path}"]`);
     await section("/settings/connections").waitFor();
-    for (const path of ["/settings/chat", "/settings/threads", "/settings/providers"]) {
+    for (const path of [
+      "/settings/chat",
+      "/settings/threads",
+      "/settings/providers",
+      "/settings/snap-shot",
+    ]) {
       check((await section(path).count()) === 0, `Settings lists ${path}.`);
     }
     await page.goBack();

@@ -6,7 +6,13 @@ import { InfoIcon, Undo2Icon } from "lucide-react";
 import { DEFAULT_SERVER_SETTINGS, type ServerSettings } from "@t3tools/contracts";
 import * as Equal from "effect/Equal";
 import { useLocation, useNavigate } from "@tanstack/react-router";
-import { createContext, type ComponentPropsWithoutRef, type ReactNode, useContext } from "react";
+import {
+  createContext,
+  type ComponentProps,
+  type ComponentPropsWithoutRef,
+  type ReactNode,
+  useContext,
+} from "react";
 
 import {
   PRIMARY_SETTINGS_UNAVAILABLE_MESSAGE,
@@ -31,6 +37,7 @@ import {
   type SettingInheritanceState,
   type SettingOverridingProject,
 } from "./SettingInheritance";
+import { HIDDEN_SETTINGS_ROWS } from "../../terminalFirst";
 
 const EMPTY_SETTING_KEYS: readonly (keyof ServerSettings)[] = [];
 
@@ -294,7 +301,13 @@ function projectOverrides(
   });
 }
 
-export function SettingsRow({
+/** A settings row; rows that only configure chat are not shown (`terminalFirst.ts`). */
+export function SettingsRow(props: ComponentProps<typeof SettingsRowContent>) {
+  if (props.id !== undefined && HIDDEN_SETTINGS_ROWS.has(props.id)) return null;
+  return <SettingsRowContent {...props} />;
+}
+
+function SettingsRowContent({
   title,
   description,
   status,
