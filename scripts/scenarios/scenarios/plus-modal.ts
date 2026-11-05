@@ -43,12 +43,13 @@ const tabs = (page: PointerPage) => page.getByRole("tablist", { name: "Shells" }
 
 // The folder list floats above the modal, outside the dialog element.
 const folderList = (page: PointerPage) =>
-  page.getByRole("list", { name: "Folders on the server" }).filter({ visible: true });
+  page.getByRole("listbox", { name: "Folders on the server" }).filter({ visible: true });
 
 /** Closes the folder list the way a user does: a click outside it, here on the modal title. */
 async function closeFolderList(page: PointerPage) {
   if (!(await folderList(page).count())) return;
-  await dialog(page).getByRole("heading", { name: "Start shell" }).click();
+  // While the list is open the page behind it is hidden from role queries, so find it by tag.
+  await page.locator('[role="dialog"] h2').click();
   await folderList(page).waitFor({ state: "detached" });
 }
 
@@ -96,13 +97,14 @@ async function addFolder(
   await panel
     .getByRole("button", { name: isImport ? "Import existing folder" : "Create new folder" })
     .click();
-  await panel
-    .getByRole("textbox", { name: isImport ? "Folder" : "Create it in" })
-    .fill(isImport ? request.import : request.parent);
+  // The name goes first: typing a path opens the folder list, which hides the rest from role queries.
   if (!isImport) await panel.getByRole("textbox", { name: "New folder name" }).fill(request.name);
+  await panel
+    .getByRole("combobox", { name: isImport ? "Folder" : "Create it in" })
+    .fill(isImport ? request.import : request.parent);
   if (isImport && request.pick !== undefined) {
     // Picks a folder in the server folder browser, which lists the folder the field points at.
-    await folderList(page).getByRole("button", { name: request.pick, exact: true }).click();
+    await folderList(page).getByRole("option", { name: request.pick, exact: true }).click();
   }
   await closeFolderList(page);
   const shown = dialog(page).getByRole("alert");
@@ -215,7 +217,7 @@ export const plusModal: Scenario = {
       check(await startButton(page).isDisabled(), "Start is enabled with no folder (AC-11).");
       // "Add folder" starts at the server's home; its folders show only once the field is clicked.
       await dialog(page).getByRole("button", { name: "Add folder", exact: true }).click();
-      const field = dialog(page).getByRole("textbox", { name: "Folder" });
+      const field = dialog(page).getByRole("combobox", { name: "Folder" });
       check((await field.inputValue()) === "~/", "The folder field does not start at ~/.");
       check((await folderList(page).count()) === 0, "The folder list shows before a click.");
       await field.click();

@@ -30,8 +30,15 @@ import {
   DialogPopup,
   DialogTitle,
 } from "../ui/dialog";
+import {
+  Autocomplete,
+  AutocompleteEmpty,
+  AutocompleteInput,
+  AutocompleteItem,
+  AutocompleteList,
+  AutocompletePopup,
+} from "../ui/autocomplete";
 import { Input } from "../ui/input";
-import { Popover, PopoverPopup } from "../ui/popover";
 import { Radio, RadioGroup } from "../ui/radio-group";
 import { ToggleGroup, ToggleGroupItem } from "../ui/toggle-group";
 import { isServerRemote } from "./serverLocation";
@@ -335,6 +342,12 @@ const parentFolder = (path: string) => {
  * points at (the home folder when empty) while the field has focus, so a folder can be picked
  * with the pointer alone.
  */
+interface FolderItem {
+  readonly path: string;
+  readonly name: string;
+  readonly up: boolean;
+}
+
 function FolderPathField({
   label,
   value,
@@ -388,9 +401,14 @@ function FolderPathField({
     clientPlatform: navigator.platform,
     pageHost: window.location.hostname,
   });
-  // The list floats over the dialog and closes on a click outside it or Escape.
   const [listOpen, setListOpen] = useState(false);
-  const fieldRef = useRef<HTMLInputElement>(null);
+  // ".." first, then the listed folder's subfolders; each item's value is the path it selects.
+  const items: ReadonlyArray<FolderItem> = [
+    ...(listed !== null && listed !== "/"
+      ? [{ path: parentFolder(listed), name: "..", up: true }]
+      : []),
+    ...visibleEntries.map((entry) => ({ path: `${entry.fullPath}/`, name: entry.name, up: false })),
+  ];
 
   const pickNatively = async () => {
     const picked = await readLocalApi()?.dialogs.pickFolder(
@@ -406,66 +424,39 @@ function FolderPathField({
           {label}
           {remote ? " (remote server)" : ""}
         </span>
-        <Input
-          ref={fieldRef}
-          placeholder="/path/to/folder"
+        <Autocomplete
+          items={items}
+          itemToStringValue={(item) => item.path}
+          mode="none"
+          openOnInputClick
+          open={listOpen && directory !== null}
+          onOpenChange={(open, details) => {
+            // Picking a folder walks into it, so the list stays open for the next pick.
+            if (!open && details.reason === "item-press") return;
+            setListOpen(open);
+          }}
           value={value}
-          onChange={(event) => onChange(event.target.value)}
-          onFocus={() => setListOpen(true)}
-          onClick={() => setListOpen(true)}
-          spellCheck={false}
-        />
-      </label>
-      <Popover open={listOpen && directory !== null} onOpenChange={setListOpen}>
-        <PopoverPopup
-          anchor={fieldRef}
-          align="start"
-          padding="none"
-          initialFocus={false}
-          finalFocus={false}
+          onValueChange={(next) => onChange(next)}
         >
-          {/* Fixed height, so moving between folders never resizes the list. */}
-          <div className="h-48 w-(--anchor-width) overflow-y-auto py-1">
+          <AutocompleteInput placeholder="/path/to/folder" spellCheck={false} />
+          <AutocompletePopup>
             {query.error !== null ? (
-              <p className="px-2 py-1 text-xs text-destructive-foreground">{query.error}</p>
-            ) : (
-              <ul aria-label="Folders on the server" className="grid">
-                {listed !== null && listed !== "/" ? (
-                  <li>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="compact"
-                      className="w-full justify-start"
-                      onClick={() => onChange(parentFolder(listed))}
-                    >
-                      <CornerLeftUpIcon />
-                      ..
-                    </Button>
-                  </li>
-                ) : null}
-                {visibleEntries.map((entry) => (
-                  <li key={entry.fullPath}>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="compact"
-                      className="w-full justify-start"
-                      onClick={() => onChange(`${entry.fullPath}/`)}
-                    >
-                      <FolderIcon />
-                      {entry.name}
-                    </Button>
-                  </li>
+              <div className="px-3 py-2 text-xs text-destructive-foreground">{query.error}</div>
+            ) : items.length > 0 ? (
+              <AutocompleteList aria-label="Folders on the server" className="max-h-72">
+                {items.map((item) => (
+                  <AutocompleteItem key={item.path} value={item}>
+                    {item.up ? <CornerLeftUpIcon /> : <FolderIcon />}
+                    <span className="min-w-0 truncate">{item.name}</span>
+                  </AutocompleteItem>
                 ))}
-                {visibleEntries.length === 0 && listing !== null && !query.isPending ? (
-                  <li className="px-2 py-1 text-xs text-muted-foreground">No folders here</li>
-                ) : null}
-              </ul>
-            )}
-          </div>
-        </PopoverPopup>
-      </Popover>
+              </AutocompleteList>
+            ) : listing !== null && !query.isPending ? (
+              <AutocompleteEmpty>No folders here</AutocompleteEmpty>
+            ) : null}
+          </AutocompletePopup>
+        </Autocomplete>
+      </label>
       {nativePicker ? (
         <Button
           type="button"
