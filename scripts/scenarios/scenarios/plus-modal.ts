@@ -41,6 +41,17 @@ const shellNodes = (page: PointerPage, folder?: string) =>
   ).getByRole("treeitem", { level: 3 });
 const tabs = (page: PointerPage) => page.getByRole("tablist", { name: "Shells" }).getByRole("tab");
 
+// The folder list floats above the modal, outside the dialog element.
+const folderList = (page: PointerPage) =>
+  page.getByRole("list", { name: "Folders on the server" }).filter({ visible: true });
+
+/** Closes the folder list the way a user does: a click outside it, here on the modal title. */
+async function closeFolderList(page: PointerPage) {
+  if (!(await folderList(page).count())) return;
+  await dialog(page).getByRole("heading", { name: "Start shell" }).click();
+  await folderList(page).waitFor({ state: "detached" });
+}
+
 /** Opens the "+" modal and waits for its folder step. */
 async function openModal(page: PointerPage) {
   await page
@@ -91,11 +102,9 @@ async function addFolder(
   if (!isImport) await panel.getByRole("textbox", { name: "New folder name" }).fill(request.name);
   if (isImport && request.pick !== undefined) {
     // Picks a folder in the server folder browser, which lists the folder the field points at.
-    await panel
-      .getByRole("list", { name: "Folders on the server" })
-      .getByRole("button", { name: request.pick, exact: true })
-      .click();
+    await folderList(page).getByRole("button", { name: request.pick, exact: true }).click();
   }
+  await closeFolderList(page);
   const shown = dialog(page).getByRole("alert");
   const previous = (await shown.count()) ? await shown.getAttribute("data-attempt") : "none";
   await panel.getByRole("button", { name: isImport ? "Add folder" : "Create folder" }).click();
@@ -208,12 +217,12 @@ export const plusModal: Scenario = {
       await dialog(page).getByRole("button", { name: "Add folder", exact: true }).click();
       const field = dialog(page).getByRole("textbox", { name: "Folder" });
       check((await field.inputValue()) === "~/", "The folder field does not start at ~/.");
-      const listing = dialog(page)
-        .getByRole("list", { name: "Folders on the server" })
-        .filter({ visible: true });
-      check((await listing.count()) === 0, "The folder list shows before the field is clicked.");
+      check((await folderList(page).count()) === 0, "The folder list shows before a click.");
       await field.click();
-      await listing.waitFor();
+      await folderList(page).waitFor();
+      // A click outside closes the list and leaves the modal open.
+      await closeFolderList(page);
+      check((await dialog(page).count()) === 1, "Closing the folder list closed the modal.");
 
       // AC-17: a file, a denied create and a failed git init are refused with their reason.
 
@@ -384,6 +393,17 @@ export const plusModal: Scenario = {
       await startButton(page).click();
       await shellNodes(page, plain).first().waitFor();
       await shellsIn(shells.lists, plain, 1);
+
+      // The add-project icon opens the modal on "Add folder"; Cancel closes that panel only.
+      await page
+        .getByRole("navigation", { name: "Workspace" })
+        .getByRole("button", { name: "Add project" })
+        .click();
+      await dialog(page).getByTestId("add-folder").waitFor();
+      await dialog(page).getByTestId("add-folder").getByRole("button", { name: "Cancel" }).click();
+      await dialog(page).getByTestId("add-folder").waitFor({ state: "detached" });
+      check((await dialog(page).count()) === 1, "Cancelling the add panel closed the modal.");
+      await cancelModal(page);
 
       // AC-13: closing the modal without starting changes nothing.
 

@@ -31,6 +31,7 @@ import {
   DialogTitle,
 } from "../ui/dialog";
 import { Input } from "../ui/input";
+import { Popover, PopoverPopup } from "../ui/popover";
 import { Radio, RadioGroup } from "../ui/radio-group";
 import { ToggleGroup, ToggleGroupItem } from "../ui/toggle-group";
 import { isServerRemote } from "./serverLocation";
@@ -65,6 +66,8 @@ export function StartShellDialog({
 }) {
   const [chosen, setChosen] = useState<string | null>(null);
   const [adding, setAdding] = useState<AddMode | null>(null);
+  // Closing the add panel must stick even when the dialog was opened straight on it.
+  const [addDismissed, setAddDismissed] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
   // Tells one refusal from the next when both read the same.
@@ -80,11 +83,12 @@ export function StartShellDialog({
       : workspace.lastFolder !== null && folderPaths.includes(workspace.lastFolder)
         ? workspace.lastFolder
         : null;
-  const addMode = adding ?? (initialAdding && canAddFolder ? "import" : null);
+  const addMode = adding ?? (initialAdding && canAddFolder && !addDismissed ? "import" : null);
 
   const reset = () => {
     setChosen(null);
     setAdding(null);
+    setAddDismissed(false);
     setError(null);
   };
 
@@ -131,6 +135,7 @@ export function StartShellDialog({
       }
       setError(null);
       setAdding(null);
+      setAddDismissed(true);
       setChosen(result.folder);
     });
 
@@ -204,6 +209,7 @@ export function StartShellDialog({
                     onAdd={(request) => void add(request)}
                     onCancel={() => {
                       setAdding(null);
+                      setAddDismissed(true);
                       setError(null);
                     }}
                   />
@@ -382,7 +388,9 @@ function FolderPathField({
     clientPlatform: navigator.platform,
     pageHost: window.location.hostname,
   });
+  // The list floats over the dialog and closes on a click outside it or Escape.
   const [listOpen, setListOpen] = useState(false);
+  const fieldRef = useRef<HTMLInputElement>(null);
 
   const pickNatively = async () => {
     const picked = await readLocalApi()?.dialogs.pickFolder(
@@ -399,56 +407,65 @@ function FolderPathField({
           {remote ? " (remote server)" : ""}
         </span>
         <Input
+          ref={fieldRef}
           placeholder="/path/to/folder"
           value={value}
           onChange={(event) => onChange(event.target.value)}
-          // Stays open once shown: closing on blur would move the buttons under a pending click.
           onFocus={() => setListOpen(true)}
+          onClick={() => setListOpen(true)}
           spellCheck={false}
         />
       </label>
-      {listOpen && directory !== null ? (
-        // A fixed height keeps the centered modal from resizing as folders change.
-        <div className="h-48 overflow-y-auto rounded-md border border-border py-1">
-          {query.error !== null ? (
-            <p className="px-2 py-1 text-xs text-destructive-foreground">{query.error}</p>
-          ) : (
-            <ul aria-label="Folders on the server" className="grid">
-              {listed !== null && listed !== "/" ? (
-                <li>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="compact"
-                    className="w-full justify-start"
-                    onClick={() => onChange(parentFolder(listed))}
-                  >
-                    <CornerLeftUpIcon />
-                    ..
-                  </Button>
-                </li>
-              ) : null}
-              {visibleEntries.map((entry) => (
-                <li key={entry.fullPath}>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="compact"
-                    className="w-full justify-start"
-                    onClick={() => onChange(`${entry.fullPath}/`)}
-                  >
-                    <FolderIcon />
-                    {entry.name}
-                  </Button>
-                </li>
-              ))}
-              {visibleEntries.length === 0 && listing !== null && !query.isPending ? (
-                <li className="px-2 py-1 text-xs text-muted-foreground">No folders here</li>
-              ) : null}
-            </ul>
-          )}
-        </div>
-      ) : null}
+      <Popover open={listOpen && directory !== null} onOpenChange={setListOpen}>
+        <PopoverPopup
+          anchor={fieldRef}
+          align="start"
+          padding="none"
+          initialFocus={false}
+          finalFocus={false}
+        >
+          {/* Fixed height, so moving between folders never resizes the list. */}
+          <div className="h-48 w-(--anchor-width) overflow-y-auto py-1">
+            {query.error !== null ? (
+              <p className="px-2 py-1 text-xs text-destructive-foreground">{query.error}</p>
+            ) : (
+              <ul aria-label="Folders on the server" className="grid">
+                {listed !== null && listed !== "/" ? (
+                  <li>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="compact"
+                      className="w-full justify-start"
+                      onClick={() => onChange(parentFolder(listed))}
+                    >
+                      <CornerLeftUpIcon />
+                      ..
+                    </Button>
+                  </li>
+                ) : null}
+                {visibleEntries.map((entry) => (
+                  <li key={entry.fullPath}>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="compact"
+                      className="w-full justify-start"
+                      onClick={() => onChange(`${entry.fullPath}/`)}
+                    >
+                      <FolderIcon />
+                      {entry.name}
+                    </Button>
+                  </li>
+                ))}
+                {visibleEntries.length === 0 && listing !== null && !query.isPending ? (
+                  <li className="px-2 py-1 text-xs text-muted-foreground">No folders here</li>
+                ) : null}
+              </ul>
+            )}
+          </div>
+        </PopoverPopup>
+      </Popover>
       {nativePicker ? (
         <Button
           type="button"
