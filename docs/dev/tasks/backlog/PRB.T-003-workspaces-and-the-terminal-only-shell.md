@@ -3,9 +3,9 @@ id: PRB.T-003
 type: story
 parent: PRB.E-001
 phase: 1
-labels: [terminal-first, chat-removal, plan]
+labels: [terminal-first, chat-removal, plan, implement]
 created: 2026-11-02
-updated: 2026-11-02
+updated: 2026-11-05
 ---
 
 # Workspaces and the terminal-only shell-tree screen
@@ -144,14 +144,40 @@ Stories 4 to 8 depend on this one.
 
 | ID | Statement | Kind (assumption / unknown) | Status (unverified / verified / false) | How and when to verify | Owner |
 | --- | --- | --- | --- | --- | --- |
-| SA-1 | Chat can be hidden everywhere without breaking the app (routes, palette, settings links, sidebar); this is epic A-8 | assumption | unverified | Check in this story's plan stage by listing every chat entry point and every chat-related settings page | author |
+| SA-1 | Chat can be hidden everywhere without breaking the app (routes, palette, settings links, sidebar); this is epic A-8 | assumption | unverified | Entry-point list made in the plan stage (2026-11-05, see the handoff); verified once AC-10 to AC-12 pass | author |
 | SA-2 | The chat routes and code can stay and be hidden, because the epic defers deletion | assumption | verified | Epic Out and Approach state it | author |
 | SA-3 | The S1 scenario can drive the "Open workspace" dropdown by pointer and seed saved workspaces into the throwaway Probe folder | assumption | unverified | Prove while building S1; harness is story 1 | author |
-| SU-1 | The inner format of a workspace file and whether workspace operations are server-side. Decided: files live in Probe's internal folder, one per workspace, name from the file name, dropdown list, no file picking (epic U-8) | unknown | unverified | Decide the inner format and whether operations are server-side in this story's plan stage; AC-16 and AC-17 apply only if the operation is server-side; storage decided by the user 2026-11-02 | author |
+| SU-1 | The inner format of a workspace file and whether workspace operations are server-side. Decided: files live in Probe's internal folder, one per workspace, name from the file name, dropdown list, no file picking (epic U-8) | unknown | verified | Decided in the plan stage 2026-11-05: operations are server-side over WS RPC (so AC-16 and AC-17 apply); each file is `<home>/userdata/workspaces/<name>.json` holding `{"version":1}`; storage decided by the user 2026-11-02 | author |
 | SU-2 | Decided: the list of saved workspaces persists across a reload already in this story (each is a saved file with its name); which workspace is shown after a reload and its layout are story 7 | unknown | verified | Follows from the user's 2026-11-02 decision that Open workspace lists saved workspace files | author |
 | SU-3 | Decided: an old chat address (a bookmarked or typed link to the former chat UI such as /threads/<id>) lands on the shown workspace, or on the start screen when none is shown | unknown | verified | Decided by the user 2026-11-02 (recommendation accepted by default; the user asked what the term meant) | author |
 | SU-4 | Decided: which workspace is shown after the shown one is removed | unknown | verified | Decided by the user: none; the app returns to the start screen (FR-24) | author |
-| SU-5 | Naming rules: unique, 1 to 64 characters, valid as a file name, with a visible reason on rejection | unknown | verified | Taken from the epic's FR-24 name rule (2026-11-02); the exact set of disallowed characters follows the file system and is fixed in the plan | author |
+| SU-5 | Naming rules: unique, 1 to 64 characters, valid as a file name, with a visible reason on rejection | unknown | verified | Taken from the epic's FR-24 name rule (2026-11-02); fixed in the plan 2026-11-05: trimmed, 1 to 64 characters, none of `/ \ : * ? " < > |` or control characters, no trailing dot or space, not `.`, `..` or a Windows reserved name; unique ignoring case | author |
 | SU-6 | What a workspace file holds in this story: the name only (layout comes in story 7, FR-15); the disk-untouched check in AC-5 uses a directory the test creates | unknown | verified | Decided with the user's storage answer 2026-11-02; layout content is story 7 | author |
 | SU-7 | Decided: "Open workspace" is how the user reaches existing workspaces; after a removal the start screen lists the remaining ones | unknown | verified | Decided by the user 2026-11-02 | author |
 | SU-8 | What FR-7 "the tree and its grouping" can show in this story, given no folders or shells exist yet, and how it is verified | unknown | verified | Decided: in this story the tree shows only the workspace root (no folders or shells exist); grouping is checked in stories 4 and 5 where it first has content (FR-7) | author |
+
+## Implementation Status and Handoff
+
+Plan stage done (2026-11-05). The working plan is `.plans/PRB.T-003-workspaces.md` (gitignored, local); this section is enough to continue without it. Branch to create: `feat/workspaces-prb-t-003`, stacked on `feat/standalone-shells-prb-t-002`.
+
+**Decisions**
+- SU-1: workspace operations are server-side (`workspace.create`, `workspace.remove`, `workspace.open`, `subscribeWorkspaces`) in a `Workspaces` service modeled on `apps/server/src/environmentTheme.ts` (folder read, watch, change stream). The file is `<home>/userdata/workspaces/<name>.json` with `{"version":1}`; the list is the folder listing; an unreadable or invalid file stays listed and fails on open (ER-2). Workspaces live on the primary environment.
+- Shown workspace (user, 2026-11-05): kept in memory in the web app only; a reload returns to the start screen until story 7. So AC-11's "with a workspace shown" case is checked by in-app navigation (history push), not by a full page load.
+- Command palette (user, 2026-11-05): not mounted in the terminal-first screen; the `chat.new*` route commands and `usage.open` are not installed (AC-12).
+- Settings (user, 2026-11-05): reachable from a "Settings" item in the Workspaces menu. Hidden from nav, search and by redirect: chat, threads, archived, providers, scheduled-tasks, projects, browser, devices, diffs.
+- Chat code stays; each hidden chat route redirects to `/` through one helper in `apps/web/src/terminalFirst.ts`, so the cleanup epic finds them by one search.
+
+**Chat entry points (SA-1 list)**
+- Routes redirected to `/`: thread, draft, `/new` (prompt links), `/pull-requests`, `/usage`, `/welcome`, `/projects/$projectKey`, the hidden settings pages. `/` shows the workspace screen instead of creating a draft.
+- Root shell (`routes/__root.tsx`): the command palette and the project > thread sidebar (`AppSidebarLayout`, `Sidebar.tsx`, `SidebarChrome` utilities) are replaced by the workspace shell; `EventRouter`'s bootstrap thread navigation, `FirstRunGate`'s welcome redirect, `ChatGptWelcomeCoordinator`, `RunningThreadKeepAlive`, `ProjectCloneToastCoordinator`, `AddProjectToMachineDialogHost`, `DevReplayHost`, `DesktopWebLinkCoordinator`, `DesktopAppActivationCoordinator` and `ReopenClosedViewShortcut` are not mounted.
+- `appInit.tsx`: `ThreadNotificationCoordinator` ("Open thread" toast), `BackgroundThreadAnnouncer` and guide-run notifications are not started.
+- Reached only inside the chat view (hidden with it): composer, timeline, PR dialogs, citation links.
+- The `/shell/$environmentId/$shellId` route (PRB.T-002) stays.
+
+**Not done**
+- Everything: contracts, server service, client state, web screen, chat hiding, scenario S1 at full scope, docs (checkpoints 1 to 6 of the plan).
+
+**Known risks**
+- Settings open as a modal over the last thread view (`routes/_chat.tsx`); with no thread it must show the workspace screen behind it.
+- Scenario faults (AC-15 to AC-17) use chmod on the throwaway home, which needs a non-root user.
+
