@@ -1,5 +1,8 @@
 # Guest links
 
+Guest links are hidden in the browser app while chat is; opening one shows the app's start page.
+See [Workspaces](./workspaces.md).
+
 A guest link lets a teammate follow one thread in their browser and ask the agent questions, with no
 account. They see your messages and the agent's replies as they stream. Each message they send waits
 until you send or dismiss it.

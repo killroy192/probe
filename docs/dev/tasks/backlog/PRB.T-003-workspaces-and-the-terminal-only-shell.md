@@ -168,7 +168,7 @@ Plan and implement done (2026-11-05). The working plan is `.plans/PRB.T-003-work
 - Chat code stays; each hidden chat route redirects to `/` through one helper in `apps/web/src/terminalFirst.ts`, so the cleanup epic finds them by one search.
 
 **Chat entry points (SA-1 list)**
-- Routes redirected to `/`: thread, draft, `/new` (prompt links), `/pull-requests`, `/usage`, `/welcome`, `/projects/$projectKey`, the hidden settings pages. `/` shows the workspace screen instead of creating a draft.
+- Routes redirected to `/`: thread, draft, `/new` (prompt links), `/pull-requests`, `/usage`, `/welcome`, `/projects/$projectKey`, `/guest` (guest links show a shared thread; added after the first verify run), the hidden settings pages. `/` shows the workspace screen instead of creating a draft.
 - Root shell (`routes/__root.tsx`): the command palette and the project > thread sidebar (`AppSidebarLayout`, `Sidebar.tsx`, `SidebarChrome` utilities) are replaced by the workspace shell; `EventRouter`'s bootstrap thread navigation, `FirstRunGate`'s welcome redirect, `ChatGptWelcomeCoordinator`, `RunningThreadKeepAlive`, `ProjectCloneToastCoordinator`, `AddProjectToMachineDialogHost`, `DevReplayHost`, `DesktopWebLinkCoordinator`, `DesktopAppActivationCoordinator` and `ReopenClosedViewShortcut` are not mounted.
 - `appInit.tsx`: `ThreadNotificationCoordinator` ("Open thread" toast), `BackgroundThreadAnnouncer` and guide-run notifications are not started.
 - Reached only inside the chat view (hidden with it): composer, timeline, PR dialogs, citation links.
@@ -188,11 +188,11 @@ Plan and implement done (2026-11-05). The working plan is `.plans/PRB.T-003-work
 **Not done**
 - AC-10 manual pass (author): click through the start screen, a workspace, the Workspaces menu and every remaining settings page against the SA-1 list.
 - AC-19: reviewer reads the docs diff in the PR.
-- Verify stage.
+- Verify stage, second run. First run (2026-11-05) failed on: AC-10 and AC-19 evidence, `/guest` not hidden, an AC-12 check that could not fail, create and remove shown without settings write. Fixed since: `/guest` redirects, Create and Remove show only with settings write (`permissionAtom`), the AC-12 check, and a contract test that only mirrored types was dropped.
 
 **Known gaps**
 - AC-11's typed-address case runs a full page load for two addresses; the rest go through in-app navigation, which runs the same redirect.
-- AC-12 dispatches the default `chat.new*` key events from the page; the commands are no longer installed.
+- AC-12 dispatches the default `chat.new*` key events from the page and counts history navigations; S1 adds a project first so a still-installed command would act. Reinstalling the commands made S1 fail (checked 2026-11-05).
 - `apps/web/test/appScenarios.renders.tsx` mounts chat routes, which now redirect; it runs only through `report:renders`, not in CI.
 
 **Known risks**
