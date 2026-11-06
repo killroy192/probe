@@ -36,6 +36,7 @@ import { AddFolderDialog } from "./AddFolderDialog";
 import { folderName, shellName } from "./shellName";
 import { StartShellDialog } from "./StartShellDialog";
 import { isListedShell, isRunningShell, worktreeLabel } from "./worktreeChoice";
+import { focusShell } from "../ShellView";
 
 const NEEDS_WORKSPACE = "Open a workspace first";
 
@@ -180,7 +181,10 @@ export function WorkspaceSidebar() {
               workspace={view.shown}
               shells={shells ?? []}
               activeShellId={view.tabs.activeShellId}
-              onChooseShell={view.activateShell}
+              onChooseShell={(shellId) => {
+                view.activateShell(shellId);
+                if (view.environmentId !== null) focusShell(view.environmentId, shellId);
+              }}
               canStart={view.canStartShell}
               onCreateShell={(folder) => {
                 setCreatingIn(folder);

@@ -6,7 +6,7 @@ import { cn } from "~/lib/utils";
 import { useShells } from "../../state/shells";
 import { useWorkspaces, type WorkspacesView } from "../../state/workspaces";
 import { isElectron } from "../../env";
-import { ShellTerminal } from "../ShellView";
+import { focusShell, ShellTerminal } from "../ShellView";
 import { shellName } from "./shellName";
 import { WorkspacePageHeader } from "../WorkspacePageHeader";
 import { Button } from "../ui/button";
@@ -133,7 +133,10 @@ function ShellTabs({
                   role="tab"
                   aria-selected={active}
                   data-shell-id={shell.shellId}
-                  onClick={() => view.activateShell(shell.shellId)}
+                  onClick={() => {
+                    view.activateShell(shell.shellId);
+                    focusShell(environmentId, shell.shellId);
+                  }}
                   className="cursor-pointer"
                 >
                   {label(shell)}

@@ -12,6 +12,7 @@ import * as Schema from "effect/Schema";
 import { TYPOGRAPHY_ADVANCED_STORAGE_KEY } from "../appearanceFonts";
 import { isElectron } from "../env";
 import { useLocalStorage } from "../hooks/useLocalStorage";
+import { focusTerminal } from "../lib/terminalFocus";
 import { workspaceAreaProps } from "../lib/workspaceFocus";
 import { primaryServerKeybindingsAtom } from "../state/server";
 import { useShells } from "../state/shells";
@@ -62,6 +63,11 @@ export function ShellView({
 }
 
 /** One shell's terminal surface; a hidden one stays mounted so its output keeps arriving. */
+/** Moves keyboard focus into a shell's terminal, once its tab shows it. */
+export function focusShell(environmentId: EnvironmentId, shellId: ShellSummary["shellId"]) {
+  focusTerminal(scopeThreadRef(environmentId, ThreadId.make(shellOwnerId(shellId))), shellId);
+}
+
 export function ShellTerminal({
   environmentId,
   shell,

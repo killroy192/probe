@@ -111,6 +111,8 @@ export const manyShells: Scenario = {
         (await shellTab(page, started[1]!.shellId).getAttribute("aria-selected")) === "true",
         "The second clicked tab is not shown (AC-2).",
       );
+      // Switching tabs puts the keyboard in the shown shell, not on the tab.
+      await page.locator('[role="tabpanel"]:not([hidden]) :focus').waitFor();
       check(
         shells.current().find((shell) => shell.shellId === started[0]!.shellId)?.status ===
           "running",
