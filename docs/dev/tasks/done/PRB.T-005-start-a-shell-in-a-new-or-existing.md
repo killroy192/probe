@@ -5,7 +5,7 @@ parent: PRB.E-001
 phase: 1
 labels: [terminal-first, plan, implement, verify]
 created: 2026-11-02
-updated: 2026-11-05
+updated: 2026-11-06
 ---
 
 # Start a shell in a new or existing worktree
@@ -187,7 +187,7 @@ Rewritten 2026-11-06 for the revised design; the scenario S3 is being rewritten 
 
 ## Implementation Status and Handoff
 
-Implemented on `feat/worktrees-prb-t-005` (stacked on `feat/plus-modal-prb-t-004`); first version committed in `eacf06fc0`, the 2026-11-06 redesign not yet committed. Nothing pushed.
+Done 2026-11-06 on `feat/worktrees-prb-t-005` (stacked on `feat/plus-modal-prb-t-004`). Durable decisions are in `docs/dev/roadmap.md`, usage in `docs/user/workspaces.md`, shell location polling in `docs/internals/terminal-runtime.md`; the follow-up rename is PRB.T-009.
 
 **Decisions (user)**
 - 2026-11-05: branch model is the real git state. Each worktree node shows its current branch, read by the server from the worktree's HEAD; no per-shell branch and no branch level. A shell whose cwd left its worktree stays under it, marked "elsewhere" with its location in a tooltip.
@@ -198,7 +198,12 @@ Implemented on `feat/worktrees-prb-t-005` (stacked on `feat/plus-modal-prb-t-004
 - Contracts: `workspace.folderGit`, `WorkspaceWorktreeChoice` on `workspace.startShell`, `WorkspaceDetail.lastStart` (old `lastFolder` files still read), `WorkspaceAddFolderResult.resolvedFrom`, `ShellSummary.folder/worktree/branch/elsewhere`.
 - Server: `GitVcsDriver.listWorktrees` and `hasCommit`; `SavedWorkspaces.folderGit`, worktree starts with rollback of a failed fork, linked-worktree import resolved to its repository; `Shells` polls HEAD files and shell cwds every 2 s.
 - Web: `StartShellDialog` ("Create shell", per project), rules in `worktreeChoice.ts`, tree project > worktree > shell in `WorkspaceSidebar`.
+- Scenarios: S2 and S3 drive the per-project modal through `scripts/scenarios/scenarios/workspaceUi.ts`; S3 holds a fork open with a post-checkout hook for AC-23.
 
-**Not done**
-- Scenarios S2 and S3 still drive the first version's top "+" dialog and must be rewritten for the per-project modal and the ACs above (S3 also covers the post-checkout hold for AC-23).
-- Verify stage.
+**Verification (2026-11-06, author; no separate verify-agent report, as for PRB.T-004)**
+- Checks: focused tests (1654 across `SavedWorkspaces`, `Manager` (Shells), `GitVcsDriverCore`, `RpcAuthorization`, `ws`, contracts, client-runtime, web workspaces and the React compiler check); typecheck of contracts, client-runtime, server, web, mobile, desktop and scripts; format, lint and knip on the changed files; `vp run test:scenarios` with S1, S2, S3 and T-002 passing (S3 also passed three more runs), the self-test and `harness.test.ts`.
+- AC-1 to AC-19, AC-22 to AC-30: met, by scenario S3 (the stage named after each AC); AC-15 and the no-commit case also by S2. AC-8's start line carries the worktree path and branch (S3 and `Manager.test.ts`).
+- AC-20, AC-21 (one listing fails): met by `SavedWorkspaces.test.ts` ("reports a failed worktree or branch listing") and `StartShellDialog.browser.test.tsx`; real git cannot fail one listing alone.
+- AC-31: met, `docs/user/workspaces.md` "Worktrees". AC-32: met, the diff adds no animation; fork progress is static text.
+- SU-1: fork start-to-banner 411 to 422 ms for a tiny repository, reported and not enforced.
+- Manual pass by the user in `vp run dev` (2026-11-06): accepted.
