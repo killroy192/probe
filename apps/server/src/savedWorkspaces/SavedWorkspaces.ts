@@ -11,6 +11,8 @@ import {
   type WorkspaceFolderGitInput,
   type WorkspaceInput,
   WorkspaceLastStart,
+  type WorkspaceSaveTabsInput,
+  WorkspaceTabs,
   type WorkspaceWorktreeChoice,
   WorkspaceInvalidError,
   type WorkspaceStartShellInput,
@@ -48,6 +50,7 @@ import * as VcsProvisioningService from "../vcs/VcsProvisioningService.ts";
 import * as WorkspacePaths from "../workspace/WorkspacePaths.ts";
 
 const FILE_SUFFIX = ".json";
+const NO_TABS: WorkspaceTabs = { shellIds: [], active: null };
 
 // The name lives in the file name; the content is versioned so story 7 can add the layout.
 // Folders arrived after version 1 shipped, so both fields stay optional.
@@ -57,6 +60,7 @@ const SavedWorkspaceFile = Schema.Struct({
   folders: Schema.optional(Schema.Array(Schema.Struct({ path: Schema.String }))),
   lastFolder: Schema.optional(Schema.NullOr(Schema.String)),
   lastStart: Schema.optional(Schema.NullOr(WorkspaceLastStart)),
+  tabs: Schema.optional(WorkspaceTabs),
 });
 type SavedWorkspaceFile = typeof SavedWorkspaceFile.Type;
 const encodeSavedWorkspaceFile = Schema.encodeSync(Schema.fromJsonString(SavedWorkspaceFile));
@@ -107,6 +111,13 @@ export class SavedWorkspaces extends Context.Service<
     ) => Effect.Effect<
       WorkspaceFolderGit,
       WorkspaceNotFoundError | WorkspaceInvalidError | WorkspaceFolderError
+    >;
+    /** Saves which shells the workspace shows as tabs, and the selected one. */
+    readonly saveTabs: (
+      input: WorkspaceSaveTabsInput,
+    ) => Effect.Effect<
+      void,
+      WorkspaceNotFoundError | WorkspaceInvalidError | WorkspaceStorageError
     >;
     /**
      * Starts an agent shell in a folder's checkout, a worktree of it, or a new worktree, and
@@ -401,12 +412,18 @@ const make = Effect.gen(function* () {
     const lastStart = folders.some((folder) => folder.path === remembered?.folder && folder.exists)
       ? remembered
       : null;
-    return { name, folders, lastStart } satisfies WorkspaceDetail;
+    const tabs = file.tabs ?? NO_TABS;
+    return { name, folders, lastStart, tabs } satisfies WorkspaceDetail;
   });
 
   const open = Effect.fn("SavedWorkspaces.open")(function* (input: WorkspaceInput) {
     return yield* toDetail(input.name, yield* readFile(input.name));
   });
+
+  const saveTabs = Effect.fn("SavedWorkspaces.saveTabs")(function* (input: WorkspaceSaveTabsInput) {
+    const file = yield* readFile(input.name);
+    yield* writeFile(input.name, { ...file, tabs: input.tabs });
+  }, lock.withPermits(1));
 
   const folderError = (reason: string) => new WorkspaceFolderError({ reason });
 
@@ -777,6 +794,7 @@ const make = Effect.gen(function* () {
     removeFolder,
     folderGit,
     startShell,
+    saveTabs,
     get streamChanges() {
       return Stream.unwrap(
         Effect.gen(function* () {

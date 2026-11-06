@@ -92,9 +92,9 @@ describe("RPC authorization scopes", () => {
     ]) {
       expect(requiredScopeForRpcMethod(method)).toBe(AuthSettingsWriteScope);
     }
-    expect(requiredScopeForRpcMethod(WS_METHODS.workspaceStartShell)).toBe(
-      AuthTerminalOperateScope,
-    );
+    for (const method of [WS_METHODS.workspaceStartShell, WS_METHODS.workspaceSaveTabs]) {
+      expect(requiredScopeForRpcMethod(method)).toBe(AuthTerminalOperateScope);
+    }
   });
 
   it("rejects unknown RPC method names", () => {

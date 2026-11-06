@@ -44,5 +44,9 @@ export function createWorkspaceEnvironmentAtoms<R, E>(
       label: "environment-data:workspace:start-shell",
       tag: WS_METHODS.workspaceStartShell,
     }),
+    saveTabs: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:workspace:save-tabs",
+      tag: WS_METHODS.workspaceSaveTabs,
+    }),
   };
 }

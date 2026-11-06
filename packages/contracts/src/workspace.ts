@@ -111,10 +111,19 @@ export const WorkspaceLastStart = Schema.Struct({
 });
 export type WorkspaceLastStart = typeof WorkspaceLastStart.Type;
 
+/** The shells a workspace shows as tabs, in tab order, and the selected one. */
+export const WorkspaceTabs = Schema.Struct({
+  shellIds: Schema.Array(Schema.String),
+  active: Schema.NullOr(Schema.String),
+});
+export type WorkspaceTabs = typeof WorkspaceTabs.Type;
+
 export const WorkspaceDetail = Schema.Struct({
   name: WorkspaceName,
   folders: Schema.Array(WorkspaceFolder),
   lastStart: Schema.NullOr(WorkspaceLastStart),
+  /** Saved with the workspace, so the same tabs come back after a reload or a restart. */
+  tabs: WorkspaceTabs,
 });
 export type WorkspaceDetail = typeof WorkspaceDetail.Type;
 
@@ -153,6 +162,9 @@ export const WorkspaceStartShellInput = Schema.Struct({
 export type WorkspaceStartShellInput = typeof WorkspaceStartShellInput.Type;
 
 /** Removes a project from the workspace; its folder stays on disk, its shells are killed. */
+export const WorkspaceSaveTabsInput = Schema.Struct({ name: WorkspaceName, tabs: WorkspaceTabs });
+export type WorkspaceSaveTabsInput = typeof WorkspaceSaveTabsInput.Type;
+
 export const WorkspaceRemoveFolderInput = Schema.Struct({
   name: WorkspaceName,
   folder: TrimmedNonEmptyString,

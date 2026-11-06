@@ -269,6 +269,7 @@ export class ShellHost extends Context.Service<
 
 const START_ATTEMPTS = 100;
 
+/** @public */
 export const make = Effect.fn("ShellHost.make")(function* (options: {
   readonly socketPath: string;
   /** Starts a detached host; the connection is retried until it answers. */

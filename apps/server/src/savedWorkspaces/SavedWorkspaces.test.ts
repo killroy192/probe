@@ -196,6 +196,7 @@ it.layer(NodeServices.layer)("saved workspaces", (it) => {
           name: "sparta",
           folders: [],
           lastStart: null,
+          tabs: { shellIds: [], active: null },
         });
       }),
     ),
@@ -351,7 +352,26 @@ it.layer(NodeServices.layer)("saved workspaces", (it) => {
         assert.include(created.message, "Could not create the workspace");
         const removed = yield* Effect.flip(workspaces.remove({ name: "sparta" }));
         assert.strictEqual(removed._tag, "WorkspaceStorageError");
+        const tabs = { shellIds: ["a"], active: "a" };
+        const saved = yield* Effect.flip(workspaces.saveTabs({ name: "sparta", tabs }));
+        assert.strictEqual(saved._tag, "WorkspaceStorageError");
         assert.deepStrictEqual(yield* names, ["sparta"]);
+      }),
+    ),
+  );
+
+  it.effect("saves the open tabs with the workspace and opens with them", () =>
+    withWorkspaces({ "sparta.json": '{"version":1,"folders":[]}' }, () =>
+      Effect.gen(function* () {
+        const workspaces = yield* service;
+        const opened = yield* workspaces.open({ name: "sparta" });
+        assert.deepStrictEqual(opened.tabs, { shellIds: [], active: null });
+
+        const tabs = { shellIds: ["one", "two"], active: "two" };
+        yield* workspaces.saveTabs({ name: "sparta", tabs });
+        assert.deepStrictEqual((yield* workspaces.open({ name: "sparta" })).tabs, tabs);
+        const missing = yield* Effect.flip(workspaces.saveTabs({ name: "gone", tabs }));
+        assert.strictEqual(missing._tag, "WorkspaceNotFoundError");
       }),
     ),
   );
@@ -407,6 +427,7 @@ it.layer(NodeServices.layer)("saved workspaces", (it) => {
             { path: `${dir}/fresh`, isGitRepository: true, exists: true },
           ],
           lastStart: null,
+          tabs: { shellIds: [], active: null },
         });
         assert.isTrue(yield* fs.exists(`${dir}/fresh/.git`));
         assert.deepStrictEqual(fakes.registered, [plain, plain, `${dir}/fresh`]);
@@ -502,6 +523,7 @@ it.layer(NodeServices.layer)("saved workspaces", (it) => {
           name: "sparta",
           folders: [{ path: app, isGitRepository: false, exists: false }],
           lastStart: null,
+          tabs: { shellIds: [], active: null },
         });
         const gone = yield* Effect.flip(workspaces.startShell({ name: "sparta", folder: app }));
         assert.strictEqual(gone.message, `The folder no longer exists: ${app}`);

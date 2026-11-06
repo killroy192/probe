@@ -279,6 +279,7 @@ import {
   WorkspaceAddFolderInput,
   WorkspaceAddFolderResult,
   WorkspaceRemoveFolderInput,
+  WorkspaceSaveTabsInput,
   WorkspaceDetail,
   WorkspaceFolderError,
   WorkspaceFolderGit,
@@ -504,6 +505,7 @@ export const WS_METHODS = {
   workspaceAddFolder: "workspace.addFolder",
   workspaceRemoveFolder: "workspace.removeFolder",
   workspaceStartShell: "workspace.startShell",
+  workspaceSaveTabs: "workspace.saveTabs",
   workspaceFolderGit: "workspace.folderGit",
 
   previewOpen: "preview.open",
@@ -1687,6 +1689,16 @@ const WsWorkspaceRemoveFolderRpc = Rpc.make(WS_METHODS.workspaceRemoveFolder, {
   ]),
 });
 
+const WsWorkspaceSaveTabsRpc = Rpc.make(WS_METHODS.workspaceSaveTabs, {
+  payload: WorkspaceSaveTabsInput,
+  error: Schema.Union([
+    WorkspaceNotFoundError,
+    WorkspaceInvalidError,
+    WorkspaceStorageError,
+    EnvironmentAuthorizationError,
+  ]),
+});
+
 const WsWorkspaceFolderGitRpc = Rpc.make(WS_METHODS.workspaceFolderGit, {
   payload: WorkspaceFolderGitInput,
   success: WorkspaceFolderGit,
@@ -2273,6 +2285,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsWorkspaceOpenRpc,
   WsWorkspaceAddFolderRpc,
   WsWorkspaceRemoveFolderRpc,
+  WsWorkspaceSaveTabsRpc,
   WsWorkspaceStartShellRpc,
   WsWorkspaceFolderGitRpc,
   WsSubscribeWorkspacesRpc,

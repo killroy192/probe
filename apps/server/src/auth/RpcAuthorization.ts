@@ -193,6 +193,7 @@ export const RPC_REQUIRED_SCOPES = {
   [WS_METHODS.workspaceRemoveFolder]: AuthSettingsWriteScope,
   // Starting a shell in a workspace folder spawns a process, like shell.open.
   [WS_METHODS.workspaceStartShell]: AuthTerminalOperateScope,
+  [WS_METHODS.workspaceSaveTabs]: AuthTerminalOperateScope,
   [WS_METHODS.subscribeWorkspaces]: AuthOrchestrationReadScope,
   [WS_METHODS.previewOpen]: AuthPreviewOperateScope,
   [WS_METHODS.previewResize]: AuthPreviewOperateScope,
