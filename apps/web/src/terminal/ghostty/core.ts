@@ -9,7 +9,9 @@ import { GhosttyRuntime, loadGhosttyRuntime } from "./runtime";
 
 const GHOSTTY_SUCCESS = 0;
 const GHOSTTY_OUT_OF_SPACE = -3;
-const MAX_SCROLLBACK_ROWS = 10_000;
+// libghostty-vt reads max_scrollback as bytes of page memory, though its header says lines.
+// 20 MB holds the server's 5,000 retained lines up to about 300 columns; pages grow only as used.
+const MAX_SCROLLBACK_BYTES = 20_000_000;
 // wasm32 GhosttyTerminalSelectionFormatOptions layout at the pinned libghostty-vt revision.
 const SELECTION_FORMAT_OPTIONS_SIZE = 16;
 const PALETTE_BYTES = 256 * 3;
@@ -257,7 +259,12 @@ export class GhosttyTerminalCore {
     const options = this.runtime.alloc(optionsSize);
     this.runtime.setField(options, "GhosttyTerminalOptions", "cols", cols);
     this.runtime.setField(options, "GhosttyTerminalOptions", "rows", rows);
-    this.runtime.setField(options, "GhosttyTerminalOptions", "max_scrollback", MAX_SCROLLBACK_ROWS);
+    this.runtime.setField(
+      options,
+      "GhosttyTerminalOptions",
+      "max_scrollback",
+      MAX_SCROLLBACK_BYTES,
+    );
     this.terminalSlot = this.runtime.allocOpaque();
     const terminalResult = this.runtime.call("ghostty_terminal_new", 0, this.terminalSlot, options);
     this.runtime.free(options, optionsSize);

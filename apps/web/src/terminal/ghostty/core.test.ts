@@ -125,6 +125,15 @@ describe("GhosttyTerminalCore snapshots", () => {
     expect(core.encodeKey(event)).toBe(expected);
   });
 
+  // The server keeps 5,000 lines; a reopened tab must be able to scroll back through all of them.
+  it("keeps the server's 5,000 lines of history as scrollback at a real terminal width", async () => {
+    const core = await createCore();
+    core.resize(160, 40, 8, 16);
+    const lines = Array.from({ length: 5_000 }, (_, index) => `line ${index + 1}`);
+    core.write(`${lines.join("\r\n")}\r\n`);
+    expect(core.scrollbarState()?.total).toBeGreaterThanOrEqual(5_000);
+  });
+
   it("preserves styles, wide cells, and selection after shared memory grows", async () => {
     const core = await createCore();
     const runtime = await loadGhosttyRuntime();
