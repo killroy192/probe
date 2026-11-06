@@ -7,7 +7,9 @@ import * as NodePath from "node:path";
 
 import { afterEach, describe, expect, it } from "vite-plus/test";
 
-import { HostConnection, type HostPtyProcess } from "./client.ts";
+import * as Effect from "effect/Effect";
+
+import { HostConnection, type HostPtyProcess, make } from "./client.ts";
 import { startShellHost, type RunningShellHost } from "./host.ts";
 import { encodeLine, lineReader, shellHostSocketPath } from "./protocol.ts";
 
@@ -158,5 +160,35 @@ describe("shell host", () => {
     const socket = shellHostSocketPath(long);
     expect(socket.startsWith(NodeOS.tmpdir())).toBe(true);
     expect(socket).toMatch(/probe-shell-[0-9a-f]{12}-v1\.sock$/);
+  });
+});
+
+describe("shell host client", () => {
+  it("stops waiting as soon as a host that cannot serve exits, and says where it wrote why", async () => {
+    const dir = stateDir();
+    let starts = 0;
+    const exit = await Effect.runPromiseExit(
+      Effect.scoped(
+        Effect.gen(function* () {
+          const host = yield* make({
+            socketPath: shellHostSocketPath(dir),
+            logPath: `${dir}/shell-host-v1.log`,
+            start: Effect.sync(() => {
+              starts++;
+              return { exited: () => true };
+            }),
+          });
+          return yield* host.adapter.spawn({
+            shell: "/bin/sh",
+            cwd: dir,
+            cols: 80,
+            rows: 24,
+            env: {},
+          });
+        }),
+      ),
+    );
+    expect(starts).toBe(1);
+    expect(String(exit)).toContain(`The shell host did not start; see ${dir}/shell-host-v1.log.`);
   });
 });

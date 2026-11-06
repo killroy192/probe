@@ -1,5 +1,5 @@
 // @effect-diagnostics nodeBuiltinImport:off - The shell host is a small plain-Node process with no Effect runtime.
-// @effect-diagnostics globalTimers:off
+// @effect-diagnostics globalTimers:off globalDate:off
 /**
  * The shell host: one detached process per Probe state folder that owns every shell's PTY, so
  * shells keep running while the server stops and a new server can take them over. It serves one
@@ -19,6 +19,7 @@ import {
   type HostMessage,
   lineReader,
   SHELL_HOST_PROTOCOL,
+  shellHostLogPath,
   shellHostPidPath,
   shellHostSocketPath,
 } from "./protocol.ts";
@@ -266,11 +267,17 @@ export async function startShellHost(options: ShellHostOptions): Promise<Running
     });
   });
 
-  await new Promise<void>((resolve, reject) => {
-    server.once("error", reject);
-    server.listen(socketPath, () => resolve());
-  });
-  NodeFS.chmodSync(socketPath, 0o600);
+  // Only this user may connect. A umask, not chmod: some mounts (a Mac folder in a Linux
+  // container) refuse chmod on a socket, and ignore modes anyway.
+  const umask = process.umask(0o077);
+  try {
+    await new Promise<void>((resolve, reject) => {
+      server.once("error", reject);
+      server.listen(socketPath, () => resolve());
+    });
+  } finally {
+    process.umask(umask);
+  }
   NodeFS.writeFileSync(pidPath, `${process.pid}\n`, { mode: 0o600 });
   checkIdle();
   return { stop, finished };
@@ -284,10 +291,21 @@ export async function runShellHostCli(args: ReadonlyArray<string>): Promise<void
     return;
   }
   const idle = Number(process.env.PROBE_SHELL_HOST_IDLE_MS);
-  const host = await startShellHost({
-    stateDir,
-    ...(Number.isFinite(idle) && idle > 0 ? { idleMs: idle } : {}),
-  });
+  let host: RunningShellHost | null;
+  try {
+    host = await startShellHost({
+      stateDir,
+      ...(Number.isFinite(idle) && idle > 0 ? { idleMs: idle } : {}),
+    });
+  } catch (error) {
+    // The host runs detached with no output; this file is where a failed start says why.
+    NodeFS.appendFileSync(
+      shellHostLogPath(stateDir),
+      `${new Date().toISOString()} could not start: ${error instanceof Error ? (error.stack ?? error.message) : String(error)}\n`,
+    );
+    NodeFS.rmSync(shellHostSocketPath(stateDir), { force: true });
+    process.exit(1);
+  }
   if (host === null) return;
   process.on("SIGTERM", host.stop);
   process.on("SIGINT", host.stop);

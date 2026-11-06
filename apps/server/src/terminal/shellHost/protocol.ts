@@ -24,6 +24,10 @@ export const shellHostSocketPath = (stateDir: string) => {
 export const shellHostPidPath = (stateDir: string) =>
   NodePath.join(stateDir, `shell-host-v${SHELL_HOST_PROTOCOL}.pid`);
 
+/** Where a host that failed to start says why. */
+export const shellHostLogPath = (stateDir: string) =>
+  NodePath.join(stateDir, `shell-host-v${SHELL_HOST_PROTOCOL}.log`);
+
 export interface HostExit {
   readonly exitCode: number;
   readonly signal: number | null;

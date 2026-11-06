@@ -22,6 +22,7 @@ import {
   lineReader,
   SHELL_HOST_COMMAND,
   SHELL_HOST_PROTOCOL,
+  shellHostLogPath,
   shellHostSocketPath,
 } from "./protocol.ts";
 
@@ -272,8 +273,13 @@ const START_ATTEMPTS = 100;
 /** @public */
 export const make = Effect.fn("ShellHost.make")(function* (options: {
   readonly socketPath: string;
-  /** Starts a detached host; the connection is retried until it answers. */
-  readonly start: Effect.Effect<void>;
+  /**
+   * Starts a detached host; the connection is retried until it answers or the host process
+   * exits, which a host that cannot serve does at once.
+   */
+  readonly start: Effect.Effect<{ readonly exited: () => boolean }>;
+  /** Where the host writes why it could not start. */
+  readonly logPath: string;
 }) {
   const lock = Semaphore.makeUnsafe(1);
   let connection: HostConnection | null = null;
@@ -292,8 +298,8 @@ export const make = Effect.fn("ShellHost.make")(function* (options: {
         const existing = yield* tryConnect;
         if (existing._tag === "Some") return (connection = existing.value);
         if (!startIfMissing) return null;
-        yield* options.start;
-        for (let attempt = 0; attempt < START_ATTEMPTS; attempt++) {
+        const launched = yield* options.start;
+        for (let attempt = 0; attempt < START_ATTEMPTS && !launched.exited(); attempt++) {
           const started = yield* tryConnect;
           if (started._tag === "Some") {
             yield* Effect.logInfo("shell host started", { pid: started.value.hostPid });
@@ -301,6 +307,10 @@ export const make = Effect.fn("ShellHost.make")(function* (options: {
           }
           yield* Effect.sleep("50 millis");
         }
+        // A host that lost a race with another one exits too; that one now answers.
+        const raced = yield* tryConnect;
+        if (raced._tag === "Some") return (connection = raced.value);
+        yield* Effect.logWarning("the shell host did not start", { log: options.logPath });
         return null;
       }),
     );
@@ -320,7 +330,7 @@ export const make = Effect.fn("ShellHost.make")(function* (options: {
           return yield* new PtyAdapter.PtySpawnError({
             adapter: "shell-host",
             shell: input.shell,
-            cause: new Error("The shell host did not start."),
+            cause: new Error(`The shell host did not start; see ${options.logPath}.`),
           });
         }
         return yield* Effect.tryPromise({
@@ -356,20 +366,26 @@ const startDetached = Effect.fn("ShellHost.startDetached")(function* (stateDir: 
     name: "shell-host",
     survivesRestart: true,
   });
+  let exited = false;
   const failure = yield* Effect.sync(() => {
     try {
-      NodeChildProcess.spawn(launch.command, [...launch.args], {
+      const child = NodeChildProcess.spawn(launch.command, [...launch.args], {
         detached: true,
         stdio: "ignore",
         cwd: stateDir,
-      }).unref();
+      });
+      child.once("exit", () => (exited = true));
+      child.once("error", () => (exited = true));
+      child.unref();
       return null;
     } catch (cause) {
+      exited = true;
       return cause instanceof Error ? cause.message : String(cause);
     }
   });
   if (failure !== null)
     yield* Effect.logWarning("could not start the shell host", { reason: failure });
+  return { exited: () => exited };
 });
 
 /** Present everywhere except Windows. */
@@ -382,6 +398,7 @@ export const layer = Layer.unwrap(
       ShellHost,
       make({
         socketPath: shellHostSocketPath(stateDir),
+        logPath: shellHostLogPath(stateDir),
         start: startDetached(stateDir).pipe(Effect.provideService(Path.Path, path)),
       }),
     );
