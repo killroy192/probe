@@ -2350,6 +2350,35 @@ it.layer(
     }),
   );
 
+  it.effect("lists shells in the order they started, whichever updated last", () =>
+    Effect.gen(function* () {
+      const { manager, ptyAdapter } = yield* createManager();
+      const shells = yield* makeShells(manager);
+      const started = [
+        yield* shells.open({ cwd: process.cwd() }),
+        yield* shells.open({ cwd: process.cwd() }),
+        yield* shells.open({ cwd: process.cwd() }),
+      ].map((shell) => shell.shellId);
+      // Output makes the first shell the most recently updated one.
+      const updated = yield* Deferred.make<void>();
+      const stop = yield* manager.subscribe((event) =>
+        event.type === "output"
+          ? Deferred.succeed(updated, undefined).pipe(Effect.asVoid)
+          : Effect.void,
+      );
+      ptyAdapter.processes[0]!.emitData("later\n");
+      yield* Deferred.await(updated);
+      stop();
+
+      expect((yield* shells.list).map((shell) => shell.shellId)).toEqual(started);
+      const events = yield* collectList(shells);
+      const [snapshot] = yield* events;
+      expect(
+        snapshot?.type === "snapshot" && snapshot.shells.map((shell) => shell.shellId),
+      ).toEqual(started);
+    }),
+  );
+
   it.effect("takes over the shells the host kept, and lists the ones that ended", () => {
     const logs = captureLogs();
     return Effect.gen(function* () {

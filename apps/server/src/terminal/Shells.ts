@@ -155,6 +155,7 @@ const listEvent = (
   recordOf: (shellId: string) => ShellRecord,
   endedOf: (shellId: string) => ShellSummary | null,
   endedOnly: () => ReadonlyArray<ShellSummary>,
+  inStartOrder: (shells: ReadonlyArray<ShellSummary>) => ReadonlyArray<ShellSummary>,
 ): ShellListStreamEvent | null => {
   switch (event.type) {
     case "snapshot": {
@@ -165,7 +166,10 @@ const listEvent = (
       const listed = new Set(shells.map((shell) => shell.shellId));
       return {
         type: "snapshot",
-        shells: [...shells, ...endedOnly().filter((shell) => !listed.has(shell.shellId))],
+        shells: inStartOrder([
+          ...shells,
+          ...endedOnly().filter((shell) => !listed.has(shell.shellId)),
+        ]),
       };
     }
     case "upsert": {
@@ -337,6 +341,16 @@ export const makeShells = Effect.fn("Shells.make")(function* (
     return terminal === undefined
       ? endedOf(shellId)
       : toSummary(shellId, terminal, recordOf(shellId));
+  };
+  // The registry keeps shells in the order they started, also across restarts; the manager's own
+  // order is by last update, so a client would see the tree reorder on every reload.
+  const inStartOrder = (shells: ReadonlyArray<ShellSummary>) => {
+    const order = new Map([...saved.keys()].map((shellId, index) => [shellId, index]));
+    return shells.toSorted(
+      (left, right) =>
+        (order.get(left.shellId) ?? Number.MAX_SAFE_INTEGER) -
+        (order.get(right.shellId) ?? Number.MAX_SAFE_INTEGER),
+    );
   };
   const emit = Effect.fnUntraced(function* (event: ShellListStreamEvent) {
     for (const listener of listeners) yield* listener(event);
@@ -804,17 +818,19 @@ export const makeShells = Effect.fn("Shells.make")(function* (
       return true;
     }),
     /** Every shell the server runs or still lists. */
-    list: Effect.sync(() => [
-      ...[...terminals].map(([shellId, terminal]) =>
-        toSummary(shellId, terminal, recordOf(shellId)),
-      ),
-      ...endedOnly(),
-    ]),
+    list: Effect.sync(() =>
+      inStartOrder([
+        ...[...terminals].map(([shellId, terminal]) =>
+          toSummary(shellId, terminal, recordOf(shellId)),
+        ),
+        ...endedOnly(),
+      ]),
+    ),
     subscribe: Effect.fnUntraced(function* (
       listener: (event: ShellListStreamEvent) => Effect.Effect<void>,
     ) {
       const stop = yield* manager.subscribeMetadata((event) => {
-        const mapped = listEvent(event, recordOf, endedOf, endedOnly);
+        const mapped = listEvent(event, recordOf, endedOf, endedOnly, inStartOrder);
         return mapped === null ? Effect.void : listener(mapped);
       });
       listeners.add(listener);
