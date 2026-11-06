@@ -3,9 +3,9 @@ id: PRB.T-007
 type: story
 parent: PRB.E-001
 phase: 1
-labels: [terminal-first, plan]
+labels: [terminal-first, plan, implement]
 created: 2026-11-02
-updated: 2026-11-02
+updated: 2026-11-06
 ---
 
 # Reload, restart survival and saved workspace layout
@@ -34,18 +34,24 @@ updated: 2026-11-02
 
 ## Current Behavior
 
-Verified by reading `../probe` (read only). Everything below describes the chat-era terminal, which this story builds on.
+Read from the code after PRB.T-002 to PRB.T-006 (2026-11-06).
 
-- **Server, terminal service** (`apps/server/src/terminal/Manager.ts`, node-pty via `apps/server/src/terminal/NodePtyAdapter.ts`):
-  - Each terminal is a PTY child process owned by the server process, keyed by thread id and terminal id.
-  - A scope finalizer on the manager (around line 2796) takes every session and runs the kill escalation on its process. So a server stop ends the shells; nothing is kept alive or reattached across a restart.
-  - Output history is a bounded buffer per session (defaults: 5,000 lines, 8 MiB; `DEFAULT_HISTORY_LINE_LIMIT`, `DEFAULT_HISTORY_BYTE_LIMIT`). It is written to a per-thread file in the logs directory with a debounce (`historyPath`, `persistWorker`). On a later open of the same thread and terminal id, history is read back and used as the start of a new session. Whether this path is exercised by a fresh process after a server restart in the way the story needs: unverified.
-  - The manager keeps "closed session" markers in memory only, with a comment that they let unknown ids recover after a restart (around line 1624).
-  - Session status values include `starting`, `running`, `exited`, `error`; an exit emits an `exited` event (around lines 2241 to 2313). The code there does not distinguish a Probe kill from a signal or a non-zero exit in a way tied to a restore decision: unverified (the epic assigns that classification, U-7, to this story).
-- **Web, tabs and layout**: terminal drawer UI is chat-thread based (`apps/web/src/components/ThreadTerminalDrawer.tsx`, `PersistentThreadTerminals.tsx`). Which terminals are open or split is held in a browser-local persisted store (`apps/web/src/terminalUiStateStore.ts`, zustand `persist` into `localStorage`), keyed by thread. Known sessions come from the server (`apps/web/src/state/terminalSessions`). Behavior of a reload with the server running for a standalone shell: unverified, because standalone shells are created by story 2 (assumption A-6).
-- **Workspace and saved file**: there is no workspace concept or saved workspace file in the code today; both arrive in story 3 (format and location: U-8, decided there).
-- **Server restart reattach**: no code was found that reattaches to a PTY after the server restarts; unverified beyond the finalizer above (A-14 is unverified and is spiked in story 2).
+- **Shells** (`apps/server/src/terminal/Shells.ts`) are terminal-manager sessions owned by `shell:<id>`. They survive a browser reload, because the server owns them (PRB.T-002, A-6 verified). They do not survive the server: the manager's scope finalizer (`Manager.ts`, around line 2796) kills every PTY, and the PRB.T-002 spike found A-14 false (`docs/dev/research/t-002-standalone-shell-spike.md`).
+- **Shell records** (title, folder, worktree) and the per-shell `probe kill` tokens are in-memory maps in `Shells`, so a restart loses them.
+- **History** is a bounded buffer per session (5,000 lines, 8 MiB), written to `<state dir>/logs/terminals` with a debounce. An attach snapshot carries it, so a reopened tab shows it.
+- **Ends:** an ended shell, whatever the reason, stays in the manager's list with its exit code or signal. The web tree hides it (`isActiveShell`), but its tab stays until the server forgets it. A kill (`shell.kill`) forgets the shell and its history.
+- **Workspaces** (`apps/server/src/savedWorkspaces/SavedWorkspaces.ts`) are one JSON file each in `<state dir>/workspaces`, holding the projects (`folders`) and the last start (the "+" modal's defaults, FR-22). A missing project folder is shown with `exists: false` and cannot start shells. The file has no tabs.
+- **Web:** the shown workspace and each workspace's tabs are in-memory atoms (`apps/web/src/state/workspaces.ts`), so a reload returns to the start screen.
+- **Scenarios:** S4 has a comment for its reload part; S7 is pending. The harness has `server.restart()` (same home and port).
 - **Mobile**: not touched (NFR-4 in the epic: desktop and mobile out of scope).
+
+### Decisions (2026-11-06)
+
+- **Survival (user, SA-1):** a shell host. One detached helper process per Probe server (per state folder) owns every shell's PTY. The server talks to it over a unix socket. Stopping the server detaches from it instead of killing shells, and the next start reattaches with the same processes and their output. Chat-thread terminals keep the in-process PTY and still end with the server. Windows has no host and keeps today's behavior.
+- **Tabs (user):** the open tabs and the selected tab are saved in the workspace file. The shown workspace is remembered per browser.
+- **Shell records:** shells stay server-level, as PRB.T-006 decided (they record no workspace). Their records are saved in `<state dir>/shells/registry.json`, not in workspace files.
+- **Where shells run:** the host belongs to the server's state folder, never to a project or worktree. A shell in a project folder, a Probe-made worktree or a worktree made by hand anywhere on disk behaves the same, and "not found" checks only whether the saved path exists.
+- **End classification (SU-2):** a Probe kill or an exit without a signal (any status) removes the shell and its history, so its tab closes. A signal exit, or a shell the host no longer has after a restart ("lost"), stays listed as ended until it is removed with the "x".
 
 ## Expected Behavior
 
@@ -177,12 +183,12 @@ SU-2, SU-6 and SU-7 are decided (user, 2026-11-02); no AC is blocked on them.
 
 | ID | Statement | Kind (assumption / unknown) | Status (unverified / verified / false) | How and when to verify | Owner |
 | --- | --- | --- | --- | --- | --- |
-| SA-1 | A-14 holds: terminals can keep running while the server restarts and a new server can reattach (epic A-14, R-6) | assumption | unverified | Spike in story 2; if false or too large, re-plan with the user before planning this story | author |
-| SA-2 | A running shell survives a browser reload because the server owns it (epic A-6) | assumption | unverified | Check in story 2; re-check at the start of this story | author |
+| SA-1 | A-14 holds: terminals can keep running while the server restarts and a new server can reattach (epic A-14, R-6) | assumption | false | The PRB.T-002 spike found shells die with the server. The user chose a shell host (Decisions above), which this story builds | author |
+| SA-2 | A running shell survives a browser reload because the server owns it (epic A-6) | assumption | verified | PRB.T-002 spike and AC-5 | author |
 | SA-3 | The harness can stop and restart the server inside one scenario (epic A-7), with `server.restart()` (same home and port) and `server.cli([...])` on the harness handle | assumption | verified | Proved by PRB.T-001 (AC-7); the S7 scenario replaces its `pending` entry in `scripts/scenarios/registry.ts` | author |
 | SA-4 | The saved layout file contains no secrets (folder paths, shell ids, branches, tab state only) | assumption | unverified | Check against the format chosen in story 3 | author |
 | SA-5 | The existing history persistence (per-session file in the logs directory) can serve as the source of reopened-tab history after a restart | assumption | unverified | Read and exercise during the plan stage | author |
-| SA-6 | The inner format of the workspace file is decided in story 3 (storage: one file per workspace in Probe's internal folder, epic U-8) and this story only extends what it stores | assumption | unverified | Read the story 3 result before planning | author |
+| SA-6 | The inner format of the workspace file is decided in story 3 (storage: one file per workspace in Probe's internal folder, epic U-8) and this story only extends what it stores | assumption | verified | Versioned JSON with optional fields (`SavedWorkspaces.ts`); this story adds `tabs` | author |
 | SU-2 | U-7: how Probe tells an end that must be restored from one that must not. Decided: any normal shell exit (any status, also `exit` after a failed command) is intentional and removes the shell; only death by a signal or a lost owner process is unexpected | unknown | verified | Decided by the user 2026-11-02 | author |
 | SA-7 | Delivering the full history on reload stays within the repo performance rule | assumption | unverified | Measure in the plan stage | author |
 | SU-6 | What "Open workspace" brings back for a removed workspace. Decided: nothing; removal deletes the file and layout, so it is not in the list | unknown | verified | Decided by the user 2026-11-02 | author |

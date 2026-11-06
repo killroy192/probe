@@ -14,7 +14,6 @@ it is verified or decided; settled decisions go to `roadmap.md`.
 - Agent CLIs' handling of staged input: bracketed paste, multi-line, kitty keyboard protocol.
 - Claude Code's current support for MCP prompts as slash commands and for server-pushed messages.
 - PRB.E-001: the 5 s resume limit is provisional (PRB.T-008).
-- Whether a shell exiting on its own closes its tab (left by PRB.T-006 to PRB.T-007 and PRB.T-008).
 - How Probe tells an unexpected end from a normal exit or a Probe kill at the moment of death. The
   rule is decided; the mechanism comes from PRB.T-007, and PRB.T-008 depends on it.
 - Mock CLI gaps left by PRB.T-001: behavior for an unknown session id, and a switch that makes
@@ -28,9 +27,6 @@ it is verified or decided; settled decisions go to `roadmap.md`.
 
 ## Decisions pending
 
-- PRB.T-007 scope. The PRB.T-002 spike found that shells die when the server restarts (epic
-  A-14 false, `research/t-002-standalone-shell-spike.md`): a restart-surviving process host, or
-  saved history plus a fresh shell. Ask the user before planning PRB.T-007.
 - Session identity: a nested agent inherits the parent PTY's env, so terminal id alone cannot tell
   sessions apart. Key the tree by hook `session_id` plus `cwd`. **Verified** (code.claude.com/docs/en/hooks,
   read 2026-11-01): every hook payload carries `session_id`, `cwd`, `transcript_path`,
