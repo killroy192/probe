@@ -35,6 +35,7 @@ import {
   startButton,
   tabs,
   typeLine,
+  reloadShowing,
 } from "./workspaceUi.ts";
 
 const CONNECTION_LOST =
@@ -67,15 +68,7 @@ export const plusModal: Scenario = {
     let shells = shellList(rpc.client);
     let stage = "setup";
     // After a restart the page connects again from a reload; the shown workspace is in memory only.
-    const reopen = async (target: PointerPage) => {
-      await target.reload();
-      await target
-        .getByTestId("workspace-screen")
-        .getByRole("button", { name: "Open workspace" })
-        .click();
-      await target.getByRole("menuitem", { name: "sparta", exact: true }).click();
-      await target.getByRole("tree").getByRole("treeitem", { level: 1, name: "sparta" }).waitFor();
-    };
+    const reopen = (target: PointerPage) => reloadShowing(target, "sparta");
 
     try {
       await page.getByRole("button", { name: "Create workspace" }).click();
@@ -359,6 +352,10 @@ export const plusModal: Scenario = {
       // and a git config that makes `git init` fail; a second restart clears them.
 
       stage = "AC-16";
+      // Shells outlive a restart (PRB.T-007); this check starts from none.
+      for (const shell of shells.current()) {
+        await Effect.runPromise(rpc.client["shell.kill"]({ shellId: shell.shellId }));
+      }
       await rpc.close();
       await server.restart({
         env: { PROBE_AGENT_COMMAND: "no-such-agent-cli --start", GIT_CONFIG_GLOBAL: badGitConfig },

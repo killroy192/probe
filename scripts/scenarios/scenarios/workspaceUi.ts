@@ -260,11 +260,14 @@ export async function closeTab(page: PointerPage, shellId: string) {
   await shellTab(page, shellId).waitFor({ state: "detached" });
 }
 
-/** Clicks the "x" on a shell's tree row; the confirmation is left open for the caller. */
+/**
+ * Clicks the "x" on a shell's tree row ("Kill", or "Remove" for an ended shell); the confirmation
+ * is left open for the caller.
+ */
 export async function askToKill(page: PointerPage, shellId: string) {
   const row = page.locator(`[data-shell-row="${shellId}"]`);
   await row.hover();
-  await row.getByRole("button", { name: /^Kill / }).click();
+  await row.getByRole("button", { name: /^(Kill|Remove) / }).click();
   await page.getByRole("alertdialog").waitFor();
 }
 
@@ -284,6 +287,32 @@ export async function killFromTree(page: PointerPage, shellId: string) {
 export async function allGone(pids: ReadonlyArray<number>) {
   const results = await Promise.all(pids.map((pid) => gone(pid)));
   return results.every(Boolean);
+}
+
+/**
+ * Reloads the page and waits for `name` to show. A page that showed a workspace brings it back
+ * by itself (PRB.T-007); a page that never did opens it from the start screen.
+ */
+export async function reloadShowing(page: PointerPage, name: string) {
+  const remembered = await page.evaluate(() =>
+    Object.keys(localStorage).some((key) => key.startsWith("probe:shown-workspace:")),
+  );
+  await page.reload();
+  if (!remembered) {
+    await page
+      .getByTestId("workspace-screen")
+      .getByRole("button", { name: "Open workspace" })
+      .click();
+    await page.getByRole("menuitem", { name, exact: true }).click();
+  }
+  await page.getByRole("tree").getByRole("treeitem", { level: 1, name }).waitFor();
+}
+
+/** Shows a saved workspace with the "Workspaces" menu's "Open workspace" list. */
+export async function openWorkspace(page: PointerPage, name: string) {
+  await page.getByRole("button", { name: "Workspaces" }).click();
+  await page.getByRole("menuitem", { name: "Open workspace" }).click();
+  await page.getByRole("menuitem", { name, exact: true }).click();
 }
 
 /** Starts a shell from a project's "+": in an existing worktree, or forked from the default. */

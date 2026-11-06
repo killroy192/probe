@@ -239,11 +239,12 @@ export const boot: Scenario = {
     check(navigations === 0, `Chat shortcuts started ${String(navigations)} navigations.`);
     await shownWorkspace(page, "sparta");
 
-    // AC-20, AC-7: a reload keeps every saved workspace listed; a seeded one opens.
+    // AC-20, AC-7: a reload shows the same workspace (PRB.T-007) and keeps every saved one
+    // listed; a seeded one opens.
     await seed("delphi.json", '{"version":1}');
     await page.reload();
-    await onStartScreen(page);
-    await screen(page).getByRole("button", { name: "Open workspace" }).click();
+    await shownWorkspace(page, "sparta");
+    await workspacesMenu(page, "Open workspace");
     await menuNames(page, ["delphi", "sparta"]);
     await page.getByRole("menuitem", { name: "delphi", exact: true }).click();
     await shownWorkspace(page, "delphi");

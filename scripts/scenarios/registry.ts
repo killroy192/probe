@@ -3,6 +3,7 @@ import { closeTabScenario } from "./scenarios/close-tab.ts";
 import { killShell } from "./scenarios/kill-shell.ts";
 import { manyShells } from "./scenarios/many-shells.ts";
 import { plusModal } from "./scenarios/plus-modal.ts";
+import { restartSurvival } from "./scenarios/restart.ts";
 import { standaloneShell } from "./scenarios/standalone-shell.ts";
 import { worktrees } from "./scenarios/worktrees.ts";
 import { deliberateFailure } from "./selftest/deliberate-failure.ts";
@@ -17,7 +18,7 @@ export const scenarios: ReadonlyArray<Scenario> = [
   manyShells,
   closeTabScenario,
   killShell,
-  { id: "S7", title: "pending (story 7)" },
+  restartSurvival,
   { id: "S8", title: "pending (story 8)" },
 ];
 

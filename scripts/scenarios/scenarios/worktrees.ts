@@ -5,6 +5,7 @@ import * as NodePath from "node:path";
 import * as NodeProcess from "node:process";
 
 import type { ShellSummary } from "@t3tools/contracts";
+import * as Effect from "effect/Effect";
 
 import type { PointerPage } from "../browser.ts";
 import { connectRpc } from "../rpc.ts";
@@ -31,6 +32,7 @@ import {
   startFromModal,
   tabs,
   typeLine,
+  reloadShowing,
 } from "./workspaceUi.ts";
 
 const NAME = /^probe-worktree-[0-9a-f]{6}$/;
@@ -102,23 +104,16 @@ export const worktrees: Scenario = {
     let shells = shellList(rpc.client);
     let stage = "setup";
     const logLines = () => server.logs().split(/\n(?=\S)/);
-    const reopen = async () => {
-      await page.reload();
-      await page
-        .getByTestId("workspace-screen")
-        .getByRole("button", { name: "Open workspace" })
-        .click();
-      await page.getByRole("menuitem", { name: "sparta", exact: true }).click();
-      await page.getByRole("tree").getByRole("treeitem", { level: 1, name: "sparta" }).waitFor();
-    };
+    const reopen = () => reloadShowing(page, "sparta");
     const killShell = async (shell: ShellSummary) => {
       const latest = shells.current().find((entry) => entry.shellId === shell.shellId);
       const pid = latest?.pid ?? null;
       check(pid !== null, `The shell has no pid: ${JSON.stringify(latest)}.`);
-      NodeProcess.kill(pid, "SIGKILL");
+      // A Probe kill removes the shell; one a signal ended would stay listed (PRB.T-007).
+      await Effect.runPromise(rpc.client["shell.kill"]({ shellId: shell.shellId }));
       check(await gone(pid), "The killed shell's process is still running.");
-      await shells.lists.until("the killed shell to end", (list) =>
-        list.some((entry) => entry.shellId === shell.shellId && entry.status !== "running"),
+      await shells.lists.until("the killed shell to leave the list", (list) =>
+        list.every((entry) => entry.shellId !== shell.shellId),
       );
     };
 
@@ -497,7 +492,11 @@ export const worktrees: Scenario = {
         "The kept worktree is not offered (AC-22).",
       );
       await cancelModal(page);
-      check(shells.current().length === 0, "An unstartable shell was left on the server (AC-22).");
+      // Shells from before the restart run on (PRB.T-007); none may be in the kept worktree.
+      check(
+        shells.current().every((shell) => shell.cwd !== NodePath.join(repoWorktrees, kept)),
+        "An unstartable shell was left on the server (AC-22).",
+      );
     } catch (error) {
       throw new Error(`${stage}: ${error instanceof Error ? error.message : String(error)}`, {
         cause: error,

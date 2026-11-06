@@ -224,9 +224,9 @@ export async function startServer(options: {
       const pid = shellHostPid();
       if (pid === null) return;
       NodeProcess.kill(pid, signal);
-      const deadline = Date.now() + 5_000;
-      while (isAlive(pid)) {
-        if (Date.now() > deadline) {
+      // Up to 5 s for the host to end its shells, then it is killed outright.
+      for (let attempt = 0; isAlive(pid); attempt++) {
+        if (attempt === 100) {
           NodeProcess.kill(pid, "SIGKILL");
           break;
         }
