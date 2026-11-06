@@ -23,7 +23,7 @@ import { connectionAtomRuntime } from "../connection/runtime";
 import { usePrimaryEnvironmentId } from "./environments";
 import { formatEnvironmentQueryError, useEnvironmentQuery } from "./query";
 import { useEnvironmentScope } from "./session";
-import { useShells } from "./shells";
+import { shellEnvironment, useShells } from "./shells";
 import { useAtomCommand } from "./use-atom-command";
 
 const workspaceEnvironment = createWorkspaceEnvironmentAtoms(connectionAtomRuntime);
@@ -51,6 +51,20 @@ const tabsAtom = Atom.make<Readonly<Record<string, WorkspaceTabs>>>({}).pipe(
   Atom.keepAlive,
   Atom.withLabel("web-workspace-tabs"),
 );
+
+/** The tabs without `shellId`; closing the active tab shows its right neighbour, else its left. */
+const withoutTab = (tabs: WorkspaceTabs, shellId: ShellId): WorkspaceTabs => {
+  const index = tabs.shellIds.indexOf(shellId);
+  if (index < 0) return tabs;
+  const shellIds = tabs.shellIds.filter((id) => id !== shellId);
+  return {
+    shellIds,
+    activeShellId:
+      tabs.activeShellId === shellId
+        ? (shellIds[index] ?? shellIds[index - 1] ?? null)
+        : tabs.activeShellId,
+  };
+};
 
 const tabsKey = (environmentId: EnvironmentId, name: string) =>
   JSON.stringify([environmentId, name]);
@@ -109,7 +123,12 @@ export interface WorkspacesView {
     worktree: WorkspaceWorktreeChoice | null,
     size: { readonly cols: number; readonly rows: number } | null,
   ) => WorkspaceActionResult;
+  /** Opens the shell's tab, or switches to it. */
   readonly activateShell: (shellId: ShellId) => void;
+  /** Hides the shell's tab; the shell keeps running and stays in the tree. */
+  readonly closeTab: (shellId: ShellId) => void;
+  /** Ends the shell and everything it started, and closes its tab. */
+  readonly killShell: (shellId: ShellId) => WorkspaceActionResult;
 }
 
 /** Saved workspaces of the primary environment and the one this page shows. */
@@ -138,6 +157,7 @@ export function useWorkspaces(): WorkspacesView {
   const startShellCommand = useAtomCommand(workspaceEnvironment.startShell, {
     reportFailure: false,
   });
+  const killCommand = useAtomCommand(shellEnvironment.kill, { reportFailure: false });
   const canChange = useAtomValue(workspaceEnvironment.create.permissionAtom(environmentId));
   const canStartShell = useAtomValue(workspaceEnvironment.startShell.permissionAtom(environmentId));
 
@@ -154,7 +174,7 @@ export function useWorkspaces(): WorkspacesView {
     shown === null || environmentId === null
       ? NO_TABS
       : (allTabs[tabsKey(environmentId, shown.name)] ?? NO_TABS);
-  // A shell closed on the server leaves its tab; closing tabs from the UI is story 6.
+  // A shell the server no longer has leaves its tab.
   const liveShellIds =
     shells === null
       ? storedTabs.shellIds
@@ -288,6 +308,18 @@ export function useWorkspaces(): WorkspacesView {
           );
         },
         startFailure,
+      );
+    },
+    closeTab: (shellId) => {
+      if (shown === null || environmentId === null) return;
+      updateTabs(environmentId, shown.name, (current) => withoutTab(current, shellId));
+    },
+    killShell: (shellId) => {
+      if (shown === null) return Promise.resolve("Open a workspace first.");
+      const name = shown.name;
+      return run(
+        (id) => killCommand({ environmentId: id, input: { shellId } }),
+        (_, id) => updateTabs(id, name, (current) => withoutTab(current, shellId)),
       );
     },
     activateShell: (shellId) => {

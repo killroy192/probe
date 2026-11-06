@@ -9,9 +9,11 @@ import {
   SearchIcon,
   SquareTerminalIcon,
   TrashIcon,
+  XIcon,
 } from "lucide-react";
 import { useState } from "react";
 
+import { requestConfirmDialog } from "../../confirmDialog";
 import { isElectron } from "../../env";
 import { useShells } from "../../state/shells";
 import { useWorkspaces } from "../../state/workspaces";
@@ -35,6 +37,17 @@ import { StartShellDialog } from "./StartShellDialog";
 import { isActiveShell, worktreeLabel } from "./worktreeChoice";
 
 const NEEDS_WORKSPACE = "Open a workspace first";
+
+/** Asks before a kill; a worktree the shell started in is never deleted with it. */
+const confirmKill = async (shell: ShellSummary) =>
+  (await requestConfirmDialog(
+    [
+      `Kill ${shellName(shell, { folder: false })}?`,
+      "Its process and everything it started end now.",
+      ...(shell.worktree === null ? [] : ["Its worktree stays on disk."]),
+    ].join("\n"),
+    { variant: "destructive" },
+  )) === true;
 
 /** The app sidebar of the terminal-first screen: workspace actions and the shell tree. */
 export function WorkspaceSidebar() {
@@ -146,6 +159,11 @@ export function WorkspaceSidebar() {
                 // A project deleted on disk since the workspace was opened shows as missing.
                 void act(view.refresh());
               }}
+              onKillShell={(shell) =>
+                void confirmKill(shell).then((confirmed) =>
+                  confirmed ? act(view.killShell(shell.shellId)) : undefined,
+                )
+              }
             />
           )}
         </SidebarGroup>
@@ -219,6 +237,7 @@ function ShellTree({
   onChooseShell,
   canStart,
   onCreateShell,
+  onKillShell,
 }: {
   readonly workspace: WorkspaceDetail;
   readonly shells: ReadonlyArray<ShellSummary>;
@@ -226,37 +245,54 @@ function ShellTree({
   readonly onChooseShell: (shellId: ShellSummary["shellId"]) => void;
   readonly canStart: boolean;
   readonly onCreateShell: (folder: string) => void;
+  readonly onKillShell: (shell: ShellSummary) => void;
 }) {
   const shellRows = (inGroup: ReadonlyArray<ShellSummary>, level: number) => (
     <div role="group" className="pl-4">
       {inGroup.map((shell) => (
-        <SidebarMenuButton
+        <div
           key={shell.shellId}
-          role="treeitem"
-          aria-level={level}
-          aria-selected={shell.shellId === activeShellId}
-          isActive={shell.shellId === activeShellId}
-          data-shell-id={shell.shellId}
-          onClick={() => onChooseShell(shell.shellId)}
+          data-shell-row={shell.shellId}
+          className="group/shell flex items-center gap-1 pr-1"
         >
-          <SquareTerminalIcon />
-          <span className="truncate">{shellName(shell, { folder: false })}</span>
-          {shell.elsewhere === null ? null : (
-            <Tooltip>
-              <TooltipTrigger
-                render={
-                  <span
-                    data-elsewhere={shell.elsewhere}
-                    className="ml-auto shrink-0 text-xs text-muted-foreground"
-                  />
-                }
-              >
-                elsewhere
-              </TooltipTrigger>
-              <TooltipPopup side="right">Now in {shell.elsewhere}</TooltipPopup>
-            </Tooltip>
-          )}
-        </SidebarMenuButton>
+          <SidebarMenuButton
+            role="treeitem"
+            aria-level={level}
+            aria-selected={shell.shellId === activeShellId}
+            isActive={shell.shellId === activeShellId}
+            data-shell-id={shell.shellId}
+            onClick={() => onChooseShell(shell.shellId)}
+          >
+            <SquareTerminalIcon />
+            <span className="truncate">{shellName(shell, { folder: false })}</span>
+            {shell.elsewhere === null ? null : (
+              <Tooltip>
+                <TooltipTrigger
+                  render={
+                    <span
+                      data-elsewhere={shell.elsewhere}
+                      className="ml-auto shrink-0 text-xs text-muted-foreground"
+                    />
+                  }
+                >
+                  elsewhere
+                </TooltipTrigger>
+                <TooltipPopup side="right">Now in {shell.elsewhere}</TooltipPopup>
+              </Tooltip>
+            )}
+          </SidebarMenuButton>
+          {/* Shown on hover; a pointer reaches it by hovering the row first. */}
+          <span className="opacity-0 group-hover/shell:opacity-100 focus-within:opacity-100">
+            <SidebarHeaderIconButton
+              label={`Kill ${shellName(shell, { folder: false })}`}
+              tooltip="Kill shell"
+              disabled={!canStart}
+              onClick={() => onKillShell(shell)}
+            >
+              <XIcon />
+            </SidebarHeaderIconButton>
+          </span>
+        </div>
       ))}
     </div>
   );

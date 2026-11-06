@@ -10,6 +10,7 @@ import { ShellTerminal } from "../ShellView";
 import { shellName } from "./shellName";
 import { WorkspacePageHeader } from "../WorkspacePageHeader";
 import { Button } from "../ui/button";
+import { PanelTabCloseButton } from "../ui/panel-tab-close-button";
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "../ui/empty";
 import { Menu, MenuPopup, MenuTrigger } from "../ui/menu";
 import { SidebarInset } from "../ui/sidebar";
@@ -54,8 +55,10 @@ export function WorkspaceScreen() {
       ) : view.tabs.shellIds.length === 0 || view.environmentId === null ? (
         <Empty className="flex-1">
           <EmptyHeader>
-            <EmptyTitle>No shells yet</EmptyTitle>
-            <EmptyDescription>Shells you start in {view.shown.name} show here.</EmptyDescription>
+            <EmptyTitle>No open shells</EmptyTitle>
+            <EmptyDescription>
+              Start a shell with + on a project in {view.shown.name}, or open one from the tree.
+            </EmptyDescription>
           </EmptyHeader>
         </Empty>
       ) : (
@@ -89,23 +92,34 @@ function ShellTabs({
           {tabShells.map((shell) => {
             const active = shell.shellId === view.tabs.activeShellId;
             return (
-              <button
+              <div
                 key={shell.shellId}
-                type="button"
-                role="tab"
-                aria-selected={active}
-                data-shell-id={shell.shellId}
-                onClick={() => view.activateShell(shell.shellId)}
                 className={cn(
-                  "flex items-center gap-1.5 rounded-t-md border-b-2 px-3 py-1.5 text-xs",
+                  "group/tab flex items-center gap-1.5 rounded-t-md border-b-2 px-3 py-1.5 text-xs",
                   active
                     ? "border-primary text-foreground"
                     : "border-transparent text-muted-foreground hover:text-foreground",
                 )}
               >
-                <SquareTerminalIcon className="size-3.5" />
-                {label(shell)}
-              </button>
+                {/* Closing only hides the tab; the shell keeps running in the tree. */}
+                <PanelTabCloseButton
+                  label={`Close ${label(shell)}`}
+                  tooltip="Close tab"
+                  onClick={() => view.closeTab(shell.shellId)}
+                >
+                  <SquareTerminalIcon className="size-3.5" />
+                </PanelTabCloseButton>
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={active}
+                  data-shell-id={shell.shellId}
+                  onClick={() => view.activateShell(shell.shellId)}
+                  className="cursor-pointer"
+                >
+                  {label(shell)}
+                </button>
+              </div>
             );
           })}
         </div>
