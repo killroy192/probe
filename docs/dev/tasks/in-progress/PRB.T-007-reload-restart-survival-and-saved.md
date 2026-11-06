@@ -186,10 +186,32 @@ SU-2, SU-6 and SU-7 are decided (user, 2026-11-02); no AC is blocked on them.
 | SA-1 | A-14 holds: terminals can keep running while the server restarts and a new server can reattach (epic A-14, R-6) | assumption | false | The PRB.T-002 spike found shells die with the server. The user chose a shell host (Decisions above), which this story builds | author |
 | SA-2 | A running shell survives a browser reload because the server owns it (epic A-6) | assumption | verified | PRB.T-002 spike and AC-5 | author |
 | SA-3 | The harness can stop and restart the server inside one scenario (epic A-7), with `server.restart()` (same home and port) and `server.cli([...])` on the harness handle | assumption | verified | Proved by PRB.T-001 (AC-7); the S7 scenario replaces its `pending` entry in `scripts/scenarios/registry.ts` | author |
-| SA-4 | The saved layout file contains no secrets (folder paths, shell ids, branches, tab state only) | assumption | unverified | Check against the format chosen in story 3 | author |
-| SA-5 | The existing history persistence (per-session file in the logs directory) can serve as the source of reopened-tab history after a restart | assumption | unverified | Read and exercise during the plan stage | author |
+| SA-4 | The saved layout file contains no secrets (folder paths, shell ids, branches, tab state only) | assumption | verified | The workspace file adds only shell ids; the shell registry holds paths, pids and a SHA-256 hash of each `probe kill` token, never the token | author |
+| SA-5 | The existing history persistence (per-session file in the logs directory) can serve as the source of reopened-tab history after a restart | assumption | false | Not needed: the shell host keeps each shell's output (8 MiB) and the next server adopts it as the history; the history file still serves an ended shell | author |
 | SA-6 | The inner format of the workspace file is decided in story 3 (storage: one file per workspace in Probe's internal folder, epic U-8) and this story only extends what it stores | assumption | verified | Versioned JSON with optional fields (`SavedWorkspaces.ts`); this story adds `tabs` | author |
 | SU-2 | U-7: how Probe tells an end that must be restored from one that must not. Decided: any normal shell exit (any status, also `exit` after a failed command) is intentional and removes the shell; only death by a signal or a lost owner process is unexpected | unknown | verified | Decided by the user 2026-11-02 | author |
-| SA-7 | Delivering the full history on reload stays within the repo performance rule | assumption | unverified | Measure in the plan stage | author |
+| SA-7 | Delivering the full history on reload stays within the repo performance rule | assumption | verified | Taking over a shell with a full 8 MiB of kept output took 128 ms over the host socket (2026-11-06); the page then gets the same capped attach snapshot as before | author |
 | SU-6 | What "Open workspace" brings back for a removed workspace. Decided: nothing; removal deletes the file and layout, so it is not in the list | unknown | verified | Decided by the user 2026-11-02 | author |
 | SU-7 | How a workspace is picked in "Open workspace". Decided: by name in a scrollable list built from the files in Probe's internal folder; no file is picked | unknown | verified | Decided by the user 2026-11-02 | author |
+
+## Implementation Status and Handoff
+
+Built 2026-11-06 on `feat/restart-survival-prb-t-007` (stacked on `feat/shell-kill-prb-t-006`). Durable decisions are in `docs/dev/roadmap.md` ("PRB.E-001 restart survival"), usage in `docs/user/workspaces.md` ("Reloads and restarts"), the shell host in `docs/internals/terminal-runtime.md`, and stopping a dev checkout's host in `docs/operations/development.md`.
+
+**Decisions** (see Current Behavior, Decisions)
+- User: a shell host per state folder; tabs saved in the workspace file.
+- Planning: shells stay server-level in `<state dir>/shells/registry.json`; the shown workspace is per browser (`localStorage`); a Probe kill or an exit without a signal removes a shell, a signal or a lost host keeps it listed as ended. An ended shell has no tab and can only be removed (its last output is PRB.T-008's). The `probe kill` endpoint moved to a file rewritten at each start, so a shell started before a restart still reaches the server.
+
+**What was built**
+- Server: `terminal/shellHost/` (protocol, the `__shell-host` process, the client and `ShellHost` service); `TerminalManager.adopt` and detach at shutdown for host processes; `Shells` registry, takeover at start ("shell reattached" log), end classification, kept-as-ended list entries, `missing` from the 2 s poll, token hashes. `workspace.saveTabs`.
+- Contracts: `ShellSummary.ended` and `missing`, `ShellStorageError`, `WorkspaceDetail.tabs`, `workspace.saveTabs`.
+- Web: tabs seeded from and saved to the workspace file, "The layout is not being saved" alert, the shown workspace restored after a reload, ended and "not found" marks in the tree with a remove action.
+- Scenarios: S7 (`restart.ts`), S4's reload part; S1 to S3 and T-002 updated for reload restore and restart survival; each scenario stops its home's shell host.
+
+**Verification (2026-11-06, author; no separate verify-agent report)**
+- Checks: focused tests (shell host, `terminal`, `savedWorkspaces`, `cli`, `auth`: 331; contracts 195; client-runtime 696; web workspaces 17; React compiler check); `check:changed` passes format, lint, knip, tests and the React compiler check. Its parallel typecheck reported 4 of 33 packages failed with no diagnostics; server, evals, web, mobile, scripts and relay each typecheck clean on their own.
+- AC-1 to AC-5, AC-11, AC-15, AC-28, AC-31 (reload), AC-32: S4.
+- AC-6 to AC-10, AC-12 to AC-14, AC-16 to AC-23, AC-29 to AC-31, AC-33, AC-34: S7, each stage named after its ACs. AC-20 ends the shell host while the server is down; AC-18 and AC-21 make the shell registry and workspaces folders read-only; AC-19 makes the workspace file unreadable.
+- Service level: `shellHost.test.ts` (reconnect, ends while disconnected, version, idle), `Manager.test.ts` (detach at shutdown, takeover, end classification, ER-5, token after restart), `SavedWorkspaces.test.ts` (tabs).
+- AC-24, AC-25: S4 and S7 drive the UI by pointer and run on a throwaway home. AC-26: docs updated. AC-27: the marks are static text, no animation.
+
