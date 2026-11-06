@@ -3047,6 +3047,9 @@ export const layerWsRpc = (
         [WS_METHODS.workspaceOpen]: (input) => savedWorkspaces.open(input),
         [WS_METHODS.workspaceAddFolder]: (input) => savedWorkspaces.addFolder(input),
         [WS_METHODS.workspaceStartShell]: (input) => savedWorkspaces.startShell(input),
+        [WS_METHODS.workspaceFolderGit]: (input) => savedWorkspaces.folderGit(input),
+        [WS_METHODS.workspaceSetWorktreeVisible]: (input) =>
+          savedWorkspaces.setWorktreeVisible(input),
         [WS_METHODS.subscribeWorkspaces]: (_input) =>
           savedWorkspaces.streamChanges.pipe(Stream.map((workspaces) => ({ workspaces }))),
         [WS_METHODS.previewOpen]: (input) => previewManager.open(input),

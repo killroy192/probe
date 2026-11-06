@@ -35,6 +35,7 @@ A reload returns to the start screen; the list of saved workspaces stays.
 A workspace holds folders, and each shell runs in one of them. Click **+** at
 the top of the sidebar to start a shell: pick a folder and click the up-arrow
 button. The shell opens in a new tab and appears in the tree under its folder.
+Git folders also ask for a worktree first (see [Worktrees](#worktrees)).
 Shells are named by their number in the workspace, their folder and the
 program running in them, such as "Shell 2 · repo · node".
 It starts the server's agent command (see [Agent command](#agent-command)), and
@@ -55,9 +56,40 @@ a path. When the server runs on another machine, the field's label says
 with its own server, **Choose in Finder…** opens the system folder dialog
 instead.
 
+## Worktrees
+
+In a folder that is a git repository, the **+** dialog asks where the shell
+runs:
+
+- **Checkout** is the folder itself, on whatever branch it has checked out. It
+  can hold any number of shells.
+- An existing worktree of the folder is listed while no shell runs in it. A
+  worktree on a detached HEAD shows its short commit id.
+- **New worktree** gives the shell its own checkout. Pick its starting point, a
+  local branch or another worktree; the folder's current branch is chosen at
+  first. Probe names the worktree and its new branch `probe-worktree-` plus six
+  hex digits, and creates it in the `worktrees/<repository>` folder of the
+  server's home. A repository needs at least one commit before it can have a
+  new worktree.
+
+If creating the worktree fails, the dialog says why and nothing is left
+behind. If the worktree is made but its shell cannot start, the worktree is
+kept and listed the next time. Probe never deletes a worktree when a shell
+ends.
+
+The dialog remembers the last successful start in each workspace (folder,
+worktree choice and starting point), so the next one is a single click. A
+remembered worktree that has a shell or is gone is not preselected.
+
+In the tree, shells sit under their folder and worktree. The worktree is
+labelled "checkout" or by its folder name, followed by the branch it has checked
+out now; switching branch in any of its shells updates it within a few seconds.
+A shell that changes directory out of its worktree stays there, marked
+"elsewhere"; hover the mark to see where it is. Shells in folders that are not
+git repositories sit directly under the folder.
+
 Each folder is also registered as a project on the server. The **+** dialog
-lists only folders that still exist on disk, and preselects the folder you last
-started a shell in. A folder deleted from disk stays in the tree, marked
+lists only folders that still exist on disk. A folder deleted from disk stays in the tree, marked
 "missing". Tabs last until the page is reloaded; the shells keep
 running on the server until it stops.
 

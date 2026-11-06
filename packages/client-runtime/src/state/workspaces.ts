@@ -32,6 +32,14 @@ export function createWorkspaceEnvironmentAtoms<R, E>(
       label: "environment-data:workspace:add-folder",
       tag: WS_METHODS.workspaceAddFolder,
     }),
+    folderGit: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:workspace:folder-git",
+      tag: WS_METHODS.workspaceFolderGit,
+    }),
+    setWorktreeVisible: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:workspace:set-worktree-visible",
+      tag: WS_METHODS.workspaceSetWorktreeVisible,
+    }),
     startShell: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:workspace:start-shell",
       tag: WS_METHODS.workspaceStartShell,

@@ -25,6 +25,13 @@ spawning so a missing CLI fails the start instead of leaving a shell that only p
 not found". Writing the command, rather than spawning the CLI directly, keeps the shell open when
 the CLI exits. `Shells` logs each start, failed start (with the cwd) and end at info level.
 
+A shell started from a workspace carries its folder and worktree. Every 2 seconds, and only
+while such shells exist, `Shells` reads each worktree's `HEAD` file (following a linked
+worktree's `.git` file) and each shell process's current folder (`/proc/<pid>/cwd` on Linux, one
+batched `lsof` on macOS, nothing elsewhere), and sends an upsert for the shells whose branch or
+"elsewhere" folder changed. It never starts git, so a switch made by any program in the worktree
+shows up, and the cost stays one small file read per worktree and per shell.
+
 A shell outlives its viewers: closing or reloading a page only detaches. It does not
 outlive the server. Shutdown ends every PTY, and the `survivesRestart` process-scope
 flag does not change that.

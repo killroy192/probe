@@ -2063,6 +2063,84 @@ it.layer(
     }).pipe(Effect.provide(logs.layer));
   });
 
+  it.effect("shows the worktree's current branch and marks a shell that left it", () => {
+    const logs = captureLogs();
+    return Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const { manager, ptyAdapter } = yield* createManager();
+      const root = yield* fs.makeTempDirectoryScoped({ prefix: "t3-shell-location-" });
+      // A main checkout with a .git folder and a linked worktree whose .git file points into it.
+      const main = `${root}/main`;
+      const linked = `${root}/linked`;
+      yield* fs.makeDirectory(`${main}/.git/worktrees/linked`, { recursive: true });
+      yield* fs.makeDirectory(linked);
+      yield* fs.writeFileString(`${main}/.git/HEAD`, "ref: refs/heads/main\n");
+      yield* fs.writeFileString(`${linked}/.git`, "gitdir: ../main/.git/worktrees/linked\n");
+      yield* fs.writeFileString(`${main}/.git/worktrees/linked/HEAD`, "ref: refs/heads/topic\n");
+      let cwd: string | null = null;
+      const shells = yield* makeShells(manager, {
+        readCwds: (pids) => Effect.succeed(new Map(pids.map((pid) => [pid, cwd ?? main]))),
+      });
+      const events = yield* collectList(shells);
+
+      const first = yield* shells.open({ cwd: main }, { folder: main, worktree: main });
+      const second = yield* shells.open({ cwd: main }, { folder: main, worktree: main });
+      const other = yield* shells.open({ cwd: linked }, { folder: main, worktree: linked });
+      expect(
+        [first, other].map(({ folder, worktree, branch, elsewhere }) => ({
+          folder,
+          worktree,
+          branch,
+          elsewhere,
+        })),
+      ).toEqual([
+        { folder: main, worktree: main, branch: "main", elsewhere: null },
+        { folder: main, worktree: linked, branch: "topic", elsewhere: null },
+      ]);
+
+      const latest = (shellId: string) =>
+        events.pipe(
+          Effect.map((all) =>
+            all
+              .flatMap((e) => (e.type === "upsert" && e.shell.shellId === shellId ? [e.shell] : []))
+              .at(-1),
+          ),
+        );
+      yield* fs.writeFileString(`${main}/.git/HEAD`, "ref: refs/heads/feature/x\n");
+      yield* fs.writeFileString(`${main}/.git/worktrees/linked/HEAD`, "0123456789abcdef0123\n");
+      cwd = "/somewhere/else";
+      yield* shells.refreshLocations;
+      expect(yield* latest(first.shellId)).toMatchObject({
+        branch: "feature/x",
+        elsewhere: "/somewhere/else",
+      });
+      expect(yield* latest(second.shellId)).toMatchObject({ branch: "feature/x" });
+      expect(yield* latest(other.shellId)).toMatchObject({
+        branch: "0123456",
+        elsewhere: "/somewhere/else",
+      });
+
+      const count = (yield* events).length;
+      cwd = `${main}/src`;
+      yield* shells.refreshLocations;
+      expect(yield* latest(first.shellId)).toMatchObject({ elsewhere: null });
+      yield* shells.refreshLocations;
+      // Nothing changed since the last refresh, so nothing more is sent.
+      expect((yield* events).length).toBe(count + 3);
+      expect(logs.lines).toContainEqual({
+        message: "shell started",
+        fields: { shellId: other.shellId, cwd: linked, worktree: linked, branch: "topic" },
+      });
+
+      // A shell that ended is never sent as running again by a later refresh.
+      ptyAdapter.processes[0]!.emitExit({ exitCode: 0, signal: 9 });
+      yield* liveStatus(shells, first.shellId);
+      yield* fs.writeFileString(`${main}/.git/HEAD`, "ref: refs/heads/after-exit\n");
+      yield* shells.refreshLocations;
+      expect(yield* latest(first.shellId)).toMatchObject({ status: "exited" });
+    }).pipe(Effect.provide(logs.layer));
+  });
+
   it.effect("types the agent command into an agent shell and logs its start and end", () => {
     const logs = captureLogs();
     return Effect.gen(function* () {

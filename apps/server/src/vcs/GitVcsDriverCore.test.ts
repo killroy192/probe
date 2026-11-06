@@ -3136,6 +3136,40 @@ it.layer(layerTest)("GitVcsDriver core integration", (it) => {
   });
 
   describe("worktree operations", () => {
+    it.effect("lists each worktree with its branch, including detached and missing ones", () =>
+      Effect.gen(function* () {
+        const driver = yield* GitVcsDriver.GitVcsDriver;
+        const fs = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const cwd = NodeFS.realpathSync.native(yield* makeTmpDir());
+        const { initialBranch } = yield* initRepoWithCommit(cwd);
+        const head = yield* git(cwd, ["rev-parse", "HEAD"]);
+        const parent = NodeFS.realpathSync.native(yield* makeTmpDir("git-worktrees-"));
+        yield* git(cwd, ["worktree", "add", "-b", "feature/linked", path.join(parent, "linked")]);
+        yield* git(cwd, ["worktree", "add", "--detach", path.join(parent, "detached")]);
+        yield* git(cwd, ["worktree", "add", "-b", "feature/gone", path.join(parent, "gone")]);
+        yield* fs.remove(path.join(parent, "gone"), { recursive: true });
+
+        assert.deepStrictEqual(yield* driver.listWorktrees(cwd), [
+          { path: cwd, branch: initialBranch, head, isMain: true },
+          { path: path.join(parent, "detached"), branch: null, head, isMain: false },
+          { path: path.join(parent, "linked"), branch: "feature/linked", head, isMain: false },
+        ]);
+      }),
+    );
+
+    it.effect("tells whether a repository has a commit", () =>
+      Effect.gen(function* () {
+        const driver = yield* GitVcsDriver.GitVcsDriver;
+        const empty = yield* makeTmpDir();
+        yield* driver.initRepo({ cwd: empty });
+        const committed = yield* makeTmpDir();
+        yield* initRepoWithCommit(committed);
+        assert.isFalse(yield* driver.hasCommit(empty));
+        assert.isTrue(yield* driver.hasCommit(committed));
+      }),
+    );
+
     it.effect("uses parallel checkout without skipping filters or hooks", () =>
       Effect.gen(function* () {
         const cwd = yield* makeTmpDir();

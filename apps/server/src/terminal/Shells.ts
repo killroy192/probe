@@ -23,17 +23,39 @@ import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
+import * as Schedule from "effect/Schedule";
 
 import * as ServerConfig from "../config.ts";
+import * as ProcessRunner from "../processRunner.ts";
 import { TerminalManager } from "./Manager.ts";
 
 type Manager = TerminalManager["Service"];
+
+/** What the server knows about a shell beyond its terminal: given at start, or polled. */
+interface ShellRecord {
+  readonly title: string | null;
+  readonly folder: string | null;
+  readonly worktree: string | null;
+  /** The folder the shell belongs in (its worktree, else its folder), resolved once at start. */
+  readonly home: string | null;
+  branch: string | null;
+  elsewhere: string | null;
+}
+
+const NO_RECORD: ShellRecord = {
+  title: null,
+  folder: null,
+  worktree: null,
+  home: null,
+  branch: null,
+  elsewhere: null,
+};
 
 // A shell is one terminal owned by `shell:<id>` instead of a chat thread.
 const toSummary = (
   shellId: string,
   terminal: TerminalSessionSnapshot | TerminalSummary,
-  title: string | null,
+  record: ShellRecord,
 ): ShellSummary => ({
   shellId,
   cwd: terminal.cwd,
@@ -42,15 +64,20 @@ const toSummary = (
   exitCode: terminal.exitCode,
   exitSignal: terminal.exitSignal,
   label: terminal.label,
-  title,
+  title: record.title,
   // The manager's label is the running program's name while one runs, else a generic default.
-  process: "hasRunningSubprocess" in terminal && terminal.hasRunningSubprocess ? terminal.label : null,
+  process:
+    "hasRunningSubprocess" in terminal && terminal.hasRunningSubprocess ? terminal.label : null,
+  folder: record.folder,
+  worktree: record.worktree,
+  branch: record.branch,
+  elsewhere: record.elsewhere,
   updatedAt: terminal.updatedAt,
 });
 
 const listEvent = (
   event: TerminalMetadataStreamEvent,
-  titleOf: (shellId: string) => string | null,
+  recordOf: (shellId: string) => ShellRecord,
 ): ShellListStreamEvent | null => {
   switch (event.type) {
     case "snapshot":
@@ -58,14 +85,14 @@ const listEvent = (
         type: "snapshot",
         shells: event.terminals.flatMap((terminal) => {
           const shellId = shellIdFromOwnerId(terminal.threadId);
-          return shellId === null ? [] : [toSummary(shellId, terminal, titleOf(shellId))];
+          return shellId === null ? [] : [toSummary(shellId, terminal, recordOf(shellId))];
         }),
       };
     case "upsert": {
       const shellId = shellIdFromOwnerId(event.terminal.threadId);
       return shellId === null
         ? null
-        : { type: "upsert", shell: toSummary(shellId, event.terminal, titleOf(shellId)) };
+        : { type: "upsert", shell: toSummary(shellId, event.terminal, recordOf(shellId)) };
     }
     case "remove": {
       const shellId = shellIdFromOwnerId(event.threadId);
@@ -96,7 +123,64 @@ interface ShellsOptions {
   readonly agentCommand?: string | null;
   readonly searchPath?: string | undefined;
   readonly platform?: NodeJS.Platform;
+  /** The current folder of each process; a pid it cannot read is left out. */
+  readonly readCwds?: (pids: ReadonlyArray<number>) => Effect.Effect<ReadonlyMap<number, string>>;
 }
+
+export interface ShellOpenOptions {
+  readonly title?: string;
+  /** The workspace folder the shell was started for. */
+  readonly folder?: string;
+  /** The git worktree it starts in; its branch is shown and kept up to date. */
+  readonly worktree?: string;
+}
+
+const SHORT_HASH_LENGTH = 7;
+
+/** A branch name, or the short commit id of a detached HEAD, from a HEAD file's contents. */
+const branchFromHead = (head: string) => {
+  const content = head.trim();
+  if (content.startsWith("ref: "))
+    return content.slice("ref: ".length).replace(/^refs\/heads\//, "");
+  return content.length > 0 ? content.slice(0, SHORT_HASH_LENGTH) : null;
+};
+
+// Linux exposes each process's folder as a link; macOS needs one lsof call for all of them.
+const makeReadCwds = Effect.fnUntraced(function* (platform: NodeJS.Platform) {
+  const fs = yield* FileSystem.FileSystem;
+  const runner = yield* ProcessRunner.ProcessRunner;
+  return (pids: ReadonlyArray<number>): Effect.Effect<ReadonlyMap<number, string>> => {
+    if (pids.length === 0) return Effect.succeed(new Map());
+    if (platform === "linux") {
+      return Effect.forEach(pids, (pid) =>
+        fs.readLink(`/proc/${pid}/cwd`).pipe(
+          Effect.map((cwd) => [[pid, cwd] as const]),
+          Effect.orElseSucceed(() => []),
+        ),
+      ).pipe(Effect.map((entries) => new Map(entries.flat())));
+    }
+    if (platform !== "darwin") return Effect.succeed(new Map());
+    return runner
+      .run({
+        command: "lsof",
+        args: ["-a", "-d", "cwd", "-Fpn", "-p", pids.join(",")],
+        timeout: "1 second",
+        timeoutBehavior: "timedOutResult",
+      })
+      .pipe(
+        Effect.map((result) => {
+          const cwds = new Map<number, string>();
+          let pid: number | null = null;
+          for (const line of result.stdout.split("\n")) {
+            if (line.startsWith("p")) pid = Number(line.slice(1));
+            else if (line.startsWith("n") && pid !== null) cwds.set(pid, line.slice(1));
+          }
+          return cwds;
+        }),
+        Effect.orElseSucceed(() => new Map()),
+      );
+  };
+});
 
 // The program is the command's first word; the shell itself parses the rest when it runs the line.
 const programOf = (command: string) =>
@@ -118,9 +202,99 @@ export const makeShells = Effect.fn("Shells.make")(function* (
     threadId: shellOwnerId(shellId),
     terminalId: DEFAULT_TERMINAL_ID,
   });
-  // Titles live as long as the server; a shell does not outlive it either.
-  const titles = new Map<string, string>();
-  const titleOf = (shellId: string) => titles.get(shellId) ?? null;
+  // Records live as long as the server; a shell does not outlive it either.
+  const records = new Map<string, ShellRecord>();
+  const recordOf = (shellId: string) => records.get(shellId) ?? NO_RECORD;
+  // The last terminal state of each shell, so a location change can be sent as a full summary.
+  const terminals = new Map<string, TerminalSummary>();
+  const listeners = new Set<(event: ShellListStreamEvent) => Effect.Effect<void>>();
+  const readCwds = options.readCwds ?? (yield* makeReadCwds(platform));
+
+  const readText = (file: string) => fs.readFileString(file).pipe(Effect.orElseSucceed(() => null));
+
+  // Reads the HEAD file directly, so polling never starts a git process.
+  const readBranch = Effect.fnUntraced(function* (worktree: string) {
+    const dotGit = path.join(worktree, ".git");
+    const pointer = yield* readText(dotGit);
+    const gitDir =
+      pointer === null ? dotGit : path.resolve(worktree, pointer.trim().replace(/^gitdir:\s*/, ""));
+    const head = yield* readText(path.join(gitDir, "HEAD"));
+    return head === null ? null : branchFromHead(head);
+  });
+
+  const realPath = (folder: string) => fs.realPath(folder).pipe(Effect.orElseSucceed(() => folder));
+
+  const isInside = (folder: string, home: string) => {
+    const relative = path.relative(home, folder);
+    return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
+  };
+
+  const stopTracking = yield* manager.subscribeMetadata((event) =>
+    Effect.sync(() => {
+      switch (event.type) {
+        case "snapshot":
+          for (const terminal of event.terminals) {
+            const shellId = shellIdFromOwnerId(terminal.threadId);
+            if (shellId !== null) terminals.set(shellId, terminal);
+          }
+          return;
+        case "upsert": {
+          const shellId = shellIdFromOwnerId(event.terminal.threadId);
+          if (shellId !== null) terminals.set(shellId, event.terminal);
+          return;
+        }
+        case "remove": {
+          const shellId = shellIdFromOwnerId(event.threadId);
+          if (shellId !== null) {
+            terminals.delete(shellId);
+            records.delete(shellId);
+          }
+          return;
+        }
+      }
+    }),
+  );
+  yield* Effect.addFinalizer(() => Effect.sync(stopTracking));
+
+  /** Reads every tracked shell's branch and folder once and sends the shells that changed. */
+  const refreshLocations = Effect.gen(function* () {
+    const tracked = [...records].filter(
+      ([shellId, record]) => record.home !== null && terminals.has(shellId),
+    );
+    if (tracked.length === 0) return;
+    const branches = new Map<string, string | null>();
+    for (const [, record] of tracked) {
+      if (record.worktree !== null && !branches.has(record.worktree)) {
+        branches.set(record.worktree, yield* readBranch(record.worktree));
+      }
+    }
+    const pids = tracked.flatMap(([shellId]) => {
+      const pid = terminals.get(shellId)?.pid;
+      return pid === null || pid === undefined ? [] : [pid];
+    });
+    const cwds = yield* readCwds(pids);
+    for (const [shellId, record] of tracked) {
+      const terminal = terminals.get(shellId);
+      if (terminal === undefined) continue;
+      const branch = record.worktree === null ? null : (branches.get(record.worktree) ?? null);
+      const cwd = terminal.pid === null ? undefined : cwds.get(terminal.pid);
+      // An unreadable folder keeps the last answer instead of flickering.
+      const elsewhere =
+        cwd === undefined
+          ? record.elsewhere
+          : record.home !== null && isInside(cwd, record.home)
+            ? null
+            : cwd;
+      if (branch === record.branch && elsewhere === record.elsewhere) continue;
+      record.branch = branch;
+      record.elsewhere = elsewhere;
+      const event: ShellListStreamEvent = {
+        type: "upsert",
+        shell: toSummary(shellId, terminal, record),
+      };
+      for (const listener of listeners) yield* listener(event);
+    }
+  });
 
   const isFile = (candidate: string) =>
     fs.stat(candidate).pipe(
@@ -177,10 +351,7 @@ export const makeShells = Effect.fn("Shells.make")(function* (
 
   return {
     // A shell that cannot start is not kept: the caller gets the launch error's reason instead.
-    open: Effect.fn("Shells.open")(function* (
-      input: ShellOpenInput,
-      options?: { readonly title?: string },
-    ) {
+    open: Effect.fn("Shells.open")(function* (input: ShellOpenInput, options?: ShellOpenOptions) {
       const { agent, ...terminal } = input;
       if (agent === true) {
         const problem = yield* agentProblem(input.cwd);
@@ -188,7 +359,16 @@ export const makeShells = Effect.fn("Shells.make")(function* (
       }
       const shellId = yield* newShellId;
       const owner = session(shellId);
-      if (options?.title !== undefined) titles.set(shellId, options.title);
+      const worktree = options?.worktree ?? null;
+      const home = worktree ?? options?.folder ?? null;
+      records.set(shellId, {
+        title: options?.title ?? null,
+        folder: options?.folder ?? null,
+        worktree,
+        home: home === null ? null : yield* realPath(home),
+        branch: worktree === null ? null : yield* readBranch(worktree),
+        elsewhere: null,
+      });
       let reason = "The shell program could not be launched.";
       const stop = yield* manager.subscribe((event) =>
         Effect.sync(() => {
@@ -199,16 +379,22 @@ export const makeShells = Effect.fn("Shells.make")(function* (
         .open({ ...owner, ...terminal })
         .pipe(Effect.ensuring(Effect.sync(stop)));
       if (snapshot.status === "error") {
-        titles.delete(shellId);
+        records.delete(shellId);
         yield* manager.close({ ...owner, deleteHistory: true });
         return yield* failToStart(input.cwd, reason);
       }
-      yield* Effect.logInfo("shell started", { shellId, cwd: snapshot.cwd });
+      const record = recordOf(shellId);
+      yield* Effect.logInfo(
+        "shell started",
+        record.worktree === null
+          ? { shellId, cwd: snapshot.cwd }
+          : { shellId, cwd: snapshot.cwd, worktree: record.worktree, branch: record.branch },
+      );
       if (agent === true && agentCommand !== null) {
         // The pty buffers this until the shell has read its startup files.
         yield* manager.write({ ...owner, data: `${agentCommand}\r` });
       }
-      return toSummary(shellId, snapshot, titleOf(shellId));
+      return toSummary(shellId, snapshot, record);
     }),
     attach: (input: ShellAttachInput, viewerId: string) =>
       manager.attachOutputStream(
@@ -228,12 +414,21 @@ export const makeShells = Effect.fn("Shells.make")(function* (
     close: (input: ShellInput) =>
       manager
         .close({ ...session(input.shellId), deleteHistory: true })
-        .pipe(Effect.tap(() => Effect.sync(() => titles.delete(input.shellId)))),
-    subscribe: (listener: (event: ShellListStreamEvent) => Effect.Effect<void>) =>
-      manager.subscribeMetadata((event) => {
-        const mapped = listEvent(event, titleOf);
+        .pipe(Effect.tap(() => Effect.sync(() => records.delete(input.shellId)))),
+    subscribe: Effect.fnUntraced(function* (
+      listener: (event: ShellListStreamEvent) => Effect.Effect<void>,
+    ) {
+      const stop = yield* manager.subscribeMetadata((event) => {
+        const mapped = listEvent(event, recordOf);
         return mapped === null ? Effect.void : listener(mapped);
-      }),
+      });
+      listeners.add(listener);
+      return () => {
+        listeners.delete(listener);
+        stop();
+      };
+    }),
+    refreshLocations,
   };
 });
 
@@ -249,8 +444,14 @@ export const layer = Layer.effect(
     const manager = yield* TerminalManager;
     const crypto = yield* Crypto.Crypto;
     const { agentCommand } = yield* ServerConfig.ServerConfig;
-    return yield* makeShells(manager, crypto.randomUUIDv4().pipe(Effect.orDie), {
+    const shells = yield* makeShells(manager, crypto.randomUUIDv4().pipe(Effect.orDie), {
       agentCommand: agentCommand ?? null,
     });
+    // Costs one HEAD read per worktree and one folder read per shell, and nothing without shells.
+    yield* shells.refreshLocations.pipe(
+      Effect.repeat(Schedule.spaced("2 seconds")),
+      Effect.forkScoped,
+    );
+    return shells;
   }),
 );

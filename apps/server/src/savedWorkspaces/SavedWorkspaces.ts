@@ -6,7 +6,12 @@ import {
   type WorkspaceAddFolderResult,
   type WorkspaceDetail,
   WorkspaceFolderError,
+  type WorkspaceFolderGit,
+  type WorkspaceFolderGitInput,
   type WorkspaceInput,
+  WorkspaceLastStart,
+  type WorkspaceWorktreeChoice,
+  type WorkspaceWorktreeVisibilityInput,
   WorkspaceInvalidError,
   type WorkspaceStartShellInput,
   WorkspaceNameTakenError,
@@ -37,6 +42,7 @@ import { writeFileStringAtomically } from "@t3tools/shared/atomicWrite";
 import * as ServerConfig from "../config.ts";
 import * as ProjectService from "../project/ProjectService.ts";
 import * as Shells from "../terminal/Shells.ts";
+import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
 import * as VcsDriverRegistry from "../vcs/VcsDriverRegistry.ts";
 import * as VcsProvisioningService from "../vcs/VcsProvisioningService.ts";
 import * as WorkspacePaths from "../workspace/WorkspacePaths.ts";
@@ -45,12 +51,39 @@ const FILE_SUFFIX = ".json";
 
 // The name lives in the file name; the content is versioned so story 7 can add the layout.
 // Folders arrived after version 1 shipped, so both fields stay optional.
+// `lastFolder` is how files written before worktrees remember the last start.
 const SavedWorkspaceFile = Schema.Struct({
   version: Schema.Literal(1),
-  folders: Schema.optional(Schema.Array(Schema.Struct({ path: Schema.String }))),
+  folders: Schema.optional(
+    Schema.Array(
+      Schema.Struct({
+        path: Schema.String,
+        // The worktrees the tree shows, the primary one by the folder's path; absent shows all.
+        worktrees: Schema.optional(Schema.Array(Schema.String)),
+      }),
+    ),
+  ),
   lastFolder: Schema.optional(Schema.NullOr(Schema.String)),
+  lastStart: Schema.optional(Schema.NullOr(WorkspaceLastStart)),
 });
 type SavedWorkspaceFile = typeof SavedWorkspaceFile.Type;
+type SavedFolder = NonNullable<SavedWorkspaceFile["folders"]>[number];
+
+/** The folder's saved list with `worktree` shown or hidden; `all` stands in for a missing list. */
+const withVisibility = (
+  saved: SavedFolder,
+  worktree: string,
+  visible: boolean,
+  all: ReadonlyArray<string>,
+): SavedFolder => {
+  const current = saved.worktrees ?? all;
+  return {
+    ...saved,
+    worktrees: visible
+      ? [...new Set([...current, worktree])]
+      : current.filter((path) => path !== worktree),
+  };
+};
 const encodeSavedWorkspaceFile = Schema.encodeSync(Schema.fromJsonString(SavedWorkspaceFile));
 const decodeSavedWorkspaceFile = Schema.decodeUnknownExit(
   Schema.fromJsonString(SavedWorkspaceFile),
@@ -83,7 +116,24 @@ export class SavedWorkspaces extends Context.Service<
       WorkspaceAddFolderResult,
       WorkspaceNotFoundError | WorkspaceInvalidError | WorkspaceFolderError | WorkspaceStorageError
     >;
-    /** Starts an agent shell in one of the workspace's folders and remembers that folder. */
+    /** What a git folder offers for a start: its worktrees, branches and a new worktree name. */
+    readonly folderGit: (
+      input: WorkspaceFolderGitInput,
+    ) => Effect.Effect<
+      WorkspaceFolderGit,
+      WorkspaceNotFoundError | WorkspaceInvalidError | WorkspaceFolderError
+    >;
+    /** Shows or hides one worktree of a git folder in the tree; nothing on disk changes. */
+    readonly setWorktreeVisible: (
+      input: WorkspaceWorktreeVisibilityInput,
+    ) => Effect.Effect<
+      WorkspaceDetail,
+      WorkspaceNotFoundError | WorkspaceInvalidError | WorkspaceFolderError | WorkspaceStorageError
+    >;
+    /**
+     * Starts an agent shell in a folder's checkout, a worktree of it, or a new worktree, and
+     * remembers that choice. A new worktree that fails to be created leaves nothing behind.
+     */
     readonly startShell: (
       input: WorkspaceStartShellInput,
     ) => Effect.Effect<
@@ -124,7 +174,8 @@ const pathReason = (error: { readonly _tag: string; readonly message: string }, 
 };
 
 const make = Effect.gen(function* () {
-  const { workspacesDir } = yield* ServerConfig.ServerConfig;
+  const { workspacesDir, worktreesDir } = yield* ServerConfig.ServerConfig;
+  const git = yield* GitVcsDriver.GitVcsDriver;
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
   const projects = yield* ProjectService.ProjectService;
@@ -274,27 +325,49 @@ const make = Effect.gen(function* () {
     name: string,
     file: SavedWorkspaceFile,
   ) {
-    const folderPaths = (file.folders ?? []).map((folder) => folder.path);
     const folders = yield* Effect.forEach(
-      folderPaths,
-      Effect.fnUntraced(function* (folder) {
+      file.folders ?? [],
+      Effect.fnUntraced(function* (saved) {
+        const folder = saved.path;
         if (!(yield* isDirectory(folder))) {
-          return { path: folder, isGitRepository: false, exists: false };
+          return { path: folder, isGitRepository: false, exists: false, worktrees: null };
         }
         const isGitRepository = yield* vcs.detect({ cwd: folder }).pipe(
           Effect.map((handle) => handle !== null),
           Effect.orElseSucceed(() => false),
         );
-        return { path: folder, isGitRepository, exists: true };
+        const isVisible = (worktree: { readonly path: string; readonly isMain: boolean }) =>
+          saved.worktrees === undefined ||
+          saved.worktrees.includes(worktree.isMain ? folder : worktree.path);
+        const worktrees = isGitRepository
+          ? yield* listWorktrees(folder).pipe(
+              // The primary worktree first, then the linked ones as git lists them; a subfolder of
+              // a repository has no worktree of its own and none are shown for it.
+              Effect.map((all) =>
+                all.some((worktree) => worktree.isMain)
+                  ? [
+                      ...all.filter((worktree) => worktree.isMain),
+                      ...all.filter((worktree) => !worktree.isMain),
+                    ].map((worktree) => ({ ...worktree, visible: isVisible(worktree) }))
+                  : null,
+              ),
+              Effect.orElseSucceed(() => null),
+            )
+          : null;
+        return { path: folder, isGitRepository, exists: true, worktrees };
       }),
       { concurrency: "unbounded" },
     );
+    const remembered =
+      file.lastStart ??
+      (file.lastFolder == null
+        ? null
+        : { folder: file.lastFolder, worktree: { kind: "checkout" as const } });
     // A remembered folder that left the workspace or the disk is not offered again.
-    const last = file.lastFolder ?? null;
-    const lastFolder = folders.some((folder) => folder.path === last && folder.exists)
-      ? last
+    const lastStart = folders.some((folder) => folder.path === remembered?.folder && folder.exists)
+      ? remembered
       : null;
-    return { name, folders, lastFolder } satisfies WorkspaceDetail;
+    return { name, folders, lastStart } satisfies WorkspaceDetail;
   });
 
   const open = Effect.fn("SavedWorkspaces.open")(function* (input: WorkspaceInput) {
@@ -307,6 +380,19 @@ const make = Effect.gen(function* () {
     workspacePaths
       .normalizeWorkspaceRoot(folder, { createIfMissing: false })
       .pipe(Effect.mapError((error) => folderError(pathReason(error, folder))));
+
+  // A linked worktree is one checkout of a repository; the workspace holds the repository itself
+  // and shows only that worktree of it.
+  const repositoryOf = Effect.fnUntraced(function* (folder: string) {
+    // Git lists the repository's primary worktree first; a subfolder of a repository is kept.
+    const worktrees = yield* listWorktrees(folder).pipe(Effect.orElseSucceed(() => []));
+    const own = worktrees.findIndex((worktree) => worktree.isMain);
+    const primary = worktrees[0];
+    if (own > 0 && primary !== undefined && (yield* isDirectory(primary.path))) {
+      return { repository: primary.path, shown: worktrees[own]!.path };
+    }
+    return { repository: folder, shown: own === 0 ? folder : null };
+  });
 
   const createFolder = Effect.fn("SavedWorkspaces.createFolder")(function* (
     parentPath: string,
@@ -354,8 +440,15 @@ const make = Effect.gen(function* () {
   ) {
     const file = yield* readFile(input.name);
     let folder: string;
+    let resolvedFrom: string | null = null;
+    // The worktree the tree shows for this add; a repository starts with only it.
+    let shown: string | null;
     if (input.mode === "import") {
-      folder = yield* normalizeExisting(input.path);
+      const imported = yield* normalizeExisting(input.path);
+      const resolved = yield* repositoryOf(imported);
+      folder = resolved.repository;
+      shown = resolved.shown;
+      if (folder !== imported) resolvedFrom = imported;
       yield* register(folder);
     } else {
       const target = yield* createFolder(input.parentPath, input.folderName);
@@ -366,46 +459,315 @@ const make = Effect.gen(function* () {
         Effect.tapError(() => removeCreated(target)),
       );
       folder = target;
+      shown = target;
     }
     const folders = file.folders ?? [];
-    const next = folders.some((existing) => existing.path === folder)
-      ? file
-      : { ...file, folders: [...folders, { path: folder }] };
+    const existing = folders.find((saved) => saved.path === folder);
+    const next =
+      existing === undefined
+        ? {
+            ...file,
+            folders: [
+              ...folders,
+              shown === null ? { path: folder } : { path: folder, worktrees: [shown] },
+            ],
+          }
+        : shown === null || existing.worktrees === undefined || existing.worktrees.includes(shown)
+          ? file
+          : {
+              ...file,
+              folders: folders.map((saved) =>
+                saved === existing ? withVisibility(saved, shown, true, []) : saved,
+              ),
+            };
     if (next !== file) yield* writeFile(input.name, next);
-    return { workspace: yield* toDetail(input.name, next), folder };
+    return { workspace: yield* toDetail(input.name, next), folder, resolvedFrom };
   }, lock.withPermits(1));
 
-  const rememberFolder = Effect.fn("SavedWorkspaces.rememberFolder")(function* (
+  // A shell started in a hidden worktree shows that worktree again.
+  const rememberStart = Effect.fn("SavedWorkspaces.rememberStart")(function* (
+    name: string,
+    lastStart: WorkspaceLastStart,
+    worktree: string | null,
+  ) {
+    const { lastFolder: _old, ...file } = yield* readFile(name);
+    const folders = file.folders?.map((saved) =>
+      saved.path === lastStart.folder && worktree !== null && saved.worktrees !== undefined
+        ? withVisibility(saved, worktree, true, [])
+        : saved,
+    );
+    yield* writeFile(name, { ...file, ...(folders === undefined ? {} : { folders }), lastStart });
+  }, lock.withPermits(1));
+
+  const setWorktreeVisible = Effect.fn("SavedWorkspaces.setWorktreeVisible")(function* (
+    input: WorkspaceWorktreeVisibilityInput,
+  ) {
+    const file = yield* readFile(input.name);
+    const saved = (file.folders ?? []).find((folder) => folder.path === input.folder);
+    if (saved === undefined) {
+      return yield* folderError(`This folder is not in the workspace: ${input.folder}`);
+    }
+    const worktrees = yield* listWorktrees(input.folder).pipe(
+      Effect.mapError((error) =>
+        folderError(`The worktrees could not be listed: ${gitReason(error)}`),
+      ),
+    );
+    // The primary worktree is saved by the folder's path.
+    const key = (worktree: { readonly path: string; readonly isMain: boolean }) =>
+      worktree.isMain ? input.folder : worktree.path;
+    const target = worktrees.find((worktree) => worktree.path === input.worktree);
+    if (target === undefined && input.visible) {
+      return yield* folderError(`This is not a worktree of ${input.folder}: ${input.worktree}`);
+    }
+    const next = {
+      ...file,
+      folders: (file.folders ?? []).map((folder) =>
+        folder === saved
+          ? withVisibility(
+              folder,
+              target === undefined ? input.worktree : key(target),
+              input.visible,
+              worktrees.map(key),
+            )
+          : folder,
+      ),
+    };
+    yield* writeFile(input.name, next);
+    return yield* toDetail(input.name, next);
+  }, lock.withPermits(1));
+
+  const requireFolder = Effect.fn("SavedWorkspaces.requireFolder")(function* (
     name: string,
     folder: string,
   ) {
     const file = yield* readFile(name);
-    if (file.lastFolder === folder) return;
-    yield* writeFile(name, { ...file, lastFolder: folder });
-  }, lock.withPermits(1));
+    if (!(file.folders ?? []).some((saved) => saved.path === folder)) {
+      return yield* folderError(`This folder is not in the workspace: ${folder}`);
+    }
+    if (!(yield* isDirectory(folder))) {
+      return yield* folderError(`The folder no longer exists: ${folder}`);
+    }
+  });
+
+  const gitReason = (error: { readonly detail: string }) => error.detail;
+  const realPath = (folder: string) => fs.realPath(folder).pipe(Effect.orElseSucceed(() => folder));
+  const branchExists = (folder: string, branch: string) =>
+    git
+      .execute({
+        operation: "SavedWorkspaces.branchExists",
+        cwd: folder,
+        args: ["show-ref", "--verify", "--quiet", `refs/heads/${branch}`],
+        allowNonZeroExit: true,
+      })
+      .pipe(
+        Effect.map((result) => result.exitCode === 0),
+        Effect.orElseSucceed(() => true),
+      );
+  const worktreeTarget = (folder: string, name: string) =>
+    path.join(worktreesDir, path.basename(path.resolve(folder)), name);
+
+  // A name in use as a branch or a folder is never reused (EC-1).
+  const isNameFree = Effect.fnUntraced(function* (folder: string, name: string) {
+    if (yield* branchExists(folder, name)) return false;
+    return !(yield* fs
+      .exists(worktreeTarget(folder, name))
+      .pipe(Effect.orElseSucceed(() => false)));
+  });
+
+  const drawName = Effect.fnUntraced(function* (folder: string) {
+    for (let attempt = 0; attempt < 16; attempt++) {
+      const name = `probe-worktree-${(yield* randomId).replaceAll("-", "").slice(0, 6)}`;
+      if (yield* isNameFree(folder, name)) return name;
+    }
+    return yield* folderError("No free worktree name was found. Try again.");
+  });
+
+  // The folder's own checkout is the worktree at its path; a folder may itself be a linked one.
+  const listWorktrees = Effect.fnUntraced(function* (folder: string) {
+    const own = yield* realPath(folder);
+    const worktrees = yield* git.listWorktrees(folder);
+    return yield* Effect.forEach(worktrees, (worktree) =>
+      realPath(worktree.path).pipe(Effect.map((real) => ({ ...worktree, isMain: real === own }))),
+    );
+  });
+
+  const folderGit = Effect.fn("SavedWorkspaces.folderGit")(function* (
+    input: WorkspaceFolderGitInput,
+  ) {
+    yield* requireFolder(input.name, input.folder);
+    const [worktrees, branches, hasCommit] = yield* Effect.all(
+      [
+        Effect.result(listWorktrees(input.folder)),
+        Effect.result(git.listLocalBranchNames(input.folder)),
+        git.hasCommit(input.folder).pipe(Effect.orElseSucceed(() => false)),
+      ],
+      { concurrency: "unbounded" },
+    );
+    const currentBranch =
+      worktrees._tag === "Success"
+        ? (worktrees.success.find((worktree) => worktree.isMain)?.branch ?? null)
+        : yield* git
+            .execute({
+              operation: "SavedWorkspaces.currentBranch",
+              cwd: input.folder,
+              args: ["branch", "--show-current"],
+            })
+            .pipe(
+              Effect.map((result) => result.stdout.trim() || null),
+              Effect.orElseSucceed(() => null),
+            );
+    return {
+      hasCommit,
+      currentBranch,
+      worktrees: worktrees._tag === "Success" ? worktrees.success : [],
+      branches:
+        branches._tag === "Success" ? branches.success.toSorted((a, b) => a.localeCompare(b)) : [],
+      proposedWorktreeName: yield* drawName(input.folder),
+      worktreesError: worktrees._tag === "Failure" ? gitReason(worktrees.failure) : null,
+      branchesError: branches._tag === "Failure" ? gitReason(branches.failure) : null,
+    } satisfies WorkspaceFolderGit;
+  });
+
+  // Removes only what this attempt made: its registered worktree, its folder and its branch.
+  const rollbackFork = Effect.fnUntraced(function* (
+    folder: string,
+    target: string,
+    branch: string,
+    madeParent: boolean,
+  ) {
+    const registered = yield* listWorktrees(folder).pipe(
+      Effect.map((worktrees) => worktrees.some((worktree) => worktree.path === target)),
+      Effect.orElseSucceed(() => false),
+    );
+    if (registered) {
+      yield* git
+        .removeWorktree({ cwd: folder, path: target, force: true })
+        .pipe(Effect.ignore({ log: true }));
+    }
+    yield* fs.remove(target, { recursive: true }).pipe(Effect.ignore);
+    if (yield* branchExists(folder, branch)) {
+      yield* git
+        .deleteLocalBranch({ cwd: folder, refName: branch, force: true })
+        .pipe(Effect.ignore({ log: true }));
+    }
+    if (madeParent) {
+      const parent = path.dirname(target);
+      const left = yield* fs.readDirectory(parent).pipe(Effect.orElseSucceed(() => ["?"]));
+      if (left.length === 0) yield* fs.remove(parent).pipe(Effect.ignore);
+    }
+  });
+
+  const startingCommit = Effect.fnUntraced(function* (
+    folder: string,
+    startingPoint: Extract<WorkspaceWorktreeChoice, { kind: "new" }>["startingPoint"],
+  ) {
+    if (startingPoint.kind === "branch") {
+      return yield* git
+        .resolveCommit({ cwd: folder, revision: `refs/heads/${startingPoint.name}` })
+        .pipe(
+          Effect.map((resolved) => resolved.commitSha),
+          Effect.mapError(() =>
+            folderError(`The starting branch "${startingPoint.name}" no longer exists.`),
+          ),
+        );
+    }
+    const worktrees = yield* listWorktrees(folder).pipe(
+      Effect.mapError((error) =>
+        folderError(`The worktrees could not be listed: ${gitReason(error)}`),
+      ),
+    );
+    const source = worktrees.find((worktree) => worktree.path === startingPoint.path);
+    if (source === undefined) {
+      return yield* folderError(`The starting worktree no longer exists: ${startingPoint.path}`);
+    }
+    return source.head;
+  });
+
+  // Serializes forks, so two starts never draw or check the same name at once (EC-9).
+  const forkLock = yield* Semaphore.make(1);
+
+  const fork = Effect.fn("SavedWorkspaces.fork")(function* (
+    folder: string,
+    choice: Extract<WorkspaceWorktreeChoice, { kind: "new" }>,
+  ) {
+    if (!(yield* git.hasCommit(folder).pipe(Effect.orElseSucceed(() => false)))) {
+      return yield* folderError(
+        "This folder has no commit yet, so a new worktree cannot be created.",
+      );
+    }
+    const name = (yield* isNameFree(folder, choice.name)) ? choice.name : yield* drawName(folder);
+    const commit = yield* startingCommit(folder, choice.startingPoint);
+    const target = worktreeTarget(folder, name);
+    const madeParent = !(yield* fs
+      .exists(path.dirname(target))
+      .pipe(Effect.orElseSucceed(() => true)));
+    yield* git
+      .createWorktree({ cwd: folder, path: target, refName: commit, newRefName: name })
+      .pipe(
+        Effect.tapError(() => rollbackFork(folder, target, name, madeParent)),
+        Effect.mapError((error) =>
+          folderError(`The worktree could not be created: ${gitReason(error)}`),
+        ),
+      );
+    return target;
+  }, forkLock.withPermits(1));
+
+  // Resolves the choice to the folder the shell runs in and the worktree it belongs to.
+  const placeShell = Effect.fnUntraced(function* (
+    folder: string,
+    choice: WorkspaceWorktreeChoice | undefined,
+  ) {
+    switch (choice?.kind) {
+      case undefined:
+      case "checkout": {
+        const isGit = yield* vcs.detect({ cwd: folder }).pipe(
+          Effect.map((handle) => handle !== null),
+          Effect.orElseSucceed(() => false),
+        );
+        return { cwd: folder, worktree: isGit ? folder : null };
+      }
+      case "existing": {
+        const worktrees = yield* listWorktrees(folder).pipe(
+          Effect.mapError((error) =>
+            folderError(`The worktrees could not be listed: ${gitReason(error)}`),
+          ),
+        );
+        if (!worktrees.some((worktree) => worktree.path === choice.path)) {
+          return yield* folderError(`This is not a worktree of ${folder}: ${choice.path}`);
+        }
+        if (!(yield* isDirectory(choice.path))) {
+          return yield* folderError(`The worktree no longer exists: ${choice.path}`);
+        }
+        return { cwd: choice.path, worktree: choice.path };
+      }
+      case "new": {
+        const created = yield* fork(folder, choice);
+        return { cwd: created, worktree: created };
+      }
+    }
+  });
 
   const startShell = Effect.fn("SavedWorkspaces.startShell")(function* (
     input: WorkspaceStartShellInput,
   ) {
-    const file = yield* readFile(input.name);
-    if (!(file.folders ?? []).some((folder) => folder.path === input.folder)) {
-      return yield* folderError(`This folder is not in the workspace: ${input.folder}`);
-    }
-    if (!(yield* isDirectory(input.folder))) {
-      return yield* folderError(`The folder no longer exists: ${input.folder}`);
-    }
+    yield* requireFolder(input.name, input.folder);
+    const place = yield* placeShell(input.folder, input.worktree);
     // Numbered per workspace in start order; a failed start gives its number back.
     const number = (shellNumbers.get(input.name) ?? 0) + 1;
     shellNumbers.set(input.name, number);
     const shell = yield* shells
       .open(
         {
-          cwd: input.folder,
+          cwd: place.cwd,
           agent: true,
           ...(input.cols === undefined ? {} : { cols: input.cols }),
           ...(input.rows === undefined ? {} : { rows: input.rows }),
         },
-        { title: `Shell ${number}` },
+        {
+          title: `Shell ${number}`,
+          folder: input.folder,
+          ...(place.worktree === null ? {} : { worktree: place.worktree }),
+        },
       )
       .pipe(
         Effect.tapError(() =>
@@ -415,9 +777,15 @@ const make = Effect.gen(function* () {
         ),
       );
     // The shell is running either way; failing here would hide it from the caller.
-    yield* rememberFolder(input.name, input.folder).pipe(
+    const worktree = input.worktree ?? { kind: "checkout" as const };
+    const lastStart: WorkspaceLastStart = {
+      folder: input.folder,
+      worktree:
+        worktree.kind === "new" ? { kind: "new", startingPoint: worktree.startingPoint } : worktree,
+    };
+    yield* rememberStart(input.name, lastStart, place.worktree).pipe(
       Effect.catch((error) =>
-        Effect.logWarning("could not remember the workspace's last folder", {
+        Effect.logWarning("could not remember the workspace's last start", {
           name: input.name,
           reason: error.message,
         }),
@@ -432,6 +800,8 @@ const make = Effect.gen(function* () {
     remove,
     open,
     addFolder,
+    folderGit,
+    setWorktreeVisible,
     startShell,
     get streamChanges() {
       return Stream.unwrap(

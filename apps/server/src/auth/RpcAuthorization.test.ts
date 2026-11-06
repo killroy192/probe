@@ -77,13 +77,18 @@ describe("RPC authorization scopes", () => {
   });
 
   it("lets readers list and open workspaces but needs settings write to change one", () => {
-    for (const method of [WS_METHODS.subscribeWorkspaces, WS_METHODS.workspaceOpen]) {
+    for (const method of [
+      WS_METHODS.subscribeWorkspaces,
+      WS_METHODS.workspaceOpen,
+      WS_METHODS.workspaceFolderGit,
+    ]) {
       expect(requiredScopeForRpcMethod(method)).toBe(AuthOrchestrationReadScope);
     }
     for (const method of [
       WS_METHODS.workspaceCreate,
       WS_METHODS.workspaceRemove,
       WS_METHODS.workspaceAddFolder,
+      WS_METHODS.workspaceSetWorktreeVisible,
     ]) {
       expect(requiredScopeForRpcMethod(method)).toBe(AuthSettingsWriteScope);
     }

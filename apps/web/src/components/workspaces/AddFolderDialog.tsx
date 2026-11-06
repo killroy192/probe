@@ -31,6 +31,7 @@ import {
   DialogPopup,
   DialogTitle,
 } from "../ui/dialog";
+import { toastManager } from "../ui/toast";
 import { Input } from "../ui/input";
 import { ToggleGroup, ToggleGroupItem } from "../ui/toggle-group";
 import { useDialogAction } from "./dialogAction";
@@ -55,7 +56,9 @@ export function AddFolderDialog({
   readonly workspaceName: string;
   readonly onAddFolder: (
     request: AddFolderRequest,
-  ) => Promise<{ readonly folder: string } | { readonly error: string }>;
+  ) => Promise<
+    { readonly folder: string; readonly resolvedFrom: string | null } | { readonly error: string }
+  >;
 }) {
   const [mode, setMode] = useState<AddMode>("import");
   // Starts in the server's home folder, so the folder list shows before anything is typed.
@@ -88,7 +91,15 @@ export function AddFolderDialog({
         : { mode, parentPath: path.trim(), folderName: folderName.trim() };
     const added = await action.run(async () => {
       const result = await onAddFolder(request);
-      return "error" in result ? result.error : null;
+      if ("error" in result) return result.error;
+      if (result.resolvedFrom !== null) {
+        toastManager.add({
+          type: "info",
+          title: "Added the repository instead",
+          description: `${result.resolvedFrom} is a worktree of ${result.folder}, so the repository was added. Its worktrees show under it.`,
+        });
+      }
+      return null;
     });
     if (added) {
       reset();

@@ -1,3 +1,6 @@
+// @effect-diagnostics nodeBuiltinImport:off - synchronous git and file fixtures keep the worktree setups readable.
+import * as NodeChildProcess from "node:child_process";
+import * as NodeFS from "node:fs";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
 import { expect } from "vite-plus/test";
@@ -10,11 +13,18 @@ import * as Path from "effect/Path";
 import * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
 
-import { ShellLaunchError, type ShellOpenInput, VcsProcessSpawnError } from "@t3tools/contracts";
+import {
+  GitCommandError,
+  ShellLaunchError,
+  type ShellOpenInput,
+  VcsProcessSpawnError,
+  type WorkspaceDetail,
+} from "@t3tools/contracts";
 
 import * as ServerConfig from "../config.ts";
 import * as ProjectService from "../project/ProjectService.ts";
 import * as Shells from "../terminal/Shells.ts";
+import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
 import * as VcsDriverRegistry from "../vcs/VcsDriverRegistry.ts";
 import * as VcsProcess from "../vcs/VcsProcess.ts";
 import * as VcsProvisioningService from "../vcs/VcsProvisioningService.ts";
@@ -32,9 +42,39 @@ interface Fakes {
   readonly registered: string[];
   readonly opened: ShellOpenInput[];
   readonly titles: Array<string | undefined>;
+  readonly worktrees?: Array<string | undefined>;
   initFails?: boolean;
   launchFails?: boolean;
+  listingFails?: "worktrees" | "branches";
 }
+
+const listingError = (cwd: string) =>
+  new GitCommandError({
+    operation: "test",
+    command: "git",
+    cwd,
+    detail: "git is unavailable",
+  });
+
+// The real driver, with one listing made to fail on request (ER-4, ER-6).
+const layerGit = (fakes: Fakes) =>
+  Layer.effect(
+    GitVcsDriver.GitVcsDriver,
+    Effect.gen(function* () {
+      const real = yield* GitVcsDriver.GitVcsDriver;
+      return GitVcsDriver.GitVcsDriver.of({
+        ...real,
+        listWorktrees: (cwd) =>
+          fakes.listingFails === "worktrees"
+            ? Effect.fail(listingError(cwd))
+            : real.listWorktrees(cwd),
+        listLocalBranchNames: (cwd) =>
+          fakes.listingFails === "branches"
+            ? Effect.fail(listingError(cwd))
+            : real.listLocalBranchNames(cwd),
+      });
+    }),
+  ).pipe(Layer.provide(GitVcsDriver.layer));
 
 const layerRegistry = VcsDriverRegistry.layer.pipe(Layer.provide(VcsProcess.layer));
 
@@ -55,6 +95,7 @@ const layerDependencies = (fakes: Fakes) =>
           : Effect.sync(() => {
               fakes.opened.push(input);
               fakes.titles.push(options?.title);
+              fakes.worktrees?.push(options?.worktree);
               return {
                 shellId: `shell-${fakes.opened.length}`,
                 cwd: input.cwd,
@@ -65,6 +106,10 @@ const layerDependencies = (fakes: Fakes) =>
                 label: "shell",
                 title: options?.title ?? null,
                 process: null,
+                folder: options?.folder ?? null,
+                worktree: options?.worktree ?? null,
+                branch: null,
+                elsewhere: null,
                 updatedAt: "now",
               };
             }),
@@ -87,6 +132,7 @@ const layerDependencies = (fakes: Fakes) =>
       ),
     ),
     layerRegistry,
+    layerGit(fakes),
     WorkspacePaths.layer,
   );
 
@@ -135,7 +181,7 @@ it.layer(NodeServices.layer)("saved workspaces", (it) => {
         assert.deepStrictEqual(yield* workspaces.open({ name: "sparta" }), {
           name: "sparta",
           folders: [],
-          lastFolder: null,
+          lastStart: null,
         });
       }),
     ),
@@ -268,13 +314,18 @@ it.layer(NodeServices.layer)("saved workspaces", (it) => {
 
         assert.strictEqual(added.folder, `${dir}/fresh`);
         const detail = added.workspace;
-        assert.deepStrictEqual(detail, {
+        expect(detail).toEqual({
           name: "sparta",
           folders: [
-            { path: plain, isGitRepository: false, exists: true },
-            { path: `${dir}/fresh`, isGitRepository: true, exists: true },
+            { path: plain, isGitRepository: false, exists: true, worktrees: null },
+            {
+              path: `${dir}/fresh`,
+              isGitRepository: true,
+              exists: true,
+              worktrees: [expect.objectContaining({ path: `${dir}/fresh`, isMain: true })],
+            },
           ],
-          lastFolder: null,
+          lastStart: null,
         });
         assert.isTrue(yield* fs.exists(`${dir}/fresh/.git`));
         assert.deepStrictEqual(fakes.registered, [plain, plain, `${dir}/fresh`]);
@@ -358,15 +409,18 @@ it.layer(NodeServices.layer)("saved workspaces", (it) => {
         assert.strictEqual(shell.cwd, app);
         assert.strictEqual(shell.title, "Shell 1");
         assert.deepStrictEqual(fakes.opened, [{ cwd: app, agent: true, cols: 90 }]);
-        assert.strictEqual((yield* workspaces.open({ name: "sparta" })).lastFolder, app);
+        assert.deepStrictEqual((yield* workspaces.open({ name: "sparta" })).lastStart, {
+          folder: app,
+          worktree: { kind: "checkout" },
+        });
 
         const outside = yield* Effect.flip(workspaces.startShell({ name: "sparta", folder: dir }));
         expect(outside.message).toContain("not in the workspace");
         yield* fs.remove(app, { recursive: true });
         assert.deepStrictEqual(yield* workspaces.open({ name: "sparta" }), {
           name: "sparta",
-          folders: [{ path: app, isGitRepository: false, exists: false }],
-          lastFolder: null,
+          folders: [{ path: app, isGitRepository: false, exists: false, worktrees: null }],
+          lastStart: null,
         });
         const gone = yield* Effect.flip(workspaces.startShell({ name: "sparta", folder: app }));
         assert.strictEqual(gone.message, `The folder no longer exists: ${app}`);
@@ -395,13 +449,419 @@ it.layer(NodeServices.layer)("saved workspaces", (it) => {
             workspaces.startShell({ name: "sparta", folder: `${dir}/app` }),
           );
           assert.strictEqual(error._tag, "ShellLaunchError");
-          assert.strictEqual((yield* workspaces.open({ name: "sparta" })).lastFolder, null);
+          assert.strictEqual((yield* workspaces.open({ name: "sparta" })).lastStart, null);
           // The failed start gives its number back.
           fakes.launchFails = false;
           const shell = yield* workspaces.startShell({ name: "sparta", folder: `${dir}/app` });
           assert.strictEqual(shell.title, "Shell 1");
         }),
       { registered: [], opened: [], titles: [], launchFails: true },
+    ),
+  );
+
+  // Git fixtures: a repository with two branches, a linked and a detached worktree, and the shells'
+  // worktrees folder of the test home.
+  const git = (cwd: string, ...args: string[]) =>
+    NodeChildProcess.execFileSync("git", args, {
+      cwd,
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        GIT_AUTHOR_NAME: "t",
+        GIT_AUTHOR_EMAIL: "t@t",
+        GIT_COMMITTER_NAME: "t",
+        GIT_COMMITTER_EMAIL: "t@t",
+      },
+    }).trim();
+
+  const makeRepo = (dir: string, options: { readonly add: boolean } = { add: true }) =>
+    Effect.gen(function* () {
+      const workspaces = yield* service;
+      const repo = `${dir}/repo`;
+      NodeFS.mkdirSync(repo);
+      git(repo, "init", "-q", "-b", "main");
+      git(repo, "commit", "-q", "--allow-empty", "-m", "one");
+      git(repo, "branch", "other");
+      git(repo, "commit", "-q", "--allow-empty", "-m", "two");
+      git(repo, "worktree", "add", "-q", "-b", "linked", `${dir}/linked`, "other");
+      git(repo, "worktree", "add", "-q", "--detach", `${dir}/detached`, "other");
+      if (options.add) yield* workspaces.addFolder({ mode: "import", name: "sparta", path: repo });
+      const { worktreesDir } = yield* ServerConfig.ServerConfig;
+      return { repo, worktrees: `${worktreesDir}/repo` };
+    });
+
+  const gitState = (repo: string, worktrees: string) => ({
+    branches: git(repo, "branch", "--format=%(refname:short)"),
+    worktrees: git(repo, "worktree", "list", "--porcelain"),
+    folders: NodeFS.existsSync(worktrees) ? NodeFS.readdirSync(worktrees) : [],
+  });
+
+  it.effect("offers a git folder's worktrees, local branches and a free worktree name", () =>
+    withWorkspaces({ "sparta.json": '{"version":1}' }, (dir) =>
+      Effect.gen(function* () {
+        const workspaces = yield* service;
+        const { repo } = yield* makeRepo(dir);
+        const other = git(repo, "rev-parse", "other");
+
+        const offered = yield* workspaces.folderGit({ name: "sparta", folder: repo });
+
+        expect(offered).toEqual({
+          hasCommit: true,
+          currentBranch: "main",
+          worktrees: [
+            { path: repo, branch: "main", head: git(repo, "rev-parse", "HEAD"), isMain: true },
+            { path: `${dir}/detached`, branch: null, head: other, isMain: false },
+            { path: `${dir}/linked`, branch: "linked", head: other, isMain: false },
+          ],
+          branches: ["linked", "main", "other"],
+          proposedWorktreeName: expect.stringMatching(/^probe-worktree-[0-9a-f]{6}$/),
+          worktreesError: null,
+          branchesError: null,
+        });
+        const outside = yield* Effect.flip(workspaces.folderGit({ name: "sparta", folder: dir }));
+        expect(outside.message).toContain("not in the workspace");
+      }),
+    ),
+  );
+
+  it.effect("reports a failed worktree or branch listing without hiding the other", () =>
+    withWorkspaces({ "sparta.json": '{"version":1}' }, (dir, fakes) =>
+      Effect.gen(function* () {
+        const workspaces = yield* service;
+        const { repo } = yield* makeRepo(dir);
+
+        fakes.listingFails = "worktrees";
+        const noWorktrees = yield* workspaces.folderGit({ name: "sparta", folder: repo });
+        fakes.listingFails = "branches";
+        const noBranches = yield* workspaces.folderGit({ name: "sparta", folder: repo });
+
+        expect(noWorktrees).toMatchObject({
+          worktrees: [],
+          branches: ["linked", "main", "other"],
+          currentBranch: "main",
+          worktreesError: expect.stringContaining("git is unavailable"),
+          branchesError: null,
+        });
+        expect(noBranches).toMatchObject({
+          branches: [],
+          branchesError: expect.stringContaining("git is unavailable"),
+          worktreesError: null,
+        });
+        expect(noBranches.worktrees).toHaveLength(3);
+      }),
+    ),
+  );
+
+  it.effect("does not offer a new worktree in a repository with no commit", () =>
+    withWorkspaces({ "sparta.json": '{"version":1}' }, (dir, fakes) =>
+      Effect.gen(function* () {
+        const workspaces = yield* service;
+        const created = yield* workspaces.addFolder({
+          mode: "create",
+          name: "sparta",
+          parentPath: dir,
+          folderName: "empty",
+        });
+
+        const offered = yield* workspaces.folderGit({ name: "sparta", folder: created.folder });
+        const refused = yield* Effect.flip(
+          workspaces.startShell({
+            name: "sparta",
+            folder: created.folder,
+            worktree: {
+              kind: "new",
+              name: offered.proposedWorktreeName,
+              startingPoint: { kind: "branch", name: "main" },
+            },
+          }),
+        );
+        yield* workspaces.startShell({ name: "sparta", folder: created.folder });
+
+        assert.isFalse(offered.hasCommit);
+        expect(refused.message).toContain("no commit");
+        assert.deepStrictEqual(
+          fakes.opened.map((input) => input.cwd),
+          [created.folder],
+        );
+      }),
+    ),
+  );
+
+  it.effect("starts shells in new worktrees forked from a branch or a detached worktree", () =>
+    withWorkspaces(
+      { "sparta.json": '{"version":1}' },
+      (dir, fakes) =>
+        Effect.gen(function* () {
+          const workspaces = yield* service;
+          const { repo, worktrees } = yield* makeRepo(dir);
+          const name = (yield* workspaces.folderGit({ name: "sparta", folder: repo }))
+            .proposedWorktreeName;
+          const fromBranch = { kind: "branch" as const, name: "other" };
+
+          const first = yield* workspaces.startShell({
+            name: "sparta",
+            folder: repo,
+            worktree: { kind: "new", name, startingPoint: fromBranch },
+          });
+          // A name taken since the dialog opened is replaced instead of reused (EC-1).
+          const second = yield* workspaces.startShell({
+            name: "sparta",
+            folder: repo,
+            worktree: {
+              kind: "new",
+              name,
+              startingPoint: { kind: "worktree", path: `${dir}/detached` },
+            },
+          });
+
+          assert.strictEqual(first.cwd, `${worktrees}/${name}`);
+          assert.strictEqual(git(first.cwd, "branch", "--show-current"), name);
+          assert.strictEqual(git(repo, "rev-parse", name), git(repo, "rev-parse", "other"));
+          const secondName = second.cwd.slice(worktrees.length + 1);
+          expect(secondName).toMatch(/^probe-worktree-[0-9a-f]{6}$/);
+          assert.notStrictEqual(secondName, name);
+          assert.strictEqual(
+            git(repo, "rev-parse", secondName),
+            git(`${dir}/detached`, "rev-parse", "HEAD"),
+          );
+          assert.deepStrictEqual(fakes.worktrees, [first.cwd, second.cwd]);
+          assert.deepStrictEqual((yield* workspaces.open({ name: "sparta" })).lastStart, {
+            folder: repo,
+            worktree: {
+              kind: "new",
+              startingPoint: { kind: "worktree", path: `${dir}/detached` },
+            },
+          });
+        }),
+      { registered: [], opened: [], titles: [], worktrees: [] },
+    ),
+  );
+
+  it.effect("starts shells in the folder's checkout or an existing worktree of it", () =>
+    withWorkspaces(
+      { "sparta.json": '{"version":1}' },
+      (dir, fakes) =>
+        Effect.gen(function* () {
+          const workspaces = yield* service;
+          const { repo } = yield* makeRepo(dir);
+          const plain = `${dir}/plain`;
+          yield* FileSystem.FileSystem.pipe(Effect.flatMap((fs) => fs.makeDirectory(plain)));
+          yield* workspaces.addFolder({ mode: "import", name: "sparta", path: plain });
+
+          yield* workspaces.startShell({ name: "sparta", folder: repo });
+          yield* workspaces.startShell({
+            name: "sparta",
+            folder: repo,
+            worktree: { kind: "existing", path: `${dir}/linked` },
+          });
+          yield* workspaces.startShell({ name: "sparta", folder: plain });
+          const notOurs = yield* Effect.flip(
+            workspaces.startShell({
+              name: "sparta",
+              folder: repo,
+              worktree: { kind: "existing", path: dir },
+            }),
+          );
+
+          assert.deepStrictEqual(
+            fakes.opened.map((input) => input.cwd),
+            [repo, `${dir}/linked`, plain],
+          );
+          assert.deepStrictEqual(fakes.worktrees, [repo, `${dir}/linked`, undefined]);
+          expect(notOurs.message).toContain("not a worktree of");
+          assert.deepStrictEqual((yield* workspaces.open({ name: "sparta" })).lastStart, {
+            folder: plain,
+            worktree: { kind: "checkout" },
+          });
+        }),
+      { registered: [], opened: [], titles: [], worktrees: [] },
+    ),
+  );
+
+  it.effect("leaves no branch, worktree or folder behind when a fork fails", () =>
+    withWorkspaces({ "sparta.json": '{"version":1}' }, (dir, fakes) =>
+      Effect.gen(function* () {
+        const workspaces = yield* service;
+        const { repo, worktrees } = yield* makeRepo(dir);
+        const start = (startingPoint: { kind: "branch"; name: string }) =>
+          workspaces.folderGit({ name: "sparta", folder: repo }).pipe(
+            Effect.flatMap((offered) =>
+              workspaces.startShell({
+                name: "sparta",
+                folder: repo,
+                worktree: { kind: "new", name: offered.proposedWorktreeName, startingPoint },
+              }),
+            ),
+            Effect.flip,
+          );
+        const before = gitState(repo, worktrees);
+
+        const missing = yield* start({ kind: "branch", name: "gone" });
+        // A file where the repository's worktrees folder belongs makes `worktree add` fail
+        // after the branch was created.
+        const { worktreesDir } = yield* ServerConfig.ServerConfig;
+        NodeFS.mkdirSync(worktreesDir, { recursive: true });
+        NodeFS.writeFileSync(worktrees, "in the way");
+        const blocked = yield* start({ kind: "branch", name: "other" });
+        NodeFS.rmSync(worktrees);
+
+        expect(missing.message).toContain("gone");
+        assert.strictEqual(blocked._tag, "WorkspaceFolderError");
+        expect(blocked.message).toMatch(/^The worktree could not be created/);
+        assert.deepStrictEqual(gitState(repo, worktrees), before);
+        assert.deepStrictEqual(fakes.opened, []);
+        assert.strictEqual((yield* workspaces.open({ name: "sparta" })).lastStart, null);
+      }),
+    ),
+  );
+
+  it.effect("keeps a created worktree when its shell fails to start", () =>
+    withWorkspaces(
+      { "sparta.json": '{"version":1}' },
+      (dir) =>
+        Effect.gen(function* () {
+          const workspaces = yield* service;
+          const { repo, worktrees } = yield* makeRepo(dir);
+          const name = (yield* workspaces.folderGit({ name: "sparta", folder: repo }))
+            .proposedWorktreeName;
+
+          const error = yield* Effect.flip(
+            workspaces.startShell({
+              name: "sparta",
+              folder: repo,
+              worktree: { kind: "new", name, startingPoint: { kind: "branch", name: "main" } },
+            }),
+          );
+
+          assert.strictEqual(error._tag, "ShellLaunchError");
+          assert.isTrue(NodeFS.existsSync(`${worktrees}/${name}`));
+          assert.strictEqual(git(repo, "rev-parse", name), git(repo, "rev-parse", "main"));
+          const offered = yield* workspaces.folderGit({ name: "sparta", folder: repo });
+          expect(offered.worktrees.map((worktree) => worktree.path)).toContain(
+            `${worktrees}/${name}`,
+          );
+          assert.strictEqual((yield* workspaces.open({ name: "sparta" })).lastStart, null);
+        }),
+      { registered: [], opened: [], titles: [], launchFails: true },
+    ),
+  );
+
+  it.effect("reads a folder remembered before worktrees as a start in its checkout", () =>
+    withWorkspaces({}, (dir) =>
+      Effect.gen(function* () {
+        const workspaces = yield* service;
+        const fs = yield* FileSystem.FileSystem;
+        yield* fs.makeDirectory(`${dir}/app`);
+        yield* fs.writeFileString(
+          `${dir}/old.json`,
+          JSON.stringify({
+            version: 1,
+            folders: [{ path: `${dir}/app` }],
+            lastFolder: `${dir}/app`,
+          }),
+        );
+        assert.deepStrictEqual((yield* workspaces.open({ name: "old" })).lastStart, {
+          folder: `${dir}/app`,
+          worktree: { kind: "checkout" },
+        });
+      }),
+    ),
+  );
+
+  const shown = (detail: WorkspaceDetail) =>
+    detail.folders.map((folder) =>
+      folder.worktrees === null
+        ? [folder.path, null]
+        : [folder.path, folder.worktrees.filter((w) => w.visible).map((w) => w.path)],
+    );
+
+  it.effect("adds a linked worktree's repository showing only that worktree", () =>
+    withWorkspaces({ "sparta.json": '{"version":1}' }, (dir) =>
+      Effect.gen(function* () {
+        const workspaces = yield* service;
+        const { repo } = yield* makeRepo(dir, { add: false });
+        NodeFS.mkdirSync(`${repo}/packages`);
+
+        const linkedImport = yield* workspaces.addFolder({
+          mode: "import",
+          name: "sparta",
+          path: `${dir}/linked`,
+        });
+        assert.strictEqual(linkedImport.folder, repo);
+        assert.strictEqual(linkedImport.resolvedFrom, `${dir}/linked`);
+        expect(shown(linkedImport.workspace)).toEqual([[repo, [`${dir}/linked`]]]);
+        // Importing another worktree of it adds that one; a subfolder of it is kept as itself.
+        yield* workspaces.addFolder({ mode: "import", name: "sparta", path: `${dir}/detached` });
+        const subfolder = yield* workspaces.addFolder({
+          mode: "import",
+          name: "sparta",
+          path: `${repo}/packages`,
+        });
+
+        assert.strictEqual(subfolder.resolvedFrom, null);
+        const detail = yield* workspaces.open({ name: "sparta" });
+        expect(shown(detail)).toEqual([
+          [repo, [`${dir}/detached`, `${dir}/linked`]],
+          [`${repo}/packages`, null],
+        ]);
+        // All worktrees are listed, the primary first, so hidden ones can be shown again.
+        expect(detail.folders[0]?.worktrees?.map((w) => [w.path, w.isMain, w.visible])).toEqual([
+          [repo, true, false],
+          [`${dir}/detached`, false, true],
+          [`${dir}/linked`, false, true],
+        ]);
+      }),
+    ),
+  );
+
+  it.effect("shows only a repository's primary worktree until others are shown or used", () =>
+    withWorkspaces({ "sparta.json": '{"version":1}' }, (dir) =>
+      Effect.gen(function* () {
+        const workspaces = yield* service;
+        const { repo } = yield* makeRepo(dir);
+        const visibility = (worktree: string, visible: boolean) =>
+          workspaces.setWorktreeVisible({ name: "sparta", folder: repo, worktree, visible });
+        expect(shown(yield* workspaces.open({ name: "sparta" }))).toEqual([[repo, [repo]]]);
+
+        expect(shown(yield* visibility(`${dir}/linked`, true))).toEqual([
+          [repo, [repo, `${dir}/linked`]],
+        ]);
+        expect(shown(yield* visibility(repo, false))).toEqual([[repo, [`${dir}/linked`]]]);
+        // A shell started in a hidden worktree shows it again.
+        yield* workspaces.startShell({
+          name: "sparta",
+          folder: repo,
+          worktree: { kind: "existing", path: `${dir}/detached` },
+        });
+        expect(shown(yield* workspaces.open({ name: "sparta" }))).toEqual([
+          [repo, [`${dir}/detached`, `${dir}/linked`]],
+        ]);
+        const notOurs = yield* Effect.flip(visibility(dir, true));
+        expect(notOurs.message).toContain("not a worktree of");
+      }),
+    ),
+  );
+
+  it.effect("shows every worktree of a folder saved before visibility, until one is hidden", () =>
+    withWorkspaces({}, (dir) =>
+      Effect.gen(function* () {
+        const workspaces = yield* service;
+        const fs = yield* FileSystem.FileSystem;
+        const { repo } = yield* makeRepo(dir, { add: false });
+        yield* fs.writeFileString(
+          `${dir}/old.json`,
+          JSON.stringify({ version: 1, folders: [{ path: repo }] }),
+        );
+        const all = [repo, `${dir}/detached`, `${dir}/linked`];
+        expect(shown(yield* workspaces.open({ name: "old" }))).toEqual([[repo, all]]);
+        const hidden = yield* workspaces.setWorktreeVisible({
+          name: "old",
+          folder: repo,
+          worktree: `${dir}/detached`,
+          visible: false,
+        });
+        expect(shown(hidden)).toEqual([[repo, [repo, `${dir}/linked`]]]);
+      }),
     ),
   );
 });

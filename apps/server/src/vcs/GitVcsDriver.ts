@@ -290,6 +290,13 @@ export interface GitSetBranchUpstreamInput {
   remoteBranch: string;
 }
 
+export interface GitWorktreeEntry {
+  readonly path: string;
+  readonly branch: string | null;
+  readonly head: string;
+  readonly isMain: boolean;
+}
+
 export interface GitRemoteStatusOptions {
   readonly refreshUpstream?: boolean;
 }
@@ -413,6 +420,11 @@ export class GitVcsDriver extends Context.Service<
       readonly cwd: string;
     }) => Effect.Effect<void, GitCommandError>;
     readonly listWorktreePaths: (cwd: string) => Effect.Effect<string[], GitCommandError>;
+    /** Every worktree that exists on disk, the main one first; `branch` is null when detached. */
+    readonly listWorktrees: (
+      cwd: string,
+    ) => Effect.Effect<ReadonlyArray<GitWorktreeEntry>, GitCommandError>;
+    readonly hasCommit: (cwd: string) => Effect.Effect<boolean, GitCommandError>;
     readonly deleteLocalBranch: (
       input: GitDeleteLocalBranchInput,
     ) => Effect.Effect<void, GitCommandError>;

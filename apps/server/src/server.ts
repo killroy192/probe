@@ -445,6 +445,7 @@ const layerCheckpointStore = CheckpointStore.layer.pipe(Layer.provide(layerVcsDr
 const layerPortScanner = PortScanner.layer.pipe(Layer.provide(ProcessRunner.layer));
 
 const layerTerminal = Shells.layer.pipe(
+  Layer.provide(ProcessRunner.layer),
   Layer.provideMerge(
     TerminalManager.layer.pipe(
       Layer.provide(layerPtyAdapter),

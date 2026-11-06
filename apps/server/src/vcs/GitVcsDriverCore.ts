@@ -4590,6 +4590,37 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
       ),
     );
 
+  const listWorktrees: GitVcsDriver.GitVcsDriver["Service"]["listWorktrees"] = (cwd) =>
+    executeWorktreeList("GitVcsDriver.listWorktrees", cwd, []).pipe(
+      Effect.map(({ stdout }) =>
+        stdout.split("\0\0").flatMap((record, index) => {
+          const fields = record.split("\0").filter((field) => field.length > 0);
+          const value = (key: string) =>
+            fields.find((field) => field.startsWith(`${key} `))?.slice(key.length + 1);
+          const worktree = value("worktree");
+          const head = value("HEAD");
+          // Git lists the main worktree first; a `prunable` one is gone from disk.
+          if (worktree === undefined || head === undefined) return [];
+          if (fields.some((field) => field === "bare" || field.startsWith("prunable"))) return [];
+          const ref = value("branch");
+          return [
+            {
+              path: path.resolve(cwd, worktree),
+              branch: ref === undefined ? null : ref.replace(/^refs\/heads\//, ""),
+              head,
+              isMain: index === 0,
+            },
+          ];
+        }),
+      ),
+    );
+
+  const hasCommit: GitVcsDriver.GitVcsDriver["Service"]["hasCommit"] = (cwd) =>
+    executeGit("GitVcsDriver.hasCommit", cwd, ["rev-parse", "--verify", "--quiet", "HEAD"], {
+      allowNonZeroExit: true,
+      timeoutMs: 5_000,
+    }).pipe(Effect.map((result) => result.exitCode === 0));
+
   const withListRefsInvalidation = <A, E>(
     cwd: string,
     effect: Effect.Effect<A, E>,
@@ -4709,5 +4740,7 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
     initRepo: initRepoWithListRefsInvalidation,
     listLocalBranchNames,
     listWorktreePaths,
+    listWorktrees,
+    hasCommit,
   });
 });

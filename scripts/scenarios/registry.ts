@@ -1,6 +1,7 @@
 import { boot } from "./scenarios/boot.ts";
 import { plusModal } from "./scenarios/plus-modal.ts";
 import { standaloneShell } from "./scenarios/standalone-shell.ts";
+import { worktrees } from "./scenarios/worktrees.ts";
 import { deliberateFailure } from "./selftest/deliberate-failure.ts";
 import { restartPersistence } from "./selftest/restart-persistence.ts";
 import type { Scenario } from "./scenario.ts";
@@ -9,7 +10,7 @@ import type { Scenario } from "./scenario.ts";
 export const scenarios: ReadonlyArray<Scenario> = [
   boot,
   plusModal,
-  { id: "S3", title: "pending (story 5)" },
+  worktrees,
   { id: "S4", title: "pending (story 6)" },
   { id: "S5", title: "pending (story 6)" },
   { id: "S6", title: "pending (story 6)" },

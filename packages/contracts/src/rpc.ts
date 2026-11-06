@@ -279,6 +279,8 @@ import {
   WorkspaceAddFolderResult,
   WorkspaceDetail,
   WorkspaceFolderError,
+  WorkspaceFolderGit,
+  WorkspaceFolderGitInput,
   WorkspaceInput,
   WorkspaceInvalidError,
   WorkspaceListEvent,
@@ -287,6 +289,7 @@ import {
   WorkspaceStartShellInput,
   WorkspaceStorageError,
   WorkspaceSummary,
+  WorkspaceWorktreeVisibilityInput,
 } from "./workspace.ts";
 import {
   DiscoveredLocalServerList,
@@ -499,6 +502,8 @@ export const WS_METHODS = {
   workspaceOpen: "workspace.open",
   workspaceAddFolder: "workspace.addFolder",
   workspaceStartShell: "workspace.startShell",
+  workspaceFolderGit: "workspace.folderGit",
+  workspaceSetWorktreeVisible: "workspace.setWorktreeVisible",
 
   previewOpen: "preview.open",
   previewResize: "preview.resize",
@@ -1668,6 +1673,29 @@ const WsWorkspaceAddFolderRpc = Rpc.make(WS_METHODS.workspaceAddFolder, {
   ]),
 });
 
+const WsWorkspaceFolderGitRpc = Rpc.make(WS_METHODS.workspaceFolderGit, {
+  payload: WorkspaceFolderGitInput,
+  success: WorkspaceFolderGit,
+  error: Schema.Union([
+    WorkspaceNotFoundError,
+    WorkspaceInvalidError,
+    WorkspaceFolderError,
+    EnvironmentAuthorizationError,
+  ]),
+});
+
+const WsWorkspaceSetWorktreeVisibleRpc = Rpc.make(WS_METHODS.workspaceSetWorktreeVisible, {
+  payload: WorkspaceWorktreeVisibilityInput,
+  success: WorkspaceDetail,
+  error: Schema.Union([
+    WorkspaceNotFoundError,
+    WorkspaceInvalidError,
+    WorkspaceFolderError,
+    WorkspaceStorageError,
+    EnvironmentAuthorizationError,
+  ]),
+});
+
 const WsWorkspaceStartShellRpc = Rpc.make(WS_METHODS.workspaceStartShell, {
   payload: WorkspaceStartShellInput,
   success: ShellSummary,
@@ -2243,6 +2271,8 @@ export const WsRpcGroup = RpcGroup.make(
   WsWorkspaceOpenRpc,
   WsWorkspaceAddFolderRpc,
   WsWorkspaceStartShellRpc,
+  WsWorkspaceFolderGitRpc,
+  WsWorkspaceSetWorktreeVisibleRpc,
   WsSubscribeWorkspacesRpc,
   WsSubscribeTerminalMetadataRpc,
   WsPreviewOpenRpc,
