@@ -17,6 +17,7 @@ import {
   GitCommandError,
   ShellLaunchError,
   type ShellOpenInput,
+  type ShellSummary,
   VcsProcessSpawnError,
 } from "@t3tools/contracts";
 
@@ -42,6 +43,9 @@ interface Fakes {
   readonly opened: ShellOpenInput[];
   readonly titles: Array<string | undefined>;
   readonly worktrees?: Array<string | undefined>;
+  /** Shells the fake started and has not killed. */
+  readonly running?: ShellSummary[];
+  readonly killed?: string[];
   initFails?: boolean;
   launchFails?: boolean;
   listingFails?: "worktrees" | "branches";
@@ -95,7 +99,7 @@ const layerDependencies = (fakes: Fakes) =>
               fakes.opened.push(input);
               fakes.titles.push(options?.title);
               fakes.worktrees?.push(options?.worktree);
-              return {
+              const shell: ShellSummary = {
                 shellId: `shell-${fakes.opened.length}`,
                 cwd: input.cwd,
                 status: "running" as const,
@@ -111,7 +115,16 @@ const layerDependencies = (fakes: Fakes) =>
                 elsewhere: null,
                 updatedAt: "now",
               };
+              fakes.running?.push(shell);
+              return shell;
             }),
+      list: Effect.sync(() => [...(fakes.running ?? [])]),
+      kill: (shellId) =>
+        Effect.sync(() => {
+          fakes.killed?.push(shellId);
+          const index = fakes.running?.findIndex((shell) => shell.shellId === shellId) ?? -1;
+          if (index >= 0) fakes.running?.splice(index, 1);
+        }),
     }),
     Layer.unwrap(
       Effect.sync(() =>
@@ -226,6 +239,41 @@ it.layer(NodeServices.layer)("saved workspaces", (it) => {
         const missing = yield* Effect.flip(workspaces.remove({ name: "athens" }));
         assert.strictEqual(missing._tag, "WorkspaceNotFoundError");
       }),
+    ),
+  );
+
+  it.effect("kills the shells of a removed workspace's projects, also another workspace's", () =>
+    withWorkspaces(
+      { "sparta.json": '{"version":1}', "athens.json": '{"version":1}' },
+      (dir, fakes) =>
+        Effect.gen(function* () {
+          const workspaces = yield* service;
+          const fs = yield* FileSystem.FileSystem;
+          const [shared, own, elsewhere] = [`${dir}/shared`, `${dir}/own`, `${dir}/elsewhere`];
+          for (const folder of [shared, own, elsewhere]) yield* fs.makeDirectory(folder);
+          for (const folder of [shared, own]) {
+            yield* workspaces.addFolder({ mode: "import", name: "sparta", path: folder });
+          }
+          for (const folder of [shared, elsewhere]) {
+            yield* workspaces.addFolder({ mode: "import", name: "athens", path: folder });
+          }
+          const inOwn = yield* workspaces.startShell({ name: "sparta", folder: own });
+          const athensShared = yield* workspaces.startShell({ name: "athens", folder: shared });
+          const athensElsewhere = yield* workspaces.startShell({
+            name: "athens",
+            folder: elsewhere,
+          });
+
+          yield* workspaces.remove({ name: "sparta" });
+
+          expect(fakes.killed?.toSorted()).toEqual(
+            [athensShared.shellId, inOwn.shellId].toSorted(),
+          );
+          expect(fakes.running?.map((shell) => shell.shellId)).toEqual([athensElsewhere.shellId]);
+          for (const folder of [shared, own, elsewhere]) assert.isTrue(yield* fs.exists(folder));
+          assert.deepStrictEqual(yield* names, ["athens"]);
+        }),
+      { registered: [], opened: [], titles: [], running: [], killed: [] },
     ),
   );
 

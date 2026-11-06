@@ -31,6 +31,10 @@ if (
   } else if (command === "__managed-chatgpt-token") {
     const { runManagedChatGptTokenCli } = await import("./cli/managedChatGptToken.ts");
     await runManagedChatGptTokenCli(process.argv.slice(3));
+  } else if (command === "__probe") {
+    // The `probe` command Probe puts on every shell's PATH.
+    const { runProbeShellCli } = await import("./cli/probeShell.ts");
+    await runProbeShellCli(process.argv.slice(3));
   } else if (command === "acp-mcp-bridge" || command === "acp-mcp-call") {
     const { runAcpMcpCliFastPath } = await import("./mcp/AcpMcpStdioBridge.ts");
     await runAcpMcpCliFastPath(command, process.argv.slice(3));

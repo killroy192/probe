@@ -67,7 +67,7 @@ describe("shell contracts", () => {
       WS_METHODS.shellAttach,
       WS_METHODS.shellWrite,
       WS_METHODS.shellResize,
-      WS_METHODS.shellClose,
+      WS_METHODS.shellKill,
       WS_METHODS.subscribeShells,
     ]) {
       expect(WsRpcGroup.requests.has(method)).toBe(true);

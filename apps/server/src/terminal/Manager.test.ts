@@ -1815,6 +1815,8 @@ it.layer(
   { excludeTestServices: true },
 )("Shells", (it) => {
   let nextShell = 0;
+  // Fake pty pids could belong to real processes, so no test reaches the real process killer.
+  const killedTrees: number[] = [];
   const makeShells = (
     manager: TerminalManager.TerminalManager["Service"],
     options?: Parameters<typeof Shells.makeShells>[2],
@@ -1822,7 +1824,7 @@ it.layer(
     Shells.makeShells(
       manager,
       Effect.sync(() => `shell-${++nextShell}`),
-      options,
+      { killTree: (pid) => Effect.sync(() => void killedTrees.push(pid)), ...options },
     );
   type ShellsService = Shells.Shells["Service"];
 
@@ -1936,7 +1938,7 @@ it.layer(
       ptyAdapter.processes[0]!.emitData("only-a\n");
       ptyAdapter.processes[1]!.emitData("only-b\n");
 
-      yield* shells.close({ shellId: a.shellId });
+      yield* shells.kill(a.shellId);
 
       const [first] = yield* shells
         .attach({ shellId: b.shellId }, "viewer-1")
@@ -1961,7 +1963,7 @@ it.layer(
       const exited = yield* shells.open({ cwd: process.cwd() });
 
       ptyAdapter.processes[1]!.emitExit({ exitCode: 3, signal: 0 });
-      yield* shells.close({ shellId: closed.shellId });
+      yield* shells.kill(closed.shellId);
 
       const listed = yield* events;
       const last = listed
@@ -2163,8 +2165,67 @@ it.layer(
       });
       expect(logs.lines).toContainEqual({
         message: "shell ended",
-        fields: { shellId: agent.shellId, exitCode: 0, exitSignal: 9 },
+        fields: { shellId: agent.shellId, cwd: process.cwd(), exitCode: 0, exitSignal: 9 },
       });
     }).pipe(Effect.provide(logs.layer));
   });
+
+  it.effect("kills a shell with everything it started, and forgets one already gone", () => {
+    const logs = captureLogs();
+    return Effect.gen(function* () {
+      const { manager, ptyAdapter } = yield* createManager();
+      const shells = yield* makeShells(manager);
+      const events = yield* collectList(shells);
+      const killed = yield* shells.open({ cwd: process.cwd() });
+      const kept = yield* shells.open({ cwd: process.cwd() });
+      killedTrees.length = 0;
+
+      yield* shells.kill(killed.shellId);
+      yield* shells.kill("never-started");
+
+      expect(killedTrees).toEqual([killed.pid]);
+      expect(yield* events).toContainEqual({ type: "remove", shellId: killed.shellId });
+      expect((yield* shells.list).map((shell) => shell.shellId)).toEqual([kept.shellId]);
+      assert.equal(ptyAdapter.processes[1]?.killed, false);
+      const ended = logs.lines.filter((line) => line.message === "shell ended");
+      expect(ended).toEqual([
+        {
+          message: "shell ended",
+          fields: { shellId: killed.shellId, cwd: process.cwd(), reason: "killed" },
+        },
+      ]);
+    }).pipe(Effect.provide(logs.layer));
+  });
+
+  it.effect("gives each shell a token that lets a command inside it kill that shell only", () =>
+    Effect.gen(function* () {
+      const { manager, ptyAdapter } = yield* createManager();
+      let nextToken = 0;
+      const shells = yield* makeShells(manager, {
+        newToken: Effect.sync(() => `token-${++nextToken}`),
+        selfKill: {
+          endpoint: "http://127.0.0.1:1/kill",
+          bin: "/bin-dir/probe",
+          path: "/bin-dir:/usr/bin",
+        },
+      });
+      const first = yield* shells.open({ cwd: process.cwd() });
+      const second = yield* shells.open({ cwd: process.cwd() });
+
+      expect(ptyAdapter.spawnInputs[0]?.env).toMatchObject({
+        PROBE_SHELL_ID: first.shellId,
+        PROBE_SHELL_TOKEN: "token-1",
+        PROBE_SHELL_ENDPOINT: "http://127.0.0.1:1/kill",
+        PROBE_BIN: "/bin-dir/probe",
+        PATH: "/bin-dir:/usr/bin",
+      });
+      expect(ptyAdapter.spawnInputs[1]?.env).toMatchObject({ PROBE_SHELL_TOKEN: "token-2" });
+
+      assert.equal(yield* shells.killByToken("token-2"), true);
+      assert.equal(yield* shells.killByToken("token-2"), false);
+      assert.equal(yield* shells.killByToken("forged"), false);
+      expect((yield* shells.list).map((shell) => shell.shellId)).toEqual([first.shellId]);
+      expect(second.shellId).not.toBe(first.shellId);
+    }),
+  );
 });

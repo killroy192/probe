@@ -89,6 +89,7 @@ import * as GitManager from "./git/GitManager.ts";
 import * as EnvironmentTheme from "./environmentTheme.ts";
 import * as SavedWorkspaces from "./savedWorkspaces/SavedWorkspaces.ts";
 import * as Shells from "./terminal/Shells.ts";
+import * as ShellSelfKillRoute from "./terminal/shellSelfKillRoute.ts";
 import * as Keybindings from "./keybindings.ts";
 import * as ServerRuntimeStartup from "./serverRuntimeStartup.ts";
 import * as ServerOwnership from "./serverOwnership.ts";
@@ -740,6 +741,7 @@ const layerMakeRoutes = Layer.mergeAll(
     ServerHttp.layerOtlpTracesProxyRoute,
     ServerHttp.layerAssetRoute,
     ServerHttp.layerAttachmentUploadRoute,
+    ShellSelfKillRoute.layer,
     GuestHttp.layer,
     DeviceHubProxy.layer,
     ServerBrowserStream.routeLayer,

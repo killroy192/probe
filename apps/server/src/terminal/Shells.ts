@@ -1,7 +1,6 @@
 import {
   DEFAULT_TERMINAL_ID,
   type ShellAttachInput,
-  type ShellInput,
   type ShellListStreamEvent,
   type ShellOpenInput,
   type ShellResizeInput,
@@ -17,6 +16,7 @@ import {
   shellOwnerId,
 } from "@t3tools/contracts";
 import * as HostProcess from "@t3tools/shared/HostProcess";
+import { resolveSelfInvocation, selfInvocationArgs } from "@t3tools/shared/nodeRuntime";
 import * as Context from "effect/Context";
 import * as Crypto from "effect/Crypto";
 import * as Effect from "effect/Effect";
@@ -24,10 +24,14 @@ import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
 import * as Schedule from "effect/Schedule";
+import { HttpServer } from "effect/http";
+import * as NetAddress from "effect/net/NetAddress";
 
 import * as ServerConfig from "../config.ts";
 import * as ProcessRunner from "../processRunner.ts";
 import { TerminalManager } from "./Manager.ts";
+import { killProcessTree, makeReadProcessTable } from "./processTree.ts";
+import { PROBE_COMMAND, SELF_KILL_PATH, SHELL_ENV, type ShellSelfKill } from "./shellEnv.ts";
 
 type Manager = TerminalManager["Service"];
 
@@ -125,6 +129,12 @@ interface ShellsOptions {
   readonly platform?: NodeJS.Platform;
   /** The current folder of each process; a pid it cannot read is left out. */
   readonly readCwds?: (pids: ReadonlyArray<number>) => Effect.Effect<ReadonlyMap<number, string>>;
+  /** Force-ends a shell's process and everything it started. */
+  readonly killTree?: (pid: number) => Effect.Effect<void>;
+  /** A secret per shell that lets a command inside it kill it; see `selfKill`. */
+  readonly newToken?: Effect.Effect<string>;
+  /** Where `probe kill` reaches the server; null leaves shells without the command. */
+  readonly selfKill?: ShellSelfKill | null;
 }
 
 export interface ShellOpenOptions {
@@ -209,6 +219,20 @@ export const makeShells = Effect.fn("Shells.make")(function* (
   const terminals = new Map<string, TerminalSummary>();
   const listeners = new Set<(event: ShellListStreamEvent) => Effect.Effect<void>>();
   const readCwds = options.readCwds ?? (yield* makeReadCwds(platform));
+  const killTree =
+    options.killTree ??
+    (yield* makeReadProcessTable(platform).pipe(
+      Effect.map((readTable) => (pid: number) => killProcessTree(readTable, pid)),
+    ));
+  const newToken: Effect.Effect<string | null> = options.newToken ?? Effect.succeed(null);
+  const selfKill = options.selfKill ?? null;
+  // Each shell's own token, so `probe kill` can end that shell and no other.
+  const tokens = new Map<string, string>();
+  const forgetToken = (shellId: string) => {
+    for (const [token, owner] of tokens) if (owner === shellId) tokens.delete(token);
+  };
+  // Shells Probe is killing; their end is logged by the kill, with its reason.
+  const killing = new Set<string>();
 
   const readText = (file: string) => fs.readFileString(file).pipe(Effect.orElseSucceed(() => null));
 
@@ -248,6 +272,7 @@ export const makeShells = Effect.fn("Shells.make")(function* (
           if (shellId !== null) {
             terminals.delete(shellId);
             records.delete(shellId);
+            forgetToken(shellId);
           }
           return;
         }
@@ -334,15 +359,45 @@ export const makeShells = Effect.fn("Shells.make")(function* (
   const stopEndLog = yield* manager.subscribe((event) => {
     if (event.type !== "exited") return Effect.void;
     const shellId = shellIdFromOwnerId(event.threadId);
-    return shellId === null
+    return shellId === null || killing.has(shellId)
       ? Effect.void
       : Effect.logInfo("shell ended", {
           shellId,
+          cwd: terminals.get(shellId)?.cwd ?? null,
           exitCode: event.exitCode,
           exitSignal: event.exitSignal,
         });
   });
   yield* Effect.addFinalizer(() => Effect.sync(stopEndLog));
+
+  /**
+   * Force-ends a shell and everything it started, and forgets it. A shell that already ended or
+   * that this server does not know is forgotten without an error.
+   */
+  const kill = Effect.fn("Shells.kill")(function* (shellId: string) {
+    const terminal = terminals.get(shellId);
+    killing.add(shellId);
+    yield* Effect.gen(function* () {
+      if (
+        terminal?.pid != null &&
+        (terminal.status === "running" || terminal.status === "starting")
+      ) {
+        yield* killTree(terminal.pid);
+      }
+      yield* manager.close({ ...session(shellId), deleteHistory: true });
+      if (terminal !== undefined) {
+        yield* Effect.logInfo("shell ended", { shellId, cwd: terminal.cwd, reason: "killed" });
+      }
+    }).pipe(
+      Effect.ensuring(
+        Effect.sync(() => {
+          killing.delete(shellId);
+          records.delete(shellId);
+          forgetToken(shellId);
+        }),
+      ),
+    );
+  });
 
   const failToStart = (cwd: string, reason: string) =>
     Effect.logWarning("shell failed to start", { cwd, reason }).pipe(
@@ -375,11 +430,25 @@ export const makeShells = Effect.fn("Shells.make")(function* (
           if (event.type === "error" && event.threadId === owner.threadId) reason = event.message;
         }),
       );
+      const token = yield* newToken;
+      if (token !== null) tokens.set(token, shellId);
+      const env =
+        selfKill === null || token === null
+          ? terminal.env
+          : {
+              ...terminal.env,
+              [SHELL_ENV.id]: shellId,
+              [SHELL_ENV.token]: token,
+              [SHELL_ENV.endpoint]: selfKill.endpoint,
+              [SHELL_ENV.bin]: selfKill.bin,
+              PATH: selfKill.path,
+            };
       const snapshot = yield* manager
-        .open({ ...owner, ...terminal })
+        .open({ ...owner, ...terminal, ...(env === undefined ? {} : { env }) })
         .pipe(Effect.ensuring(Effect.sync(stop)));
       if (snapshot.status === "error") {
         records.delete(shellId);
+        forgetToken(shellId);
         yield* manager.close({ ...owner, deleteHistory: true });
         return yield* failToStart(input.cwd, reason);
       }
@@ -411,10 +480,18 @@ export const makeShells = Effect.fn("Shells.make")(function* (
       }
       yield* manager.resize({ threadId, terminalId, cols: input.cols, rows: input.rows }, viewerId);
     }),
-    close: (input: ShellInput) =>
-      manager
-        .close({ ...session(input.shellId), deleteHistory: true })
-        .pipe(Effect.tap(() => Effect.sync(() => records.delete(input.shellId)))),
+    kill,
+    /** Kills the shell the token was given to; false when no live shell has it. */
+    killByToken: Effect.fn("Shells.killByToken")(function* (token: string) {
+      const shellId = tokens.get(token);
+      if (shellId === undefined) return false;
+      yield* kill(shellId);
+      return true;
+    }),
+    /** Every shell the server runs or still lists. */
+    list: Effect.sync(() =>
+      [...terminals].map(([shellId, terminal]) => toSummary(shellId, terminal, recordOf(shellId))),
+    ),
     subscribe: Effect.fnUntraced(function* (
       listener: (event: ShellListStreamEvent) => Effect.Effect<void>,
     ) {
@@ -438,6 +515,47 @@ export class Shells extends Context.Service<
   Effect.Success<ReturnType<typeof makeShells>>
 >()("t3/terminal/Shells") {}
 
+const shellQuote = (value: string) => `'${value.replaceAll("'", `'\\''`)}'`;
+
+/**
+ * Writes the `probe` command into the server's state folder and says how shells reach it. Null
+ * on Windows and when the command cannot be written: shells then start without it.
+ */
+const prepareSelfKill = Effect.fn("Shells.prepareSelfKill")(function* (platform: NodeJS.Platform) {
+  if (platform === "win32") return null;
+  const fs = yield* FileSystem.FileSystem;
+  const path = yield* Path.Path;
+  const { stateDir } = yield* ServerConfig.ServerConfig;
+  const { address } = yield* HttpServer.HttpServer;
+  if (!NetAddress.isInetAddress(address)) return null;
+  // A server bound to every interface is reached over loopback, as MCP clients reach it.
+  const host = NetAddress.isUnspecified(address.address)
+    ? "127.0.0.1"
+    : NetAddress.formatUrlHostString(NetAddress.formatIp(address.address));
+  const self = yield* resolveSelfInvocation();
+  const dir = path.join(stateDir, "shell-bin");
+  const bin = path.join(dir, "probe");
+  const command = [self.command, ...selfInvocationArgs(self, [PROBE_COMMAND])]
+    .map(shellQuote)
+    .join(" ");
+  return yield* Effect.gen(function* () {
+    yield* fs.makeDirectory(dir, { recursive: true });
+    yield* fs.writeFileString(bin, `#!/bin/sh\nexec ${command} "$@"\n`);
+    yield* fs.chmod(bin, 0o755);
+    return {
+      endpoint: `http://${host}:${address.port}${SELF_KILL_PATH}`,
+      bin,
+      path: [dir, process.env.PATH ?? ""].join(":"),
+    } satisfies ShellSelfKill;
+  }).pipe(
+    Effect.catch((error) =>
+      Effect.logWarning("shells start without the probe command", { reason: error.message }).pipe(
+        Effect.as(null),
+      ),
+    ),
+  );
+});
+
 export const layer = Layer.effect(
   Shells,
   Effect.gen(function* () {
@@ -446,6 +564,11 @@ export const layer = Layer.effect(
     const { agentCommand } = yield* ServerConfig.ServerConfig;
     const shells = yield* makeShells(manager, crypto.randomUUIDv4().pipe(Effect.orDie), {
       agentCommand: agentCommand ?? null,
+      newToken: crypto.randomBytes(32).pipe(
+        Effect.map((bytes) => Buffer.from(bytes).toString("base64url")),
+        Effect.orDie,
+      ),
+      selfKill: yield* prepareSelfKill(yield* HostProcess.Platform),
     });
     // Costs one HEAD read per worktree and one folder read per shell, and nothing without shells.
     yield* shells.refreshLocations.pipe(

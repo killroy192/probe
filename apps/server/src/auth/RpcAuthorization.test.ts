@@ -69,7 +69,7 @@ describe("RPC authorization scopes", () => {
       WS_METHODS.shellAttach,
       WS_METHODS.shellWrite,
       WS_METHODS.shellResize,
-      WS_METHODS.shellClose,
+      WS_METHODS.shellKill,
       WS_METHODS.previewStopLocalServer,
     ]) {
       expect(requiredScopeForRpcMethod(method)).toBe(AuthTerminalOperateScope);

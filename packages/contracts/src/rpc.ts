@@ -495,7 +495,7 @@ export const WS_METHODS = {
   shellAttach: "shell.attach",
   shellWrite: "shell.write",
   shellResize: "shell.resize",
-  shellClose: "shell.close",
+  shellKill: "shell.kill",
   workspaceCreate: "workspace.create",
   workspaceRemove: "workspace.remove",
   workspaceOpen: "workspace.open",
@@ -1618,7 +1618,7 @@ const WsShellResizeRpc = Rpc.make(WS_METHODS.shellResize, {
   error: ShellRpcError,
 });
 
-const WsShellCloseRpc = Rpc.make(WS_METHODS.shellClose, {
+const WsShellKillRpc = Rpc.make(WS_METHODS.shellKill, {
   payload: ShellInput,
   error: ShellRpcError,
 });
@@ -2250,7 +2250,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsShellAttachRpc,
   WsShellWriteRpc,
   WsShellResizeRpc,
-  WsShellCloseRpc,
+  WsShellKillRpc,
   WsSubscribeShellsRpc,
   WsWorkspaceCreateRpc,
   WsWorkspaceRemoveRpc,

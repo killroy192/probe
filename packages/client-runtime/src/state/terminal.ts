@@ -165,9 +165,9 @@ export function createShellEnvironmentAtoms<R, E>(
         key: ({ environmentId, input }) => JSON.stringify([environmentId, input.shellId]),
       },
     }),
-    close: createEnvironmentRpcCommand(runtime, {
-      label: "environment-data:shell:close",
-      tag: WS_METHODS.shellClose,
+    kill: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:shell:kill",
+      tag: WS_METHODS.shellKill,
     }),
   };
 }

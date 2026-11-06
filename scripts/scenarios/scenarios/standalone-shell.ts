@@ -120,7 +120,7 @@ export const standaloneShell: Scenario = {
       if (!alive(shell.pid)) throw new Error("The shell ended when the page reloaded.");
 
       // AC-7: ending a shell removes it and its process.
-      await Effect.runPromise(client["shell.close"]({ shellId: shell.shellId }));
+      await Effect.runPromise(client["shell.kill"]({ shellId: shell.shellId }));
       await shells.until("the closed shell to leave the list", (current) =>
         current.every((listed) => listed.shellId !== shell.shellId),
       );

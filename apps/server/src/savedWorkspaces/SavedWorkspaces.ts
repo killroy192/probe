@@ -235,19 +235,64 @@ const make = Effect.gen(function* () {
     return { name: input.name };
   }, lock.withPermits(1));
 
-  const remove = Effect.fn("SavedWorkspaces.remove")(function* (input: WorkspaceInput) {
+  const removeFile = Effect.fn("SavedWorkspaces.removeFile")(function* (name: string) {
+    // An unreadable file still goes; it just has no folders whose shells could be ended.
+    const folders = yield* readFile(name).pipe(
+      Effect.map((file) => (file.folders ?? []).map((folder) => folder.path)),
+      Effect.orElseSucceed((): ReadonlyArray<string> => []),
+    );
     // Only the workspace's own file goes; folders the workspace refers to are never touched.
     yield* fs
-      .remove(fileOf(input.name))
+      .remove(fileOf(name))
       .pipe(
         Effect.mapError((error) =>
           error.reason._tag === "NotFound"
-            ? new WorkspaceNotFoundError({ name: input.name })
+            ? new WorkspaceNotFoundError({ name })
             : new WorkspaceStorageError({ operation: "remove", reason: storageReason(error) }),
         ),
       );
     yield* refreshUnlocked.pipe(Effect.ignore);
+    return folders;
   }, lock.withPermits(1));
+
+  // Starts and removals of one workspace take turns, so a shell started while its workspace is
+  // removed is either killed with the others or never started.
+  const startLocks = new Map<string, Semaphore.Semaphore>();
+  const startLockOf = (name: string) => {
+    const key = name.toLowerCase();
+    const existing = startLocks.get(key);
+    if (existing !== undefined) return existing;
+    const created = Semaphore.makeUnsafe(1);
+    startLocks.set(key, created);
+    return created;
+  };
+
+  /**
+   * Removes a workspace and kills every shell started in one of its projects, also one that
+   * another workspace with the same project started.
+   */
+  const remove = Effect.fn("SavedWorkspaces.remove")(function* (input: WorkspaceInput) {
+    yield* startLockOf(input.name).withPermits(1)(
+      Effect.gen(function* () {
+        const folders = new Set(yield* removeFile(input.name));
+        const running = yield* shells.list;
+        yield* Effect.forEach(
+          running.filter((shell) => folders.has(shell.folder ?? shell.cwd)),
+          // The workspace is gone either way; a shell that would not die is only logged.
+          (shell) =>
+            shells.kill(shell.shellId).pipe(
+              Effect.catch((error) =>
+                Effect.logWarning("could not kill a removed workspace's shell", {
+                  shellId: shell.shellId,
+                  reason: error.message,
+                }),
+              ),
+            ),
+          { discard: true },
+        );
+      }),
+    );
+  });
 
   const readFile = Effect.fn("SavedWorkspaces.readFile")(function* (name: string) {
     const raw = yield* fs
@@ -630,6 +675,12 @@ const make = Effect.gen(function* () {
   });
 
   const startShell = Effect.fn("SavedWorkspaces.startShell")(function* (
+    input: WorkspaceStartShellInput,
+  ) {
+    return yield* startLockOf(input.name).withPermits(1)(startShellUnlocked(input));
+  });
+
+  const startShellUnlocked = Effect.fn("SavedWorkspaces.startShellUnlocked")(function* (
     input: WorkspaceStartShellInput,
   ) {
     yield* requireFolder(input.name, input.folder);
