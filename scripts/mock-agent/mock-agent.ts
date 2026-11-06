@@ -63,7 +63,11 @@ function main(): void {
     NodeFS.appendFileSync(file, `${JSON.stringify(line)}\n`);
     out(reply(line));
   });
-  input.on("close", () => NodeProcess.exit(0));
+  // Scenarios wait for this line before typing into the shell the agent leaves behind.
+  input.on("close", () => {
+    out("mock-agent: bye");
+    NodeProcess.exit(0);
+  });
 }
 
 main();

@@ -9,7 +9,7 @@ import type { ShellSummary } from "@t3tools/contracts";
 import type { PointerPage } from "../browser.ts";
 import { connectRpc } from "../rpc.ts";
 import type { Scenario } from "../scenario.ts";
-import { gone, pageFrames, type recorder } from "../support.ts";
+import { gone, pageFrames } from "../support.ts";
 import {
   addFolder,
   cancelModal,
@@ -23,8 +23,10 @@ import {
   modeSwitch,
   openModal,
   pickItem,
+  runningIn,
   selectedKey,
   shellList,
+  shellRow,
   startButton,
   startFromModal,
   tabs,
@@ -36,8 +38,6 @@ const NAME = /^probe-worktree-[0-9a-f]{6}$/;
 const worktreeNode = (page: PointerPage, path: string) => page.locator(`[data-worktree="${path}"]`);
 const worktreeNodeLabel = (page: PointerPage, path: string) =>
   worktreeNode(page, path).getByRole("treeitem", { level: 3 });
-const shellRow = (page: PointerPage, shellId: string) =>
-  page.getByRole("tree").locator(`[data-shell-id="${shellId}"]`);
 
 /** The generated name the modal shows for a fork. */
 async function proposedName(page: PointerPage) {
@@ -45,22 +45,6 @@ async function proposedName(page: PointerPage) {
   const name = ((await line.textContent()) ?? "").replace("New worktree and branch:", "").trim();
   check(NAME.test(name), `The modal shows no worktree name: ${name}.`);
   return name;
-}
-
-/** Waits until `count` running shells have `cwd`, judged from the current list on. */
-async function runningIn(
-  list: ReturnType<typeof recorder<ReadonlyArray<ShellSummary>>>,
-  cwd: string,
-  count: number,
-) {
-  const running = (shells: ReadonlyArray<ShellSummary>) =>
-    shells.filter((shell) => shell.cwd === cwd && shell.status === "running");
-  const found = await list.until(
-    `${count} running shells in ${cwd}`,
-    (shells) => running(shells).length === count,
-    Math.max(0, list.seen.length - 1),
-  );
-  return running(found);
 }
 
 export const worktrees: Scenario = {

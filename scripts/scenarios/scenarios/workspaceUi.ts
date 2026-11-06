@@ -4,11 +4,12 @@ import * as NodeChildProcess from "node:child_process";
 
 import type { ShellSummary } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
+import * as Fiber from "effect/Fiber";
 import * as Stream from "effect/Stream";
 
 import type { PointerPage } from "../browser.ts";
 import type { WsClient } from "../rpc.ts";
-import { follow, recorder } from "../support.ts";
+import { follow, gone, recorder } from "../support.ts";
 
 // Pointer-only helpers for the workspace screen, shared by the scenarios that drive it.
 
@@ -216,4 +217,131 @@ export async function createWorkspace(page: PointerPage, name: string) {
   await dialog(page).getByRole("button", { name: "Create" }).click();
   await dialog(page).waitFor({ state: "detached" });
   await page.getByRole("tree").getByRole("treeitem", { level: 1, name }).waitFor();
+}
+
+/** Waits until `count` running shells have `cwd`, judged from the current list on. */
+export async function runningIn(
+  list: ReturnType<typeof recorder<ReadonlyArray<ShellSummary>>>,
+  cwd: string,
+  count: number,
+) {
+  const running = (shells: ReadonlyArray<ShellSummary>) =>
+    shells.filter((shell) => shell.cwd === cwd && shell.status === "running");
+  const found = await list.until(
+    `${count} running shells in ${cwd}`,
+    (shells) => running(shells).length === count,
+    Math.max(0, list.seen.length - 1),
+  );
+  return running(found);
+}
+
+/** A shell's row in the tree, the row's button. */
+export const shellRow = (page: PointerPage, shellId: string) =>
+  page.getByRole("tree").locator(`[data-shell-id="${shellId}"]`);
+
+/** A shell's tab in the tab strip. */
+export const shellTab = (page: PointerPage, shellId: string) =>
+  page.getByRole("tablist", { name: "Shells" }).locator(`[data-shell-id="${shellId}"]`);
+
+/** Opens a shell's tab from the tree, or switches to it. */
+export async function openFromTree(page: PointerPage, shellId: string) {
+  await shellRow(page, shellId).click();
+  await shellTab(page, shellId).and(page.locator('[aria-selected="true"]')).waitFor();
+}
+
+/** Closes a shell's tab with the "x" its icon turns into on hover. */
+export async function closeTab(page: PointerPage, shellId: string) {
+  const tab = page
+    .getByRole("tablist", { name: "Shells" })
+    .locator("div", { has: page.locator(`[data-shell-id="${shellId}"]`) })
+    .last();
+  await tab.hover();
+  await tab.getByRole("button", { name: /^Close / }).click();
+  await shellTab(page, shellId).waitFor({ state: "detached" });
+}
+
+/** Clicks the "x" on a shell's tree row; the confirmation is left open for the caller. */
+export async function askToKill(page: PointerPage, shellId: string) {
+  const row = page.locator(`[data-shell-row="${shellId}"]`);
+  await row.hover();
+  await row.getByRole("button", { name: /^Kill / }).click();
+  await page.getByRole("alertdialog").waitFor();
+}
+
+export async function answerKill(page: PointerPage, answer: "Confirm" | "Cancel") {
+  await page.getByRole("alertdialog").getByRole("button", { name: answer, exact: true }).click();
+  await page.getByRole("alertdialog").waitFor({ state: "detached" });
+}
+
+/** Kills a shell from the tree and waits for its row to leave. */
+export async function killFromTree(page: PointerPage, shellId: string) {
+  await askToKill(page, shellId);
+  await answerKill(page, "Confirm");
+  await page.locator(`[data-shell-row="${shellId}"]`).waitFor({ state: "detached" });
+}
+
+/** Whether every pid has ended; gives a killed process the harness's usual grace to leave. */
+export async function allGone(pids: ReadonlyArray<number>) {
+  const results = await Promise.all(pids.map((pid) => gone(pid)));
+  return results.every(Boolean);
+}
+
+/** Starts a shell from a project's "+": in an existing worktree, or forked from the default. */
+export async function startIn(
+  page: PointerPage,
+  project: string,
+  place: { readonly existing?: string; readonly fork?: boolean } = {},
+) {
+  await openModal(page, project);
+  if (place.fork === true) await modeButton(page, "Fork").click();
+  else if ((await modeSwitch(page).count()) > 0) {
+    if ((await mode(page)) !== "Existing") await modeButton(page, "Existing").click();
+    await pickItem(page, "Start in", place.existing ?? project);
+  }
+  const refusal = await startFromModal(page);
+  check(refusal === null, `The shell in ${project} did not start: ${refusal}`);
+}
+
+/** Starts a shell with `startIn` and returns it once the server lists it as running. */
+export async function startShell(
+  page: PointerPage,
+  shells: ReturnType<typeof shellList>,
+  project: string,
+  place: { readonly existing?: string; readonly fork?: boolean } = {},
+) {
+  const known = new Set(shells.current().map((shell) => shell.shellId));
+  await startIn(page, project, place);
+  const list = await shells.lists.until(
+    `a new running shell in ${project}`,
+    (current) => current.some((shell) => !known.has(shell.shellId) && shell.status === "running"),
+    Math.max(0, shells.lists.seen.length - 1),
+  );
+  const shell = list.find((entry) => !known.has(entry.shellId) && entry.status === "running")!;
+  await shellRow(page, shell.shellId).waitFor();
+  return shell;
+}
+
+/** The git fixture runner: commits need an identity, which the throwaway home lacks. */
+export async function gitOk(cwd: string, ...args: Array<string>) {
+  const result = await git(cwd, ["-c", "user.name=t", "-c", "user.email=t@t", ...args]);
+  check(result.ok, `git ${args.join(" ")} failed in the fixture.`);
+  return result.stdout.trim();
+}
+
+/**
+ * Types `exit` into the shell's mock agent once it runs, and waits for its goodbye, so the next
+ * line reaches the shell, not the agent's input buffer.
+ */
+export async function leaveAgent(page: PointerPage, client: WsClient, shellId: string) {
+  const output = recorder<string>();
+  const viewer = follow(client["shell.attach"]({ shellId }), (event) =>
+    output.push(JSON.stringify(event)),
+  );
+  try {
+    await output.until("the agent's banner", (event) => event.includes("Mock Agent v1"));
+    await typeLine(page, "exit");
+    await output.until("the agent's goodbye", (event) => event.includes("mock-agent: bye"));
+  } finally {
+    await Effect.runPromise(Fiber.interrupt(viewer));
+  }
 }

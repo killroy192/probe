@@ -1,4 +1,7 @@
 import { boot } from "./scenarios/boot.ts";
+import { closeTabScenario } from "./scenarios/close-tab.ts";
+import { killShell } from "./scenarios/kill-shell.ts";
+import { manyShells } from "./scenarios/many-shells.ts";
 import { plusModal } from "./scenarios/plus-modal.ts";
 import { standaloneShell } from "./scenarios/standalone-shell.ts";
 import { worktrees } from "./scenarios/worktrees.ts";
@@ -11,9 +14,9 @@ export const scenarios: ReadonlyArray<Scenario> = [
   boot,
   plusModal,
   worktrees,
-  { id: "S4", title: "pending (story 6)" },
-  { id: "S5", title: "pending (story 6)" },
-  { id: "S6", title: "pending (story 6)" },
+  manyShells,
+  closeTabScenario,
+  killShell,
   { id: "S7", title: "pending (story 7)" },
   { id: "S8", title: "pending (story 8)" },
 ];
