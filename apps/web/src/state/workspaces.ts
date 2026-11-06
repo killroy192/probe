@@ -113,6 +113,8 @@ export interface WorkspacesView {
   ) => Promise<
     { readonly folder: string; readonly resolvedFrom: string | null } | { readonly error: string }
   >;
+  /** Removes a project from the shown workspace and kills its shells; the folder stays on disk. */
+  readonly removeFolder: (folder: string) => WorkspaceActionResult;
   /** A git folder's worktrees, branches and a fresh worktree name, read anew on each call. */
   readonly folderGit: (
     folder: string,
@@ -149,6 +151,9 @@ export function useWorkspaces(): WorkspacesView {
   const openCommand = useAtomCommand(workspaceEnvironment.open, { reportFailure: false });
   const removeCommand = useAtomCommand(workspaceEnvironment.remove, { reportFailure: false });
   const addFolderCommand = useAtomCommand(workspaceEnvironment.addFolder, {
+    reportFailure: false,
+  });
+  const removeFolderCommand = useAtomCommand(workspaceEnvironment.removeFolder, {
     reportFailure: false,
   });
   const folderGitCommand = useAtomCommand(workspaceEnvironment.folderGit, {
@@ -254,6 +259,14 @@ export function useWorkspaces(): WorkspacesView {
         },
       );
       return error === null ? { folder, resolvedFrom } : { error };
+    },
+    removeFolder: (folder) => {
+      if (shown === null) return Promise.resolve("Open a workspace first.");
+      const name = shown.name;
+      return run(
+        (id) => removeFolderCommand({ environmentId: id, input: { name, folder } }),
+        (detail, id) => setShown({ environmentId: id, detail }),
+      );
     },
     folderGit: async (folder) => {
       if (shown === null) return { error: "Open a workspace first." };

@@ -268,7 +268,7 @@ export async function askToKill(page: PointerPage, shellId: string) {
   await page.getByRole("alertdialog").waitFor();
 }
 
-export async function answerKill(page: PointerPage, answer: "Confirm" | "Cancel") {
+export async function answerConfirm(page: PointerPage, answer: "Confirm" | "Cancel") {
   await page.getByRole("alertdialog").getByRole("button", { name: answer, exact: true }).click();
   await page.getByRole("alertdialog").waitFor({ state: "detached" });
 }
@@ -276,7 +276,7 @@ export async function answerKill(page: PointerPage, answer: "Confirm" | "Cancel"
 /** Kills a shell from the tree and waits for its row to leave. */
 export async function killFromTree(page: PointerPage, shellId: string) {
   await askToKill(page, shellId);
-  await answerKill(page, "Confirm");
+  await answerConfirm(page, "Confirm");
   await page.locator(`[data-shell-row="${shellId}"]`).waitFor({ state: "detached" });
 }
 

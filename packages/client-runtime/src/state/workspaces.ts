@@ -32,6 +32,10 @@ export function createWorkspaceEnvironmentAtoms<R, E>(
       label: "environment-data:workspace:add-folder",
       tag: WS_METHODS.workspaceAddFolder,
     }),
+    removeFolder: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:workspace:remove-folder",
+      tag: WS_METHODS.workspaceRemoveFolder,
+    }),
     folderGit: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:workspace:folder-git",
       tag: WS_METHODS.workspaceFolderGit,

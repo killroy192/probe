@@ -152,12 +152,18 @@ export const WorkspaceStartShellInput = Schema.Struct({
 });
 export type WorkspaceStartShellInput = typeof WorkspaceStartShellInput.Type;
 
+/** Removes a project from the workspace; its folder stays on disk, its shells are killed. */
+export const WorkspaceRemoveFolderInput = Schema.Struct({
+  name: WorkspaceName,
+  folder: TrimmedNonEmptyString,
+});
+export type WorkspaceRemoveFolderInput = typeof WorkspaceRemoveFolderInput.Type;
+
 export const WorkspaceFolderGitInput = Schema.Struct({
   name: WorkspaceName,
   folder: TrimmedNonEmptyString,
 });
 export type WorkspaceFolderGitInput = typeof WorkspaceFolderGitInput.Type;
-
 
 /** What the worktree and starting-point steps offer for one git folder. */
 export const WorkspaceFolderGit = Schema.Struct({

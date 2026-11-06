@@ -4,6 +4,7 @@ import {
   type ShellSummary,
   type WorkspaceAddFolderInput,
   type WorkspaceAddFolderResult,
+  type WorkspaceRemoveFolderInput,
   type WorkspaceDetail,
   WorkspaceFolderError,
   type WorkspaceFolderGit,
@@ -88,6 +89,16 @@ export class SavedWorkspaces extends Context.Service<
       input: WorkspaceAddFolderInput,
     ) => Effect.Effect<
       WorkspaceAddFolderResult,
+      WorkspaceNotFoundError | WorkspaceInvalidError | WorkspaceFolderError | WorkspaceStorageError
+    >;
+    /**
+     * Removes a project and kills every shell started in it, also one another workspace with the
+     * same project started. The folder stays on disk.
+     */
+    readonly removeFolder: (
+      input: WorkspaceRemoveFolderInput,
+    ) => Effect.Effect<
+      WorkspaceDetail,
       WorkspaceNotFoundError | WorkspaceInvalidError | WorkspaceFolderError | WorkspaceStorageError
     >;
     /** What a git folder offers for a start: its worktrees, branches and a new worktree name. */
@@ -273,24 +284,54 @@ const make = Effect.gen(function* () {
    */
   const remove = Effect.fn("SavedWorkspaces.remove")(function* (input: WorkspaceInput) {
     yield* startLockOf(input.name).withPermits(1)(
-      Effect.gen(function* () {
-        const folders = new Set(yield* removeFile(input.name));
-        const running = yield* shells.list;
-        yield* Effect.forEach(
-          running.filter((shell) => folders.has(shell.folder ?? shell.cwd)),
-          // The workspace is gone either way; a shell that would not die is only logged.
-          (shell) =>
-            shells.kill(shell.shellId).pipe(
-              Effect.catch((error) =>
-                Effect.logWarning("could not kill a removed workspace's shell", {
-                  shellId: shell.shellId,
-                  reason: error.message,
-                }),
-              ),
-            ),
-          { discard: true },
-        );
-      }),
+      removeFile(input.name).pipe(Effect.flatMap((folders) => killShellsIn(new Set(folders)))),
+    );
+  });
+
+  const dropFolder = Effect.fn("SavedWorkspaces.dropFolder")(function* (
+    input: WorkspaceRemoveFolderInput,
+  ) {
+    const { lastFolder, lastStart, ...file } = yield* readFile(input.name);
+    const folders = file.folders ?? [];
+    if (!folders.some((saved) => saved.path === input.folder)) {
+      return yield* folderError(`This folder is not in the workspace: ${input.folder}`);
+    }
+    // A remembered start in the removed project would preselect a project that is gone.
+    const next: SavedWorkspaceFile = {
+      ...file,
+      folders: folders.filter((saved) => saved.path !== input.folder),
+      ...(lastStart == null || lastStart.folder === input.folder ? {} : { lastStart }),
+      ...(lastFolder == null || lastFolder === input.folder ? {} : { lastFolder }),
+    };
+    yield* writeFile(input.name, next);
+    return yield* toDetail(input.name, next);
+  }, lock.withPermits(1));
+
+  const removeFolder = Effect.fn("SavedWorkspaces.removeFolder")(function* (
+    input: WorkspaceRemoveFolderInput,
+  ) {
+    return yield* startLockOf(input.name).withPermits(1)(
+      dropFolder(input).pipe(Effect.tap(() => killShellsIn(new Set([input.folder])))),
+    );
+  });
+
+  const killShellsIn = Effect.fn("SavedWorkspaces.killShellsIn")(function* (
+    folders: ReadonlySet<string>,
+  ) {
+    const running = yield* shells.list;
+    yield* Effect.forEach(
+      running.filter((shell) => folders.has(shell.folder ?? shell.cwd)),
+      // The workspace or project is gone either way; a shell that would not die is only logged.
+      (shell) =>
+        shells.kill(shell.shellId).pipe(
+          Effect.catch((error) =>
+            Effect.logWarning("could not kill a shell of a removed workspace or project", {
+              shellId: shell.shellId,
+              reason: error.message,
+            }),
+          ),
+        ),
+      { discard: true },
     );
   });
 
@@ -733,6 +774,7 @@ const make = Effect.gen(function* () {
     remove,
     open,
     addFolder,
+    removeFolder,
     folderGit,
     startShell,
     get streamChanges() {

@@ -94,6 +94,11 @@ project.
 A project deleted from disk stays in the tree, marked "missing", and can't start
 shells.
 
+To take a project out of the workspace, hover its row and click the remove
+icon, then confirm. Every running shell in the project is killed, including
+shells another workspace started there; the folder and its worktrees stay on
+disk. A missing project can be removed the same way.
+
 ## Tabs, close and kill
 
 Each shell you start or select in the tree opens as a tab. Closing a tab (the

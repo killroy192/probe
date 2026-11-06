@@ -132,6 +132,7 @@ Work areas, not steps:
 | AC-19 | Given the scenarios S4, S5 and S6, when they run, then every Probe UI action (switch tab, close tab, reopen from the tree, kill from the tree, remove workspace) is done with pointer actions only; typing into a shell, including running the kill command, is excluded | auto | NFR-5 |
 | AC-20 | Given a shell is killed (tree or command), when the server log is read, then it has a shell end line with the shell id and cwd | auto | NFR-6 |
 | AC-21 | Given the tree and terminal area, when code review checks them, then no continuously repainting animation was added | manual (reviewer) | NFR-1 |
+| AC-22 | Given a workspace with a project that has running shells, when the user removes the project from its row and confirms, then the project leaves the workspace, its shells' processes are force-killed (also shells another workspace started there), other projects' shells keep running, and the folder stays on disk | auto | FR-24 (extension requested by the user 2026-11-06) |
 
 ## Dependencies
 

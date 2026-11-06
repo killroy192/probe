@@ -1,6 +1,7 @@
 import type { ShellSummary, WorkspaceDetail, WorkspaceSummary } from "@t3tools/contracts";
 import {
   FolderIcon,
+  FolderMinusIcon,
   GitBranchIcon,
   FolderOpenIcon,
   FolderPlusIcon,
@@ -37,6 +38,19 @@ import { StartShellDialog } from "./StartShellDialog";
 import { isActiveShell, worktreeLabel } from "./worktreeChoice";
 
 const NEEDS_WORKSPACE = "Open a workspace first";
+
+/** Asks before removing a project; its running shells are killed with it. */
+const confirmRemoveProject = async (folder: string, workspace: string, running: number) =>
+  (await requestConfirmDialog(
+    [
+      `Remove ${folderName(folder)} from ${workspace}?`,
+      ...(running === 0
+        ? []
+        : [`Its ${running === 1 ? "running shell is" : `${running} running shells are`} killed.`]),
+      "The folder stays on disk.",
+    ].join("\n"),
+    { variant: "destructive" },
+  )) === true;
 
 /** Asks before a kill; a worktree the shell started in is never deleted with it. */
 const confirmKill = async (shell: ShellSummary) =>
@@ -159,6 +173,12 @@ export function WorkspaceSidebar() {
                 // A project deleted on disk since the workspace was opened shows as missing.
                 void act(view.refresh());
               }}
+              canRemoveProject={view.canChange}
+              onRemoveProject={(folder, running) =>
+                void confirmRemoveProject(folder, view.shown?.name ?? "", running).then(
+                  (confirmed) => (confirmed ? act(view.removeFolder(folder)) : undefined),
+                )
+              }
               onKillShell={(shell) =>
                 void confirmKill(shell).then((confirmed) =>
                   confirmed ? act(view.killShell(shell.shellId)) : undefined,
@@ -238,6 +258,8 @@ function ShellTree({
   canStart,
   onCreateShell,
   onKillShell,
+  canRemoveProject,
+  onRemoveProject,
 }: {
   readonly workspace: WorkspaceDetail;
   readonly shells: ReadonlyArray<ShellSummary>;
@@ -246,6 +268,9 @@ function ShellTree({
   readonly canStart: boolean;
   readonly onCreateShell: (folder: string) => void;
   readonly onKillShell: (shell: ShellSummary) => void;
+  readonly canRemoveProject: boolean;
+  /** `running` is how many of the workspace's running shells the removal kills. */
+  readonly onRemoveProject: (folder: string, running: number) => void;
 }) {
   const shellRows = (inGroup: ReadonlyArray<ShellSummary>, level: number) => (
     <div role="group" className="pl-4">
@@ -316,7 +341,7 @@ function ShellTree({
           );
           return (
             <div key={folder.path} data-folder={folder.path}>
-              <div className="flex items-center gap-1 pr-1">
+              <div className="group/project flex items-center gap-1 pr-1">
                 <div
                   role="treeitem"
                   aria-level={2}
@@ -330,6 +355,17 @@ function ShellTree({
                     <span className="shrink-0 text-xs text-muted-foreground">missing</span>
                   )}
                 </div>
+                {/* Shown on hover, also for a missing project, so it can be taken out. */}
+                <span className="opacity-0 group-hover/project:opacity-100 focus-within:opacity-100">
+                  <SidebarHeaderIconButton
+                    label={`Remove ${folderName(folder.path)} from the workspace`}
+                    tooltip="Remove project"
+                    disabled={!canRemoveProject}
+                    onClick={() => onRemoveProject(folder.path, inFolder.length)}
+                  >
+                    <FolderMinusIcon />
+                  </SidebarHeaderIconButton>
+                </span>
                 {folder.exists ? (
                   <SidebarHeaderIconButton
                     label={`Create shell in ${folderName(folder.path)}`}

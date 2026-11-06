@@ -3046,6 +3046,7 @@ export const layerWsRpc = (
         [WS_METHODS.workspaceRemove]: (input) => savedWorkspaces.remove(input),
         [WS_METHODS.workspaceOpen]: (input) => savedWorkspaces.open(input),
         [WS_METHODS.workspaceAddFolder]: (input) => savedWorkspaces.addFolder(input),
+        [WS_METHODS.workspaceRemoveFolder]: (input) => savedWorkspaces.removeFolder(input),
         [WS_METHODS.workspaceStartShell]: (input) => savedWorkspaces.startShell(input),
         [WS_METHODS.workspaceFolderGit]: (input) => savedWorkspaces.folderGit(input),
         [WS_METHODS.subscribeWorkspaces]: (_input) =>

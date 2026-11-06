@@ -88,6 +88,7 @@ describe("RPC authorization scopes", () => {
       WS_METHODS.workspaceCreate,
       WS_METHODS.workspaceRemove,
       WS_METHODS.workspaceAddFolder,
+      WS_METHODS.workspaceRemoveFolder,
     ]) {
       expect(requiredScopeForRpcMethod(method)).toBe(AuthSettingsWriteScope);
     }

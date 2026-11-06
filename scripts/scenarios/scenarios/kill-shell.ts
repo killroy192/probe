@@ -13,7 +13,7 @@ import { alive, gone, pageFrames } from "../support.ts";
 import {
   addFolder,
   allGone,
-  answerKill,
+  answerConfirm,
   askToKill,
   check,
   closeTab,
@@ -50,7 +50,8 @@ export const killShell: Scenario = {
     const folders = NodePath.join(server.home, "folders");
     const repo = NodePath.join(folders, "repo");
     const plain = NodePath.join(folders, "plain");
-    for (const dir of [repo, plain]) await NodeFSP.mkdir(dir, { recursive: true });
+    const extra = NodePath.join(folders, "extra");
+    for (const dir of [repo, plain, extra]) await NodeFSP.mkdir(dir, { recursive: true });
     await gitOk(repo, "init", "-q", "-b", "main");
     await gitOk(repo, "commit", "-q", "--allow-empty", "-m", "one");
 
@@ -98,7 +99,7 @@ export const killShell: Scenario = {
 
     try {
       await createWorkspace(page, "sparta");
-      for (const folder of [repo, plain]) {
+      for (const folder of [repo, plain, extra]) {
         check((await addFolder(page, { import: folder })) === null, `Adding ${folder} failed.`);
       }
 
@@ -107,7 +108,7 @@ export const killShell: Scenario = {
       stage = "AC-18";
       const withJobs = await startShell(page, shells, plain);
       await askToKill(page, withJobs.shellId);
-      await answerKill(page, "Cancel");
+      await answerConfirm(page, "Cancel");
       check(isRunning(withJobs), "Cancelling the kill ended the shell (AC-18).");
       await shellRow(page, withJobs.shellId).waitFor();
 
@@ -193,12 +194,30 @@ export const killShell: Scenario = {
       const vanishedPid = latest(vanished)!.pid!;
       NodeProcess.kill(vanishedPid, "SIGKILL");
       check(await gone(vanishedPid), "The shell ended from outside is still running.");
-      await answerKill(page, "Confirm");
+      await answerConfirm(page, "Confirm");
       await page.locator(`[data-shell-row="${vanished.shellId}"]`).waitFor({ state: "detached" });
       check(
         (await page.getByRole("alert").count()) === 0,
         "Killing an ended shell showed an error.",
       );
+
+      // Removing a project kills its shells and keeps its folder and the other projects' shells.
+
+      stage = "remove project";
+      const inExtra = [
+        await startShell(page, shells, extra),
+        await startShell(page, shells, extra),
+      ];
+      const extraPids = inExtra.map((shell) => latest(shell)!.pid!);
+      const project = page.locator(`[data-folder="${extra}"]`);
+      await project.getByRole("treeitem", { level: 2 }).hover();
+      await project.getByRole("button", { name: /^Remove extra from/ }).click();
+      await page.getByRole("alertdialog").getByText("Its 2 running shells are killed.").waitFor();
+      await answerConfirm(page, "Confirm");
+      await project.waitFor({ state: "detached" });
+      check(await allGone(extraPids), "A shell of the removed project survived.");
+      check(isRunning(unreachable), "Removing a project killed another project's shell.");
+      await NodeFSP.access(extra);
 
       // AC-15, AC-16: removing the workspace kills its running shells and keeps its folders.
 

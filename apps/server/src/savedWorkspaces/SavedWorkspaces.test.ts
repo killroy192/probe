@@ -277,6 +277,43 @@ it.layer(NodeServices.layer)("saved workspaces", (it) => {
     ),
   );
 
+  it.effect("removes a project and kills its shells, keeping the folder and other projects", () =>
+    withWorkspaces(
+      { "sparta.json": '{"version":1}', "athens.json": '{"version":1}' },
+      (dir, fakes) =>
+        Effect.gen(function* () {
+          const workspaces = yield* service;
+          const fs = yield* FileSystem.FileSystem;
+          const [gone, kept] = [`${dir}/gone`, `${dir}/kept`];
+          for (const folder of [gone, kept]) {
+            yield* fs.makeDirectory(folder);
+            yield* workspaces.addFolder({ mode: "import", name: "sparta", path: folder });
+          }
+          yield* workspaces.addFolder({ mode: "import", name: "athens", path: gone });
+          const inKept = yield* workspaces.startShell({ name: "sparta", folder: kept });
+          const inGone = yield* workspaces.startShell({ name: "sparta", folder: gone });
+          const athensInGone = yield* workspaces.startShell({ name: "athens", folder: gone });
+
+          const detail = yield* workspaces.removeFolder({ name: "sparta", folder: gone });
+
+          expect(detail.folders.map((folder) => folder.path)).toEqual([kept]);
+          // The last start was in the removed project, so nothing is preselected any more.
+          assert.isNull(detail.lastStart);
+          assert.deepStrictEqual(yield* workspaces.open({ name: "sparta" }), detail);
+          expect(fakes.killed?.toSorted()).toEqual(
+            [inGone.shellId, athensInGone.shellId].toSorted(),
+          );
+          expect(fakes.running?.map((shell) => shell.shellId)).toEqual([inKept.shellId]);
+          assert.isTrue(yield* fs.exists(gone));
+          const again = yield* Effect.flip(
+            workspaces.removeFolder({ name: "sparta", folder: gone }),
+          );
+          expect(again.message).toContain("not in the workspace");
+        }),
+      { registered: [], opened: [], titles: [], running: [], killed: [] },
+    ),
+  );
+
   it.effect("keeps an unreadable or invalid workspace listed and fails to open it", () =>
     withWorkspaces(
       {
