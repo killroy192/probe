@@ -83,6 +83,11 @@ const layoutErrorAtom = Atom.make<string | null>(null).pipe(
   Atom.withLabel("web-workspace-layout-error"),
 );
 
+// The latest tabs of each workspace and the save in flight, so quick changes build on each
+// other and reach the server in order (the last save wins there).
+const latestTabs = new Map<string, WorkspaceTabs>();
+const pendingSaves = new Map<string, Promise<unknown>>();
+
 // Whether this page already tried to show the workspace it showed before a reload.
 const restoredAtom = Atom.make(false).pipe(
   Atom.keepAlive,
@@ -247,24 +252,36 @@ export function useWorkspaces(): WorkspacesView {
     update: (tabs: WorkspaceTabs) => WorkspaceTabs,
   ) => {
     const key = tabsKey(id, name);
-    const next = update(allTabs[key] ?? NO_TABS);
+    const next = update(latestTabs.get(key) ?? allTabs[key] ?? NO_TABS);
+    latestTabs.set(key, next);
     setAllTabs((all) => ({ ...all, [key]: next }));
-    void saveTabsCommand({
-      environmentId: id,
-      input: { name, tabs: { shellIds: next.shellIds, active: next.activeShellId } },
-    }).then((result) =>
-      setLayoutError(
-        result._tag === "Failure"
-          ? `The layout is not being saved: ${formatEnvironmentQueryError(result.cause)}`
-          : null,
-      ),
-    );
+    const save = (pendingSaves.get(key) ?? Promise.resolve())
+      .then(() =>
+        saveTabsCommand({
+          environmentId: id,
+          input: { name, tabs: { shellIds: next.shellIds, active: next.activeShellId } },
+        }),
+      )
+      .then((result) =>
+        setLayoutError(
+          result._tag === "Failure"
+            ? `The layout is not being saved: ${formatEnvironmentQueryError(result.cause)}`
+            : null,
+        ),
+      )
+      // A save that throws must not stop the ones queued after it.
+      .catch((error: unknown) => setLayoutError(`The layout is not being saved: ${String(error)}`));
+    pendingSaves.set(key, save);
   };
 
   const showDetail = (id: EnvironmentId, detail: WorkspaceDetail) => {
     setShown({ environmentId: id, detail });
-    setAllTabs((all) => ({ ...all, [tabsKey(id, detail.name)]: fromSaved(detail.tabs) }));
     rememberShown(id, detail.name);
+    // Reading the shown workspace again keeps this page's tabs, which may be newer than the file.
+    if (shownState?.environmentId === id && shownState.detail.name === detail.name) return;
+    const tabs = fromSaved(detail.tabs);
+    latestTabs.set(tabsKey(id, detail.name), tabs);
+    setAllTabs((all) => ({ ...all, [tabsKey(id, detail.name)]: tabs }));
   };
 
   const run = async <A>(
@@ -281,7 +298,11 @@ export function useWorkspaces(): WorkspacesView {
 
   const show = (name: string) =>
     run(
-      (id) => openCommand({ environmentId: id, input: { name } }),
+      // The file has this page's last tab change once its saves are done.
+      async (id) => {
+        await pendingSaves.get(tabsKey(id, name));
+        return openCommand({ environmentId: id, input: { name } });
+      },
       (detail, id) => showDetail(id, detail),
     );
 
