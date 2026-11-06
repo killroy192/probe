@@ -10,7 +10,7 @@ export interface ProcessRow {
   readonly sid: number | null;
 }
 
-export const parseProcessTable = (raw: string): ReadonlyArray<ProcessRow> =>
+const parseProcessTable = (raw: string): ReadonlyArray<ProcessRow> =>
   raw.split("\n").flatMap((line) => {
     const [pid, ppid, sid] = line.trim().split(/\s+/).map(Number);
     if (!Number.isInteger(pid) || !Number.isInteger(ppid)) return [];

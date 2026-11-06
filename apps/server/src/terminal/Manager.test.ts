@@ -2197,6 +2197,27 @@ it.layer(
     }).pipe(Effect.provide(logs.layer));
   });
 
+  it.effect("finishes a kill whose caller goes away, as probe kill's request does", () =>
+    Effect.gen(function* () {
+      const { manager } = yield* createManager();
+      const started = yield* Deferred.make<void>();
+      const release = yield* Deferred.make<void>();
+      const shells = yield* makeShells(manager, {
+        killTree: () =>
+          Deferred.succeed(started, undefined).pipe(Effect.andThen(Deferred.await(release))),
+      });
+      const shell = yield* shells.open({ cwd: process.cwd() });
+
+      const killing = yield* shells.kill(shell.shellId).pipe(Effect.forkChild);
+      yield* Deferred.await(started);
+      const interrupting = yield* Fiber.interrupt(killing).pipe(Effect.forkChild);
+      yield* Deferred.succeed(release, undefined);
+      yield* Fiber.join(interrupting);
+
+      expect(yield* shells.list).toEqual([]);
+    }),
+  );
+
   it.effect("gives each shell a token that lets a command inside it kill that shell only", () =>
     Effect.gen(function* () {
       const { manager, ptyAdapter } = yield* createManager();

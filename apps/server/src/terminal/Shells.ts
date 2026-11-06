@@ -372,7 +372,8 @@ export const makeShells = Effect.fn("Shells.make")(function* (
 
   /**
    * Force-ends a shell and everything it started, and forgets it. A shell that already ended or
-   * that this server does not know is forgotten without an error.
+   * that this server does not know is forgotten without an error. Once started a kill finishes:
+   * `probe kill`'s request dies with the shell, which would otherwise interrupt it halfway.
    */
   const kill = Effect.fn("Shells.kill")(function* (shellId: string) {
     const terminal = terminals.get(shellId);
@@ -396,6 +397,7 @@ export const makeShells = Effect.fn("Shells.make")(function* (
           forgetToken(shellId);
         }),
       ),
+      Effect.uninterruptible,
     );
   });
 
