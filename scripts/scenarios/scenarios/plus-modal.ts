@@ -20,12 +20,15 @@ import {
   createWorkspace,
   dialog,
   folderList,
-  folderRadio,
+  createShellButton,
   git,
   history,
   openAddFolder,
   openModal,
-  preselected,
+  mode,
+  modeButton,
+  modeSwitch,
+  selectedKey,
   shellList,
   shellNodes,
   shellsIn,
@@ -80,18 +83,16 @@ export const plusModal: Scenario = {
       await dialog(page).getByRole("button", { name: "Create" }).click();
       await page.getByRole("tree").getByRole("treeitem", { level: 1, name: "sparta" }).waitFor();
 
-      // AC-11: no folder yet, so the up-arrow is disabled.
+      // AC-11: no project yet, so there is nothing to start a shell in.
 
       stage = "AC-11";
-      await openModal(page);
-      check(await startButton(page).isDisabled(), "Start is enabled with no folder (AC-11).");
       check(
-        (await dialog(page)
-          .getByRole("button", { name: /add folder/i })
+        (await page
+          .getByRole("tree")
+          .getByRole("button", { name: /^Create shell in / })
           .count()) === 0,
-        "The start modal offers to add a folder.",
+        "A shell can be started with no project (AC-11).",
       );
-      await cancelModal(page);
       // Adding starts at the server's home; its folders show only once the field is clicked.
       await openAddFolder(page);
       const field = dialog(page).getByRole("combobox", { name: "Folder" });
@@ -114,11 +115,9 @@ export const plusModal: Scenario = {
         `Denied create: ${deniedReason} (AC-17).`,
       );
       await cancelModal(page);
-      await openModal(page);
-      check((await dialog(page).getByRole("radio").count()) === 0, "A refused folder was added.");
-      await cancelModal(page);
+      check((await page.locator("[data-folder]").count()) === 0, "A refused folder was added.");
 
-      // AC-1, AC-8: import an existing git folder; it is selected and has the git badge.
+      // AC-1, AC-8: import an existing git folder; its "+" offers the git choices.
 
       stage = "AC-1, AC-8";
       // The folder is picked by clicking it in the server folder browser, under its typed parent.
@@ -127,16 +126,12 @@ export const plusModal: Scenario = {
         "Importing the git folder failed.",
       );
       check(shells.current().length === 0, "Adding a folder started a shell.");
-      await openModal(page);
-      await folderRadio(page, repo).click();
+      await openModal(page, repo);
       check(
-        (await folderRadio(page, repo).getAttribute("aria-checked")) === "true",
-        "The imported folder is not selected (AC-1, AC-8).",
+        (await mode(page)) === "Existing" && (await selectedKey(page, "Start in")) === repo,
+        "The imported folder's own worktree is not selected (AC-1, AC-8).",
       );
-      check(
-        (await dialog(page).getByText("git", { exact: true }).count()) === 1,
-        "The git folder has no git badge.",
-      );
+      check(await modeButton(page, "Fork").isDisabled(), "Fork is offered with no commit.");
 
       // AC-2, AC-3, AC-21: one click starts a shell; its node appears within 1 s.
 
@@ -229,11 +224,14 @@ export const plusModal: Scenario = {
       );
       await page.setViewportSize({ width: 1200, height: 800 });
 
-      // AC-7, AC-12, AC-24: the folder is preselected; a double click starts exactly one shell.
+      // AC-7, AC-12, AC-24: the last choice is preselected; a double click starts exactly one shell.
 
       stage = "AC-7, AC-12, AC-24";
-      await openModal(page);
-      check((await preselected(page)) === repo, "The last folder is not preselected (AC-7).");
+      await openModal(page, repo);
+      check(
+        (await selectedKey(page, "Start in")) === repo,
+        "The last choice is not preselected (AC-7).",
+      );
       await startButton(page).dblclick();
       await dialog(page).waitFor({ state: "detached" });
       const two = await shellsIn(shells.lists, repo, 2);
@@ -260,8 +258,7 @@ export const plusModal: Scenario = {
       check((await addFolder(page, { parent: folders, name: "fresh" })) === null, "Create failed.");
       check((await git(fresh, ["rev-parse", "--git-dir"])).ok, "The new folder has no git (AC-9).");
       check(!(await git(fresh, ["rev-parse", "HEAD"])).ok, "The new folder has a commit.");
-      await openModal(page);
-      await folderRadio(page, fresh).click();
+      await openModal(page, fresh);
       await startButton(page).click();
       await shellNodes(page, fresh).first().waitFor();
       await shellsIn(shells.lists, fresh, 1);
@@ -278,12 +275,8 @@ export const plusModal: Scenario = {
         (await addFolder(page, { import: plain })) === null,
         "Importing the plain folder failed.",
       );
-      await openModal(page);
-      await folderRadio(page, plain).click();
-      check(
-        (await dialog(page).getByRole("radiogroup", { name: "Worktree" }).count()) === 0,
-        "A plain folder offers a worktree step (AC-10).",
-      );
+      await openModal(page, plain);
+      check((await modeSwitch(page).count()) === 0, "A plain folder offers worktrees (AC-10).");
       await startButton(page).click();
       await shellNodes(page, plain).first().waitFor();
       await shellsIn(shells.lists, plain, 1);
@@ -292,19 +285,18 @@ export const plusModal: Scenario = {
 
       stage = "AC-13";
       const before = { shells: shells.current().length, tabs: await tabs(page).count() };
-      await openModal(page);
+      await openModal(page, repo);
       await cancelModal(page);
       check(
         shells.current().length === before.shells && (await tabs(page).count()) === before.tabs,
         "Closing the modal changed shells or tabs (AC-13).",
       );
 
-      // AC-14, AC-15: a deleted last folder is not preselected and cannot start.
+      // AC-14, AC-15: a deleted folder cannot start a shell.
 
       stage = "AC-14, AC-15";
       // Deleted while the modal is open: starting there shows why and changes nothing.
-      await openModal(page);
-      check((await preselected(page)) === plain, "The last folder is not preselected.");
+      await openModal(page, plain);
       await NodeFSP.rm(plain, { recursive: true });
       await startButton(page).click();
       const missing = await dialog(page).getByRole("alert").textContent();
@@ -315,15 +307,16 @@ export const plusModal: Scenario = {
         shells.current().length === before.shells && (await tabs(page).count()) === before.tabs,
         "A start in a deleted folder left a shell or tab (AC-15).",
       );
-      // Once deleted, the folder is neither offered nor preselected (AC-14); the tree marks it.
-      await openModal(page);
-      await folderRadio(page, repo).waitFor();
-      check((await folderRadio(page, plain).count()) === 0, "A deleted folder is offered.");
-      check((await preselected(page)) === null, "A deleted folder is preselected (AC-14).");
+      // Opening the modal reads the workspace again; the deleted folder is marked and has no "+".
+      await openModal(page, repo);
       await cancelModal(page);
       await page.locator(`[data-folder="${plain}"]`).getByText("missing").waitFor();
+      check(
+        (await createShellButton(page, plain).count()) === 0,
+        "A deleted folder can start (AC-14).",
+      );
 
-      // AC-14: a last folder removed from the workspace is not preselected either.
+      // AC-14: a last start in a folder removed from the workspace is not applied to another.
 
       stage = "AC-14";
       const workspaceFile = NodePath.join(server.home, "userdata", "workspaces", "sparta.json");
@@ -332,10 +325,10 @@ export const plusModal: Scenario = {
         workspaceFile,
         JSON.stringify({ version: 1, folders: [{ path: fresh }], lastFolder: repo }),
       );
-      await openModal(page);
-      await folderRadio(page, fresh).waitFor();
-      check((await preselected(page)) === null, "A folder outside the workspace is preselected.");
+      await openModal(page, fresh);
+      check((await mode(page)) === "Existing", "Another folder's last start was applied.");
       await cancelModal(page);
+      await page.locator(`[data-folder="${repo}"]`).waitFor({ state: "detached" });
       await NodeFSP.writeFile(workspaceFile, saved);
 
       // AC-19: start and end lines, the end caused from outside the app.
@@ -375,8 +368,7 @@ export const plusModal: Scenario = {
       shells = shellList(rpc.client);
       await shells.lists.until("the list after restart", () => true);
       await shellNodes(page).first().waitFor({ state: "detached" });
-      await openModal(page);
-      await folderRadio(page, repo).click();
+      await openModal(page, repo);
       await startButton(page).click();
       const unstartable = await dialog(page).getByRole("alert").textContent();
       check(
@@ -403,14 +395,10 @@ export const plusModal: Scenario = {
         "A folder whose git init failed was left on disk (AC-17).",
       );
       await cancelModal(page);
-      await openModal(page);
       check(
-        (await dialog(page)
-          .getByRole("radio", { name: /broken/ })
-          .count()) === 0,
+        (await page.locator(`[data-folder="${NodePath.join(folders, "broken")}"]`).count()) === 0,
         "A folder whose git init failed was added (AC-17).",
       );
-      await cancelModal(page);
       await rpc.close();
       await server.restart();
       await reopen(page);
@@ -424,8 +412,7 @@ export const plusModal: Scenario = {
       await cut.setViewportSize({ width: 1200, height: 800 });
       const cutter = await connectionCutter(cut);
       await reopen(cut);
-      await openModal(cut);
-      await folderRadio(cut, repo).click();
+      await openModal(cut, repo);
       const dropped = cutter.dropOn("workspace.startShell");
       await startButton(cut).click();
       const servedAtDrop = cutter.served();
@@ -449,20 +436,23 @@ export const plusModal: Scenario = {
         "The retry after a dropped start did not open exactly one tab (AC-18).",
       );
 
-      // AC-25: another workspace has no preselected folder, even one it shares.
+      // AC-25: another workspace starts without folders and without the other's last start.
 
       stage = "AC-25";
       await createWorkspace(page, "athens");
-      await openModal(page);
-      check(await startButton(page).isDisabled(), "Start is enabled in a new workspace (AC-25).");
-      await cancelModal(page);
-      check((await addFolder(page, { import: repo })) === null, "Adding to athens failed.");
-      await openModal(page);
       check(
-        (await preselected(page)) === null,
-        "Another workspace's folder is preselected (AC-25).",
+        (await page
+          .getByRole("tree")
+          .getByRole("button", { name: /^Create shell in / })
+          .count()) === 0,
+        "A new workspace can start a shell with no folder (AC-25).",
       );
-      check(await startButton(page).isDisabled(), "Start is enabled with nothing chosen (AC-25).");
+      check((await addFolder(page, { import: repo })) === null, "Adding to athens failed.");
+      await openModal(page, repo);
+      check(
+        (await mode(page)) === "Existing" && (await selectedKey(page, "Start in")) === repo,
+        "Another workspace's last start is applied (AC-25).",
+      );
       await cancelModal(page);
 
       // AC-23: no chat route was opened at any point (AC-20 holds by PointerPage).

@@ -23,12 +23,21 @@ export const git = (cwd: string, args: ReadonlyArray<string>) =>
     );
   });
 
-export const dialog = (page: PointerPage) => page.getByRole("dialog");
+// Toasts are dialogs too; the app's modals are the dialog popups.
+export const dialog = (page: PointerPage) =>
+  page.getByRole("dialog").and(page.locator('[data-slot="dialog-popup"]'));
 export const startButton = (page: PointerPage) =>
-  dialog(page).getByRole("button", { name: "Start shell", exact: true });
-export const folderRadio = (page: PointerPage, path: string) =>
-  // The label holds the path and the git badge; no fixture path is a prefix of another.
-  dialog(page).getByRole("radiogroup", { name: "Folders" }).getByRole("radio", { name: path });
+  dialog(page).getByRole("button", { name: "Create shell", exact: true });
+/** The "+" on a project's row in the tree. */
+export const createShellButton = (page: PointerPage, folder: string) =>
+  page.locator(`[data-folder="${folder}"]`).getByRole("button", { name: /^Create shell in / });
+/** The Existing | Fork switch; absent for a project that is not a git repository. */
+export const modeSwitch = (page: PointerPage) =>
+  dialog(page).getByRole("group", { name: "Worktree" });
+export const modeButton = (page: PointerPage, mode: "Existing" | "Fork") =>
+  modeSwitch(page).getByRole("button", { name: mode, exact: true });
+export const dropdown = (page: PointerPage, label: "Start in" | "Fork from") =>
+  dialog(page).getByRole("combobox", { name: label });
 /** Shell rows in the tree, or under one folder; a git folder holds them under worktree nodes. */
 export const shellNodes = (page: PointerPage, folder?: string) =>
   (folder === undefined
@@ -46,13 +55,13 @@ const folderList = (page: PointerPage) =>
 export async function closeFolderList(page: PointerPage) {
   if (!(await folderList(page).count())) return;
   // While the list is open the page behind it is hidden from role queries, so find it by tag.
-  await page.locator('[role="dialog"] h2').click();
+  await page.locator('[role="dialog"]:has([data-testid="add-folder"]) h2').click();
   await folderList(page).waitFor({ state: "detached" });
 }
 
 export { folderList };
 
-/** Opens the "Add folder to workspace" dialog from the sidebar's Add project icon. */
+/** Opens the "Add project to workspace" dialog from the sidebar's Add project icon. */
 export async function openAddFolder(page: PointerPage) {
   await page
     .getByRole("navigation", { name: "Workspace" })
@@ -61,13 +70,48 @@ export async function openAddFolder(page: PointerPage) {
   await dialog(page).getByTestId("add-folder").waitFor();
 }
 
-/** Opens the "+" modal and waits for its folder step. */
-export async function openModal(page: PointerPage) {
-  await page
-    .getByRole("navigation", { name: "Workspace" })
-    .getByRole("button", { name: "Start shell", exact: true })
-    .click();
-  await dialog(page).getByText("Pick a folder in").waitFor();
+/** Opens "Create shell" from a project's "+" and waits until a git project's choices loaded. */
+export async function openModal(page: PointerPage, folder: string) {
+  await createShellButton(page, folder).click();
+  await dialog(page).getByRole("heading", { name: "Create shell" }).waitFor();
+  await dialog(page).getByText("Reading worktrees…").waitFor({ state: "detached" });
+}
+
+/** The pressed side of the Existing | Fork switch. */
+export async function mode(page: PointerPage): Promise<"Existing" | "Fork"> {
+  return (await modeButton(page, "Fork").getAttribute("aria-pressed")) === "true"
+    ? "Fork"
+    : "Existing";
+}
+
+/** The key of the dropdown's selected item: a worktree path, or `branch:`/`worktree:` for Fork. */
+export async function selectedKey(page: PointerPage, label: "Start in" | "Fork from") {
+  return dropdown(page, label).locator("[data-key]").getAttribute("data-key");
+}
+
+/** The dropdown's items as [key, kind, first line, second line], in order. */
+export async function dropdownItems(page: PointerPage, label: "Start in" | "Fork from") {
+  await dropdown(page, label).click();
+  const items = page.getByRole("option");
+  await items.first().waitFor();
+  const read = await items.evaluateAll((elements) =>
+    elements.map((element) => [
+      element.getAttribute("data-key"),
+      element.getAttribute("data-kind"),
+      element.getAttribute("data-title"),
+      element.getAttribute("data-worktree"),
+    ]),
+  );
+  // Closes the list the way a user does: picking the item that was already selected.
+  const selected = await selectedKey(page, label);
+  await page.locator(`[role="option"][data-key="${selected}"]`).click();
+  return read;
+}
+
+export async function pickItem(page: PointerPage, label: "Start in" | "Fork from", key: string) {
+  await dropdown(page, label).click();
+  await page.locator(`[role="option"][data-key="${key}"]`).click();
+  await dropdown(page, label).locator(`[data-key="${key}"]`).waitFor();
 }
 
 export async function cancelModal(page: PointerPage) {
@@ -75,20 +119,8 @@ export async function cancelModal(page: PointerPage) {
   await dialog(page).waitFor({ state: "detached" });
 }
 
-/** The checked folder in the open modal, or null. */
-export async function preselected(page: PointerPage): Promise<string | null> {
-  const radios = dialog(page).getByRole("radiogroup", { name: "Folders" }).getByRole("radio");
-  for (let index = 0; index < (await radios.count()); index++) {
-    const radio = radios.nth(index);
-    if ((await radio.getAttribute("aria-checked")) === "true") {
-      return radio.getAttribute("aria-label");
-    }
-  }
-  return null;
-}
-
 /**
- * Adds a folder with the "Add folder to workspace" dialog; returns the refusal, or null once the
+ * Adds a project with the "Add project to workspace" dialog; returns the refusal, or null once the
  * dialog closes. The dialog stays open after a refusal, so the next call reuses it.
  */
 export async function addFolder(
@@ -116,7 +148,7 @@ export async function addFolder(
   const shown = dialog(page).getByRole("alert");
   const previous = (await shown.count()) ? await shown.getAttribute("data-attempt") : "none";
   await dialog(page)
-    .getByRole("button", { name: isImport ? "Add folder" : "Create folder", exact: true })
+    .getByRole("button", { name: isImport ? "Add project" : "Create project", exact: true })
     .click();
   const alert = dialog(page).locator(`[role="alert"]:not([data-attempt="${previous}"])`);
   await Promise.race([panel.waitFor({ state: "detached" }), alert.waitFor()]);

@@ -295,7 +295,7 @@ function WorktreeSelect({
             return option === undefined ? (
               "Pick a worktree"
             ) : (
-              <span className="flex min-w-0 items-center gap-1.5">
+              <span data-key={option.key} className="flex min-w-0 items-center gap-1.5">
                 <OptionIcon kind={option.kind} />
                 <span className="truncate">{option.title}</span>
                 {option.worktree === null ? null : (
@@ -308,7 +308,14 @@ function WorktreeSelect({
       </SelectTrigger>
       <SelectPopup alignItemWithTrigger={false}>
         {options.map((option) => (
-          <SelectItem key={option.key} value={option.key}>
+          <SelectItem
+            key={option.key}
+            value={option.key}
+            data-key={option.key}
+            data-kind={option.kind}
+            data-title={option.title}
+            data-worktree={option.worktree ?? ""}
+          >
             <span className="flex min-w-0 items-start gap-2">
               <OptionIcon kind={option.kind} />
               <span className="grid min-w-0">
