@@ -3,9 +3,9 @@ id: PRB.T-005
 type: story
 parent: PRB.E-001
 phase: 1
-labels: [terminal-first, plan]
+labels: [terminal-first, plan, implement, verify]
 created: 2026-11-02
-updated: 2026-11-02
+updated: 2026-11-05
 ---
 
 # Start a shell in a new or existing worktree
@@ -171,13 +171,13 @@ Once this story ships, in the "+" modal of a workspace, a git folder offers a wo
 
 | ID | Statement | Kind (assumption / unknown) | Status (unverified / verified / false) | How and when to verify | Owner |
 | --- | --- | --- | --- | --- | --- |
-| SA-1 | Probe can list a folder's existing worktrees from git, including those with no shell and those not on a branch (epic A-12). Current code lists worktrees only as an attribute of branches. | assumption | unverified | Prove at the start of this story with a git fixture that has a detached-HEAD worktree and a worktree without a shell. | author |
-| SA-2 | The existing worktree creation in the server can be reused outside chat and orchestration code (epic A-2). The code lives in `apps/server/src/vcs/GitVcsDriverCore.ts` and is exposed by `vcs.createWorktree`, but its thread-bound callers are in orchestration. | assumption | unverified | Read and call it from a test without a thread, before the modal depends on it. | author |
-| SA-3 | Forking a worktree needs at least one commit, so a folder without a commit offers only its own checkout (epic A-17). | assumption | unverified | Run `git worktree add -b` in an empty repository in a fixture. | author |
-| SA-4 | A failed fork can be made to leave nothing behind (no directory, no registered worktree, no new branch). Today the new branch is created before `git worktree add` and no rollback of it was seen in the code. | assumption | unverified | Force a failing `git worktree add` in a fixture and list branches and worktrees afterwards. | author |
-| SA-5 | The mock agent CLI starts the same way inside a worktree as inside a folder's own checkout (story 4). | assumption | unverified | Check in the first scenario of this story. | author |
+| SA-1 | Probe can list a folder's existing worktrees from git, including those with no shell and those not on a branch (epic A-12). Current code lists worktrees only as an attribute of branches. | assumption | verified | Verified 2026-11-05: `GitVcsDriver.listWorktrees` parses `git worktree list --porcelain` including detached worktrees (GitVcsDriverCore test, S3) | author |
+| SA-2 | The existing worktree creation in the server can be reused outside chat and orchestration code (epic A-2). The code lives in `apps/server/src/vcs/GitVcsDriverCore.ts` and is exposed by `vcs.createWorktree`, but its thread-bound callers are in orchestration. | assumption | verified | Verified 2026-11-05: `createWorktree` is called from `SavedWorkspaces` with an explicit path and new branch, no thread involved | author |
+| SA-3 | Forking a worktree needs at least one commit, so a folder without a commit offers only its own checkout (epic A-17). | assumption | verified | Verified 2026-11-05: a folder with no commit is refused for a new worktree and offers only its checkout (SavedWorkspaces test, S3 AC-17) | author |
+| SA-4 | A failed fork can be made to leave nothing behind (no directory, no registered worktree, no new branch). Today the new branch is created before `git worktree add` and no rollback of it was seen in the code. | assumption | verified | Verified 2026-11-05: `createWorktree` creates the branch before `worktree add`; `SavedWorkspaces` removes the registered worktree, its folder and the branch this attempt made (unit test with a blocked `worktree add`, S3 AC-19) | author |
+| SA-5 | The mock agent CLI starts the same way inside a worktree as inside a folder's own checkout (story 4). | assumption | verified | Verified 2026-11-05 in S3: the mock agent banner appears in new and existing worktrees | author |
 | SA-6 | A shell's current branch can be learned and kept up to date after a branch switch inside the shell (epic A-11; the mechanism is TBD (author, 2026-11-16)). | assumption | false | Superseded 2026-11-05 by the user: git keeps one branch per worktree, so Probe shows the worktree's current branch (read from its HEAD) instead of a per-shell branch | author |
-| SU-1 | The time limit for starting a shell in a new worktree (checkout of a large repository can be slow); the epic's NFR-1 limit covers shell start only. | unknown | unverified | Measure in the first scenario and decide with the author. TBD (author, 2026-11-16). | author |
+| SU-1 | The time limit for starting a shell in a new worktree (checkout of a large repository can be slow); the epic's NFR-1 limit covers shell start only. | unknown | verified | Measured 2026-11-05: about 900 ms from click to banner for a new worktree of a tiny repository (S3); reported, not enforced | author |
 | SU-2 | What the modal shows while the fork runs (the epic says nothing). Needed so a long checkout is not a lying spinner and does not repaint continuously. | unknown | verified | Decided by the user 2026-11-05: static text "Creating probe-worktree-<hex>…" with the up-arrow disabled; no percentage, no animation | author |
 | SU-3 | How a branch switch inside a shell is detected (epic A-11, mechanism TBD). | unknown | verified | Decided by the user 2026-11-05: the server reads each worktree's HEAD file (no shell hooks); a switch in any shell updates the worktree node | author |
 | SU-5 | How the scenario ends a shell for the node-removal check before story 6's kill exists (for example the shell's process exits). | unknown | verified | Decided 2026-11-05: the scenario kills the shell's pid from the shell list, as PRB.T-004 S2 AC-19 does | author |
@@ -185,19 +185,22 @@ Once this story ships, in the "+" modal of a workspace, a git folder offers a wo
 
 ## Implementation Status and Handoff
 
-Plan stage done (2026-11-05). The working plan is `.plans/PRB.T-005-worktrees.md` (gitignored, local); this section is enough to continue without it. Branch: `feat/worktrees-prb-t-005`, stacked on `feat/plus-modal-prb-t-004`.
+Implemented 2026-11-05 on `feat/worktrees-prb-t-005` (stacked on `feat/plus-modal-prb-t-004`); not committed or pushed yet. Next: verify stage, manual dev pass.
 
 **Decisions (user, 2026-11-05)**
-- Branch model is the real git state: each worktree node in the tree shows its current branch, read by the server from the worktree's HEAD; no per-shell branch and no branch level (epic FR-7, S4, A-11 and AC-28 to AC-30 rewritten). A shell whose cwd left its worktree stays under it, marked "elsewhere" with its location (the server reads each shell's cwd).
+- Branch model is the real git state: each worktree node in the tree shows its current branch, read by the server from the worktree's HEAD; no per-shell branch and no branch level (epic FR-7, S4, A-11 and AC-28 to AC-30 rewritten). A shell whose cwd left its worktree stays under it, marked "elsewhere" with its location in a tooltip.
 - While a worktree is created, the "+" dialog shows static text "Creating probe-worktree-<hex>…" (SU-2).
 - The tree labels the own checkout "checkout · <branch>"; a linked worktree by its directory name (plus the branch when it differs); non-git folders have no worktree node.
 - The worktree step lives in the "+" (Start shell) dialog; folders are added in the separate Add folder dialog (story 4).
 - Defaults: U-2 the folder's current branch is the default starting point; SU-1 measured and reported, not enforced; SU-5 a scenario kills the shell pid.
+- An ended shell (exited) leaves the tree and frees its worktree for the picker (EC-14); its tab stays until story 6.
 
-**Approach**
-- Server: `GitVcsDriver.listWorktrees` (porcelain, incl. detached) and `hasCommit`; `SavedWorkspaces.folderGit` (worktrees, branches, proposed name, separate errors) and `startShell` with a worktree choice (checkout, existing, new with rollback of only what the attempt created); `lastStart` replaces `lastFolder`; `Shells` keeps folder and worktree per shell and polls HEAD files and shell cwds every ~2 s.
-- Web: worktree and starting-point steps in `StartShellDialog`; tree folder > worktree > shell.
-- Scenario S3 with git fixtures (linked, detached, no commit) and a post-checkout hook that holds a fork open (AC-26); AC-22/AC-23 (listing failures) are covered by unit and browser tests, since real git cannot fail one listing but not the other.
+**What was built**
+- Contracts: `workspace.folderGit` (read scope), `WorkspaceWorktreeChoice` on `workspace.startShell`, `WorkspaceDetail.lastStart` (replaces `lastFolder`; old files with `lastFolder` still read as a checkout start), `ShellSummary.folder/worktree/branch/elsewhere`.
+- Server: `GitVcsDriver.listWorktrees` and `hasCommit`; `SavedWorkspaces.folderGit` and the worktree start (new worktrees go to `<home>/worktrees/<repo>/probe-worktree-<6 hex>`, a taken name is redrawn, forks are serialized, a failed fork is rolled back, a shell failure keeps the worktree); `Shells` keeps folder and worktree per shell and polls HEAD files and shell cwds every 2 s.
+- Web: worktree and starting-point steps in `StartShellDialog` (rules in `worktreeChoice.ts`), tree folder > worktree > shell.
+- Scenario S3 (`scripts/scenarios/scenarios/worktrees.ts`) with git fixtures and a post-checkout hook that holds a fork open (AC-26); shared UI helpers moved to `workspaceUi.ts`. AC-22/AC-23 are covered by `SavedWorkspaces.test.ts` and `StartShellDialog.browser.test.tsx`, since real git cannot fail one listing but not the other.
 
-**Not done**
-- Everything (plan checkpoints 1 to 5).
+**Verification so far**
+- Focused tests pass; typecheck of contracts, client-runtime, server, web, mobile, desktop and scripts; lint, format, knip.
+- `vp run test:scenarios`: S1, S2, S3 and T-002 pass; S3 passed three runs in a row; selftest and `harness.test.ts` pass.
