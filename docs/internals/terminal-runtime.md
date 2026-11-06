@@ -32,8 +32,26 @@ batched `lsof` on macOS, nothing elsewhere), and sends an upsert for the shells 
 "elsewhere" folder changed. It never starts git, so a switch made by any program in the worktree
 shows up, and the cost stays one small file read per worktree and per shell.
 
-A shell outlives its viewers: closing or reloading a page only detaches. It does not
-outlive the server. Shutdown ends every PTY, and the `survivesRestart` process-scope
+`shell.kill` ([`Shells.kill`](../../apps/server/src/terminal/Shells.ts)) is the only way Probe ends
+a shell on purpose: the tree's kill, `probe kill` and workspace removal all go through it. A
+SIGKILL to the pty process alone leaves the shell's background jobs running, so the kill reads
+the process table with `ps`, stops the shell, its descendants and, on Linux, every process in
+its session (which catches a job that double-forked away from its parent), reads it again and
+SIGKILLs them all ([`processTree.ts`](../../apps/server/src/terminal/processTree.ts)). macOS's
+`ps` has no session id, so there a job that double-forked before the kill escapes; Windows
+signals the shell only. A kill is uninterruptible, because `probe kill`'s request dies with the
+shell it kills.
+
+`probe kill` reaches the server without environment auth, like `/mcp`. At startup `Shells`
+writes a `probe` wrapper into `<state dir>/shell-bin` that runs the server's own entry with the
+hidden `__probe` command, dispatched in [`bin.ts`](../../apps/server/src/bin.ts) before the full
+CLI loads. Each shell gets a random token, the endpoint (`POST /api/shell/self/kill` on the
+address the server bound, loopback when it bound every interface), `PROBE_BIN` and a `PATH`
+with that folder first ([`shellEnv.ts`](../../apps/server/src/terminal/shellEnv.ts)). The token
+kills only its own shell and is dropped when the shell ends.
+
+A shell outlives its viewers: closing or reloading a page only detaches, and closing a tab
+in the app is a client-side detach too. It does not outlive the server. Shutdown ends every PTY, and the `survivesRestart` process-scope
 flag does not change that.
 
 ## Output and retention

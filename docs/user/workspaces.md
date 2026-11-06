@@ -24,9 +24,10 @@ The left sidebar shows the shown workspace as the root of its shell tree. The
 another saved one, or removes one. Opening the workspace already shown changes
 nothing. Settings stays at the bottom of the sidebar. Search is not active yet.
 
-Removing a workspace deletes its saved entry. It never deletes folders on disk.
-Removing the shown workspace returns to the start screen, where **Open
-workspace** lists the rest.
+Removing a workspace deletes its saved entry and kills every running shell in
+its projects, including shells another workspace started in a project they
+share. It never deletes folders or worktrees on disk. Removing the shown
+workspace returns to the start screen, where **Open workspace** lists the rest.
 
 A reload returns to the start screen; the list of saved workspaces stays.
 
@@ -91,8 +92,24 @@ Shells in projects that are not git repositories sit directly under the
 project.
 
 A project deleted from disk stays in the tree, marked "missing", and can't start
-shells. Tabs last until the page is reloaded; the shells keep running on the
-server until it stops.
+shells.
+
+## Tabs, close and kill
+
+Each shell you start or select in the tree opens as a tab. Closing a tab (the
+**×** its icon turns into on hover) only hides the terminal: the shell keeps
+running, stays in the tree, and selecting it there opens its tab again with the
+output it printed meanwhile. Tabs last until the page is reloaded; the shells
+keep running on the server until it stops.
+
+To end a shell, hover its row in the tree, click **×** and confirm. The kill
+ends the shell and everything it started, such as background jobs and the
+programs an agent ran. A worktree the shell was forked into stays on disk.
+
+Inside a shell, the command `probe kill` does the same to that shell, so an
+agent can end its own shell. If the shell's startup files replace `PATH`, run
+`"$PROBE_BIN" kill` instead. When the server can't be reached, the command says
+so and the shell keeps running.
 
 ## Agent command
 
