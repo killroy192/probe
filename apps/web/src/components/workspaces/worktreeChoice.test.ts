@@ -1,7 +1,13 @@
 import type { WorkspaceFolderGit, WorkspaceLastStart } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
-import { resolveSelection, startingPoints, toChoice, worktreeLabel } from "./worktreeChoice";
+import {
+  existingWorktrees,
+  resolvePlace,
+  startingPoints,
+  toChoice,
+  type WorktreeOption,
+} from "./worktreeChoice";
 
 const HEAD = "0123456789abcdef";
 const git: WorkspaceFolderGit = {
@@ -21,60 +27,86 @@ const git: WorkspaceFolderGit = {
 
 const resolve = (
   lastStart: WorkspaceLastStart | null,
-  overrides: Partial<Parameters<typeof resolveSelection>[0]> = {},
+  overrides: Partial<Parameters<typeof resolvePlace>[0]> = {},
 ) =>
-  resolveSelection({
+  resolvePlace({
     folder: "/repo",
     git,
     lastStart,
+    chosenMode: null,
     chosenWorktree: null,
     chosenStartingPoint: null,
     ...overrides,
   });
 
+const fromOther: WorkspaceLastStart = {
+  folder: "/repo",
+  worktree: { kind: "new", startingPoint: { kind: "branch", name: "other" } },
+};
+
 describe("worktree choice", () => {
-  it("names the primary worktree, and a linked one by its folder and differing branch", () => {
-    expect(git.worktrees.map(worktreeLabel)).toEqual([
-      "primary · main",
-      "topic",
-      "free · feature",
-      "detached · 0123456",
+  const lines = (options: ReadonlyArray<WorktreeOption>) =>
+    options.map((option) => [option.kind, option.title, option.worktree]);
+
+  it("lists the primary worktree as its branch, then linked worktrees by branch and name", () => {
+    expect(lines(existingWorktrees(git))).toEqual([
+      ["branch", "main", null],
+      ["worktree", "topic", "topic worktree"],
+      ["worktree", "feature", "free worktree"],
+      ["worktree", "0123456", "detached worktree"],
     ]);
   });
 
-  it("offers linked worktrees, then every branch of the primary, its current one first", () => {
-    expect(startingPoints(git).map((point) => point.label)).toEqual([
-      "topic",
-      "free · feature",
-      "detached · 0123456",
-      "primary · main (current)",
-      "primary · feature",
-      "primary · other",
-      "primary · topic",
+  it("offers linked worktrees, then every branch, the primary's current one first", () => {
+    // "topic" and "feature" are checked out in linked worktrees, so they are not listed again.
+    expect(lines(startingPoints(git))).toEqual([
+      ["worktree", "topic", "topic worktree"],
+      ["worktree", "feature", "free worktree"],
+      ["worktree", "0123456", "detached worktree"],
+      ["branch", "main (current)", null],
+      ["branch", "other", null],
     ]);
+    // A branch named like a linked worktree that has another branch checked out goes with it.
+    const switched = {
+      ...git,
+      worktrees: [
+        { path: "/repo", branch: "main", head: HEAD, isMain: true },
+        { path: "/wt/wkt", branch: "wkt-new", head: HEAD, isMain: false },
+      ],
+      branches: ["main", "wkt", "wkt-new", "wkt-old"],
+    };
+    expect(lines(startingPoints(switched))).toEqual([
+      ["worktree", "wkt-new", "wkt worktree"],
+      ["worktree", "wkt", "wkt worktree"],
+      ["branch", "main (current)", null],
+      ["branch", "wkt-old", null],
+    ]);
+    expect(startingPoints(switched)[1]?.point).toEqual({ kind: "branch", name: "wkt" });
     const detachedPrimary = {
       ...git,
       currentBranch: null,
       worktrees: [{ path: "/repo", branch: null, head: HEAD, isMain: true }],
     };
-    expect(startingPoints(detachedPrimary).map((point) => point.label)).toContain(
-      "primary · 0123456 (current)",
+    expect(lines(startingPoints(detachedPrimary))).toContainEqual([
+      "branch",
+      "0123456 (current)",
+      null,
+    ]);
+    expect(resolve(null, { git: detachedPrimary, chosenMode: "new" }).startingPoint).toBe(
+      "worktree:/repo",
     );
-    expect(resolve(null, { git: detachedPrimary, chosenWorktree: { kind: "new" } })).toEqual({
-      worktree: { kind: "new" },
-      startingPoint: "worktree:/repo",
-    });
   });
 
   it.each([
-    ["no earlier start", null, { worktree: { kind: "checkout" }, startingPoint: "branch:main" }],
+    [
+      "no earlier start",
+      null,
+      { mode: "existing", worktree: "/repo", startingPoint: "branch:main" },
+    ],
     [
       "a new worktree from a branch",
-      {
-        folder: "/repo",
-        worktree: { kind: "new", startingPoint: { kind: "branch", name: "other" } },
-      },
-      { worktree: { kind: "new" }, startingPoint: "branch:other" },
+      fromOther,
+      { mode: "new", worktree: "/repo", startingPoint: "branch:other" },
     ],
     [
       "a starting point that is gone",
@@ -82,50 +114,53 @@ describe("worktree choice", () => {
         folder: "/repo",
         worktree: { kind: "new", startingPoint: { kind: "branch", name: "gone" } },
       },
-      { worktree: { kind: "new" }, startingPoint: "branch:main" },
+      { mode: "new", worktree: "/repo", startingPoint: "branch:main" },
     ],
     [
-      "a linked worktree, even one that has shells",
+      "a linked worktree",
       { folder: "/repo", worktree: { kind: "existing", path: "/wt/topic" } },
-      { worktree: { kind: "existing", path: "/wt/topic" }, startingPoint: "branch:main" },
+      { mode: "existing", worktree: "/wt/topic", startingPoint: "branch:main" },
     ],
     [
       "a worktree removed from disk",
       { folder: "/repo", worktree: { kind: "existing", path: "/wt/removed" } },
-      { worktree: { kind: "checkout" }, startingPoint: "branch:main" },
+      { mode: "existing", worktree: "/repo", startingPoint: "branch:main" },
     ],
     [
       "another folder",
-      {
-        folder: "/other",
-        worktree: { kind: "new", startingPoint: { kind: "branch", name: "other" } },
-      },
-      { worktree: { kind: "checkout" }, startingPoint: "branch:main" },
+      { ...fromOther, folder: "/other" },
+      { mode: "existing", worktree: "/repo", startingPoint: "branch:main" },
     ],
   ] as const)("preselects after %s", (_name, lastStart, expected) => {
     expect(resolve(lastStart)).toEqual(expected);
   });
 
-  it("keeps the user's picks over the remembered start, and offers no new worktree without a commit", () => {
-    const remembered: WorkspaceLastStart = {
-      folder: "/repo",
-      worktree: { kind: "new", startingPoint: { kind: "branch", name: "other" } },
-    };
+  it("keeps the user's picks over the remembered start, and has no new mode without a commit", () => {
     expect(
-      resolve(remembered, {
-        chosenWorktree: { kind: "new" },
-        chosenStartingPoint: "worktree:/wt/detached",
-      }),
-    ).toEqual({ worktree: { kind: "new" }, startingPoint: "worktree:/wt/detached" });
-    expect(resolve(remembered, { git: { ...git, hasCommit: false } }).worktree).toEqual({
-      kind: "checkout",
+      resolve(fromOther, { chosenMode: "new", chosenStartingPoint: "worktree:/wt/detached" }),
+    ).toEqual({ mode: "new", worktree: "/repo", startingPoint: "worktree:/wt/detached" });
+    expect(
+      resolve(fromOther, { chosenMode: "existing", chosenWorktree: "/wt/free" }),
+    ).toMatchObject({
+      mode: "existing",
+      worktree: "/wt/free",
     });
+    expect(resolve(fromOther, { git: { ...git, hasCommit: false } }).mode).toBe("existing");
   });
 
-  it("asks for the proposed name and the picked starting point", () => {
-    expect(
-      toChoice(git, { worktree: { kind: "new" }, startingPoint: "worktree:/wt/detached" }),
-    ).toEqual({
+  it("asks for the primary as its checkout, a linked worktree by path, or a new one", () => {
+    const place = { startingPoint: "worktree:/wt/detached" } as const;
+    expect(toChoice(git, { ...place, mode: "existing", worktree: "/repo" })).toEqual({
+      kind: "checkout",
+    });
+    expect(toChoice(git, { ...place, mode: "existing", worktree: "/wt/topic" })).toEqual({
+      kind: "existing",
+      path: "/wt/topic",
+    });
+    expect(toChoice(git, { ...place, mode: "existing", worktree: null })).toEqual({
+      kind: "checkout",
+    });
+    expect(toChoice(git, { ...place, mode: "new", worktree: "/repo" })).toEqual({
       kind: "new",
       name: "probe-worktree-abc123",
       startingPoint: { kind: "worktree", path: "/wt/detached" },
@@ -133,7 +168,7 @@ describe("worktree choice", () => {
     expect(
       toChoice(
         { ...git, branches: [], worktrees: [] },
-        { worktree: { kind: "new" }, startingPoint: null },
+        { mode: "new", worktree: null, startingPoint: null },
       ),
     ).toBeNull();
   });

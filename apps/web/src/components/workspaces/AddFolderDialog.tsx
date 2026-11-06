@@ -95,8 +95,8 @@ export function AddFolderDialog({
       if (result.resolvedFrom !== null) {
         toastManager.add({
           type: "info",
-          title: "Added the repository instead",
-          description: `${result.resolvedFrom} is a worktree of ${result.folder}, so the repository was added. Its worktrees show under it.`,
+          title: "Added the project of this worktree",
+          description: `${result.resolvedFrom} is a worktree of ${result.folder}, so that project was added. Its worktrees are offered when you create a shell.`,
         });
       }
       return null;
@@ -118,15 +118,16 @@ export function AddFolderDialog({
           }}
         >
           <DialogHeader>
-            <DialogTitle>Add folder to workspace</DialogTitle>
+            <DialogTitle>Add project to workspace</DialogTitle>
             <DialogDescription>
-              Import an existing folder into {workspaceName}, or create a new one with git.
+              Import an existing folder into {workspaceName} as a project, or create a new one with
+              git.
             </DialogDescription>
           </DialogHeader>
           <DialogPanel>
             <div className="grid gap-3" data-testid="add-folder">
               <ToggleGroup
-                aria-label="How to add a folder"
+                aria-label="How to add a project"
                 value={[mode]}
                 onValueChange={(value) => {
                   const next = value[0];
@@ -174,7 +175,7 @@ export function AddFolderDialog({
               Cancel
             </Button>
             <Button type="submit" disabled={!ready || action.pending}>
-              {mode === "import" ? "Add folder" : "Create folder"}
+              {mode === "import" ? "Add project" : "Create project"}
             </Button>
           </DialogFooter>
         </form>

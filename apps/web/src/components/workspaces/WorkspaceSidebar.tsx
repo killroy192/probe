@@ -1,14 +1,7 @@
-import type {
-  ShellSummary,
-  WorkspaceDetail,
-  WorkspaceSummary,
-  WorkspaceWorktreeChoice,
-} from "@t3tools/contracts";
+import type { ShellSummary, WorkspaceDetail, WorkspaceSummary } from "@t3tools/contracts";
 import {
   FolderIcon,
   GitBranchIcon,
-  GitForkIcon,
-  ListChecksIcon,
   FolderOpenIcon,
   FolderPlusIcon,
   LayersIcon,
@@ -16,7 +9,6 @@ import {
   SearchIcon,
   SquareTerminalIcon,
   TrashIcon,
-  XIcon,
 } from "lucide-react";
 import { useState } from "react";
 
@@ -38,7 +30,6 @@ import { SidebarContent, SidebarGroup, SidebarInput, SidebarMenuButton } from ".
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { CreateWorkspaceDialog } from "./CreateWorkspaceDialog";
 import { AddFolderDialog } from "./AddFolderDialog";
-import { ManageWorktreesDialog } from "./ManageWorktreesDialog";
 import { folderName, shellName } from "./shellName";
 import { StartShellDialog } from "./StartShellDialog";
 import { isActiveShell, worktreeLabel } from "./worktreeChoice";
@@ -49,38 +40,13 @@ const NEEDS_WORKSPACE = "Open a workspace first";
 export function WorkspaceSidebar() {
   const view = useWorkspaces();
   const [creating, setCreating] = useState(false);
-  const [dialog, setDialog] = useState<"start" | "add" | null>(null);
-  // The folder whose repo-row "New worktree" button opened the dialog.
-  const [newWorktreeIn, setNewWorktreeIn] = useState<string | null>(null);
-  // The repository whose worktrees the "Manage worktrees" dialog shows.
-  const [managing, setManaging] = useState<string | null>(null);
-  // The tree row whose "+" is starting a shell, so a second click is ignored.
-  const [startingRow, setStartingRow] = useState<string | null>(null);
+  const [adding, setAdding] = useState(false);
+  // The project whose "+" opened the create-shell dialog.
+  const [creatingIn, setCreatingIn] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const act = async (action: Promise<string | null>) => setError(await action);
-  // A new worktree only shows up in the folder's list once the workspace is read again.
-  const startShell = async (folder: string, worktree: WorkspaceWorktreeChoice | null) => {
-    const failure = await view.startShell(folder, worktree, null);
-    if (failure === null && worktree?.kind === "new") void view.refresh();
-    return failure;
-  };
-  const startInRow = async (
-    row: string,
-    folder: string,
-    worktree: WorkspaceWorktreeChoice | null,
-  ) => {
-    if (startingRow !== null) return;
-    setStartingRow(row);
-    await act(startShell(folder, worktree));
-    setStartingRow(null);
-  };
   const savedWorkspaces = view.workspaces ?? [];
   const { shells } = useShells(view.environmentId);
-  const openDialog = (which: "start" | "add") => {
-    setDialog(which);
-    // Folders deleted on disk since the workspace was opened must not be preselected.
-    void act(view.refresh());
-  };
 
   return (
     <>
@@ -104,19 +70,11 @@ export function WorkspaceSidebar() {
               <div className="flex shrink-0 items-center">
                 <SidebarHeaderIconButton
                   label="Add project"
-                  tooltip={view.shown === null ? NEEDS_WORKSPACE : "Add a folder to the workspace"}
+                  tooltip={view.shown === null ? NEEDS_WORKSPACE : "Add a project to the workspace"}
                   disabled={view.shown === null || !view.canChange}
-                  onClick={() => openDialog("add")}
+                  onClick={() => setAdding(true)}
                 >
                   <FolderPlusIcon />
-                </SidebarHeaderIconButton>
-                <SidebarHeaderIconButton
-                  label="Start shell"
-                  tooltip={view.shown === null ? NEEDS_WORKSPACE : "Start shell"}
-                  disabled={view.shown === null || !view.canStartShell}
-                  onClick={() => openDialog("start")}
-                >
-                  <PlusIcon />
                 </SidebarHeaderIconButton>
                 <Menu>
                   <MenuTrigger
@@ -183,20 +141,11 @@ export function WorkspaceSidebar() {
               activeShellId={view.tabs.activeShellId}
               onChooseShell={view.activateShell}
               canStart={view.canStartShell}
-              startingRow={startingRow}
-              onStartIn={(row, folder, worktree) => void startInRow(row, folder, worktree)}
-              onNewWorktree={(folder) => {
-                setNewWorktreeIn(folder);
+              onCreateShell={(folder) => {
+                setCreatingIn(folder);
+                // A project deleted on disk since the workspace was opened shows as missing.
                 void act(view.refresh());
               }}
-              onManageWorktrees={(folder) => {
-                setManaging(folder);
-                // Worktrees made outside the app since the workspace was opened are listed too.
-                void act(view.refresh());
-              }}
-              onHideWorktree={(folder, worktree) =>
-                void act(view.setWorktreeVisible(folder, worktree, false))
-              }
             />
           )}
         </SidebarGroup>
@@ -206,39 +155,22 @@ export function WorkspaceSidebar() {
       {view.shown === null ? null : (
         <>
           <StartShellDialog
-            key={`start:${view.shown.name}`}
-            open={dialog === "start"}
-            onOpenChange={(open) => setDialog(open ? "start" : null)}
-            workspace={view.shown}
-            loadGit={view.folderGit}
-            onStart={startShell}
-          />
-          <StartShellDialog
-            key={`new:${view.shown.name}:${newWorktreeIn ?? ""}`}
-            open={newWorktreeIn !== null}
-            onOpenChange={(open) => {
-              if (!open) setNewWorktreeIn(null);
-            }}
-            workspace={view.shown}
-            newWorktreeIn={newWorktreeIn}
-            loadGit={view.folderGit}
-            onStart={startShell}
-          />
-          <ManageWorktreesDialog
-            folder={view.shown.folders.find((folder) => folder.path === managing) ?? null}
-            onOpenChange={(open) => {
-              if (!open) setManaging(null);
-            }}
-            onToggle={(worktree, visible) =>
-              managing === null
-                ? Promise.resolve(null)
-                : view.setWorktreeVisible(managing, worktree, visible)
+            key={`create:${view.shown.name}:${creatingIn ?? ""}`}
+            folder={
+              view.shown.folders.find((folder) => folder.path === creatingIn && folder.exists) ??
+              null
             }
+            onOpenChange={(open) => {
+              if (!open) setCreatingIn(null);
+            }}
+            workspace={view.shown}
+            loadGit={view.folderGit}
+            onStart={(folder, worktree) => view.startShell(folder, worktree, null)}
           />
           <AddFolderDialog
             key={`add:${view.shown.name}`}
-            open={dialog === "add"}
-            onOpenChange={(open) => setDialog(open ? "add" : null)}
+            open={adding}
+            onOpenChange={setAdding}
             environmentId={view.environmentId}
             workspaceName={view.shown.name}
             onAddFolder={view.addFolder}
@@ -265,16 +197,20 @@ export function WorkspaceItems({
   ));
 }
 
-interface WorktreeNode {
-  readonly path: string;
-  readonly isPrimary: boolean;
-  readonly branch: string | null;
-  readonly head: string | null;
+/** Shells grouped by the worktree they started in, in first-start order; null holds non-git ones. */
+function byWorktree(shells: ReadonlyArray<ShellSummary>) {
+  const groups = new Map<string | null, ShellSummary[]>();
+  for (const shell of shells) {
+    const group = groups.get(shell.worktree);
+    if (group === undefined) groups.set(shell.worktree, [shell]);
+    else group.push(shell);
+  }
+  return [...groups];
 }
 
 /**
- * The shown workspace, its folders, under each git folder every worktree (the primary one first)
- * with its shells, and the actions to start a shell in a worktree or create a new worktree.
+ * The shown workspace, its projects with a "+" to create a shell, and under each project the
+ * worktrees that have shells (labelled with their current branch) and those shells.
  */
 function ShellTree({
   workspace,
@@ -282,70 +218,47 @@ function ShellTree({
   activeShellId,
   onChooseShell,
   canStart,
-  startingRow,
-  onStartIn,
-  onNewWorktree,
-  onManageWorktrees,
-  onHideWorktree,
+  onCreateShell,
 }: {
   readonly workspace: WorkspaceDetail;
   readonly shells: ReadonlyArray<ShellSummary>;
   readonly activeShellId: string | null;
   readonly onChooseShell: (shellId: ShellSummary["shellId"]) => void;
   readonly canStart: boolean;
-  readonly startingRow: string | null;
-  readonly onStartIn: (
-    row: string,
-    folder: string,
-    worktree: WorkspaceWorktreeChoice | null,
-  ) => void;
-  readonly onNewWorktree: (folder: string) => void;
-  readonly onManageWorktrees: (folder: string) => void;
-  readonly onHideWorktree: (folder: string, worktree: string) => void;
+  readonly onCreateShell: (folder: string) => void;
 }) {
-  const shellRows = (inGroup: ReadonlyArray<ShellSummary>, level: number) =>
-    inGroup.length === 0 ? null : (
-      <div role="group" className="pl-4">
-        {inGroup.map((shell) => (
-          <SidebarMenuButton
-            key={shell.shellId}
-            role="treeitem"
-            aria-level={level}
-            aria-selected={shell.shellId === activeShellId}
-            isActive={shell.shellId === activeShellId}
-            data-shell-id={shell.shellId}
-            onClick={() => onChooseShell(shell.shellId)}
-          >
-            <SquareTerminalIcon />
-            <span className="truncate">{shellName(shell, { folder: false })}</span>
-            {shell.elsewhere === null ? null : (
-              <Tooltip>
-                <TooltipTrigger
-                  render={
-                    <span
-                      data-elsewhere={shell.elsewhere}
-                      className="ml-auto shrink-0 text-xs text-muted-foreground"
-                    />
-                  }
-                >
-                  elsewhere
-                </TooltipTrigger>
-                <TooltipPopup side="right">Now in {shell.elsewhere}</TooltipPopup>
-              </Tooltip>
-            )}
-          </SidebarMenuButton>
-        ))}
-      </div>
-    );
-
-  const startButton = (row: string, label: string, onClick: () => void) => (
-    <SidebarHeaderIconButton
-      label={label}
-      disabled={!canStart || startingRow !== null}
-      onClick={onClick}
-    >
-      <PlusIcon />
-    </SidebarHeaderIconButton>
+  const shellRows = (inGroup: ReadonlyArray<ShellSummary>, level: number) => (
+    <div role="group" className="pl-4">
+      {inGroup.map((shell) => (
+        <SidebarMenuButton
+          key={shell.shellId}
+          role="treeitem"
+          aria-level={level}
+          aria-selected={shell.shellId === activeShellId}
+          isActive={shell.shellId === activeShellId}
+          data-shell-id={shell.shellId}
+          onClick={() => onChooseShell(shell.shellId)}
+        >
+          <SquareTerminalIcon />
+          <span className="truncate">{shellName(shell, { folder: false })}</span>
+          {shell.elsewhere === null ? null : (
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <span
+                    data-elsewhere={shell.elsewhere}
+                    className="ml-auto shrink-0 text-xs text-muted-foreground"
+                  />
+                }
+              >
+                elsewhere
+              </TooltipTrigger>
+              <TooltipPopup side="right">Now in {shell.elsewhere}</TooltipPopup>
+            </Tooltip>
+          )}
+        </SidebarMenuButton>
+      ))}
+    </div>
   );
 
   return (
@@ -362,40 +275,9 @@ function ShellTree({
       <div role="group">
         {workspace.folders.map((folder) => {
           // Shells from before folders were recorded fall back to their starting folder.
-          const all = folder.worktrees ?? [];
-          // A hidden worktree keeps its shells running, out of the tree.
-          const hidden = new Set(all.filter((w) => !w.visible).map((w) => w.path));
           const inFolder = shells.filter(
-            (shell) =>
-              isActiveShell(shell) &&
-              (shell.folder ?? shell.cwd) === folder.path &&
-              (shell.worktree === null || !hidden.has(shell.worktree)),
+            (shell) => isActiveShell(shell) && (shell.folder ?? shell.cwd) === folder.path,
           );
-          const listed: ReadonlyArray<WorktreeNode> = all
-            .filter((w) => w.visible)
-            .map((worktree) => ({
-              path: worktree.path,
-              isPrimary: worktree.isMain,
-              branch: worktree.branch,
-              head: worktree.head,
-            }));
-          // A shell's worktree that the folder's list misses (removed, or the list failed) still
-          // gets a node, so no shell is hidden.
-          const extra = [
-            ...new Set(
-              inFolder.flatMap((shell) =>
-                shell.worktree !== null && !listed.some((node) => node.path === shell.worktree)
-                  ? [shell.worktree]
-                  : [],
-              ),
-            ),
-          ].map((path) => ({ path, isPrimary: path === folder.path, branch: null, head: null }));
-          const nodes = [...listed, ...extra];
-          const loose = inFolder.filter(
-            (shell) =>
-              shell.worktree === null || !nodes.some((node) => node.path === shell.worktree),
-          );
-          const isRepository = folder.worktrees !== null;
           return (
             <div key={folder.path} data-folder={folder.path}>
               <div className="flex items-center gap-1 pr-1">
@@ -412,86 +294,48 @@ function ShellTree({
                     <span className="shrink-0 text-xs text-muted-foreground">missing</span>
                   )}
                 </div>
-                {!folder.exists ? null : isRepository ? (
-                  <>
-                    <SidebarHeaderIconButton
-                      label="Manage worktrees"
-                      tooltip={`Choose which worktrees of ${folderName(folder.path)} to show`}
-                      onClick={() => onManageWorktrees(folder.path)}
-                    >
-                      <ListChecksIcon />
-                    </SidebarHeaderIconButton>
-                    <SidebarHeaderIconButton
-                      label="New worktree"
-                      tooltip={`New worktree of ${folderName(folder.path)}`}
-                      disabled={!canStart}
-                      onClick={() => onNewWorktree(folder.path)}
-                    >
-                      <GitForkIcon />
-                    </SidebarHeaderIconButton>
-                  </>
-                ) : (
-                  startButton(folder.path, "Start shell here", () =>
-                    onStartIn(
-                      folder.path,
-                      folder.path,
-                      folder.isGitRepository ? { kind: "checkout" } : null,
-                    ),
-                  )
-                )}
+                {folder.exists ? (
+                  <SidebarHeaderIconButton
+                    label={`Create shell in ${folderName(folder.path)}`}
+                    tooltip="Create shell"
+                    disabled={!canStart}
+                    onClick={() => onCreateShell(folder.path)}
+                  >
+                    <PlusIcon />
+                  </SidebarHeaderIconButton>
+                ) : null}
               </div>
-              <div role="group" className="pl-2">
-                {nodes.map((node) => {
-                  const inWorktree = inFolder.filter((shell) => shell.worktree === node.path);
-                  // A shell's polled branch is newer than the list read when the workspace opened.
-                  const branch =
-                    inWorktree.find((shell) => shell.branch !== null)?.branch ??
-                    node.branch ??
-                    (node.head === null ? null : node.head.slice(0, 7));
-                  const label = worktreeLabel({
-                    path: node.path,
-                    isMain: node.isPrimary,
-                    branch,
-                    head: node.head ?? "",
-                  });
-                  return (
-                    <div key={node.path} data-worktree={node.path}>
-                      <div className="flex items-center gap-1 pr-1">
+              {inFolder.length === 0 ? null : (
+                <div role="group" className="pl-2">
+                  {byWorktree(inFolder).map(([worktree, inWorktree]) =>
+                    worktree === null ? (
+                      <div key="no-worktree">{shellRows(inWorktree, 3)}</div>
+                    ) : (
+                      <div key={worktree} data-worktree={worktree}>
                         <div
                           role="treeitem"
                           aria-level={3}
                           aria-selected={false}
-                          aria-label={node.path}
-                          className="flex min-w-0 flex-1 items-center gap-1.5 truncate py-1 pl-4 text-sm text-sidebar-foreground"
+                          aria-label={worktree}
+                          className="flex items-center gap-1.5 truncate py-1 pr-2 pl-4 text-sm text-sidebar-foreground"
                         >
                           <GitBranchIcon className="size-3.5 shrink-0 text-(--sidebar-icon-color)" />
-                          <span className="truncate">{label}</span>
+                          <span className="truncate">
+                            {worktreeLabel({
+                              path: worktree,
+                              isMain: worktree === folder.path,
+                              branch:
+                                inWorktree.find((shell) => shell.branch !== null)?.branch ?? null,
+                              head: "",
+                            })}
+                          </span>
                         </div>
-                        {startButton(node.path, `Start shell in ${label}`, () =>
-                          onStartIn(
-                            node.path,
-                            folder.path,
-                            node.isPrimary
-                              ? { kind: "checkout" }
-                              : { kind: "existing", path: node.path },
-                          ),
-                        )}
-                        {all.some((w) => w.path === node.path) ? (
-                          <SidebarHeaderIconButton
-                            label={`Hide ${label}`}
-                            tooltip="Hide this worktree and its shells (nothing is deleted)"
-                            onClick={() => onHideWorktree(folder.path, node.path)}
-                          >
-                            <XIcon />
-                          </SidebarHeaderIconButton>
-                        ) : null}
+                        {shellRows(inWorktree, 4)}
                       </div>
-                      {shellRows(inWorktree, 4)}
-                    </div>
-                  );
-                })}
-                {shellRows(loose, 3)}
-              </div>
+                    ),
+                  )}
+                </div>
+              )}
             </div>
           );
         })}

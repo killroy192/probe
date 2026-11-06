@@ -1,7 +1,7 @@
 # Workspaces
 
 The browser app opens on a terminal-first screen. A workspace is a named
-collection of folders and the shells you run in them; its shell tree has the
+collection of projects and the shells you run in them; its shell tree has the
 workspace as its root. Chat is hidden in this build: no control opens a chat,
 and an old chat link or bookmark lands on the shown workspace, or on the start
 screen when none is shown.
@@ -30,22 +30,24 @@ workspace** lists the rest.
 
 A reload returns to the start screen; the list of saved workspaces stays.
 
-## Folders and shells
+## Projects and shells
 
-A workspace holds folders, and each shell runs in one of them. Click **+** at
-the top of the sidebar to start a shell: pick a folder and click the up-arrow
-button. The shell opens in a new tab and appears in the tree under its folder.
-Git folders also ask for a worktree first (see [Worktrees](#worktrees)).
-Shells are named by their number in the workspace, their folder and the
+A workspace holds projects, and each shell runs in one of them. Click **+** on a
+project's row in the sidebar to open **Create shell**, then click the up-arrow
+button. The shell opens in a new tab and appears in the tree under its project.
+Git projects also ask where the shell runs (see [Worktrees](#worktrees)).
+Shells are named by their number in the workspace, their project and the
 program running in them, such as "Shell 2 · repo · node".
-It starts the server's agent command (see [Agent command](#agent-command)), and
-leaving the agent leaves the shell open.
+The **Starting script** is the server's agent command (see
+[Agent command](#agent-command)); it can't be changed yet. Leaving the agent
+leaves the shell open.
 
-To add a folder, click the **Add project** icon in the sidebar. Adding a folder
-starts no shell:
+To add a project, click the **Add project** icon at the top of the sidebar.
+Adding a project starts no shell:
 
 - **Import existing folder** adds a folder that is already on the server's
-  disk. Folders that are git repositories show a `git` badge.
+  disk. Git repositories show a `git` badge. If the folder is a worktree of
+  another repository, that repository is added instead.
 - **Create new folder** makes a folder in the place you choose and runs
   `git init` in it. If `git init` fails, the new folder is removed again.
 
@@ -58,40 +60,39 @@ instead.
 
 ## Worktrees
 
-In a folder that is a git repository, the **+** dialog asks where the shell
-runs:
+For a git project, **Create shell** has two choices:
 
-- **Checkout** is the folder itself, on whatever branch it has checked out. It
-  can hold any number of shells.
-- An existing worktree of the folder is listed while no shell runs in it. A
-  worktree on a detached HEAD shows its short commit id.
-- **New worktree** gives the shell its own checkout. Pick its starting point, a
-  local branch or another worktree; the folder's current branch is chosen at
-  first. Probe names the worktree and its new branch `probe-worktree-` plus six
-  hex digits, and creates it in the `worktrees/<repository>` folder of the
-  server's home. A repository needs at least one commit before it can have a
-  new worktree.
+- **Existing** starts the shell in one of the project's worktrees. The first one
+  is the project's own folder, its **primary** worktree, shown by the branch it
+  has checked out. The others show their branch (or short commit id) and their
+  folder name. A worktree can hold any number of shells.
+- **Fork** gives the shell a new worktree of its own. Pick what it forks from: a
+  worktree (its current commit) or a local branch; the primary worktree's
+  current branch is chosen at first. Probe names the new worktree and its branch
+  `probe-worktree-` plus six hex digits, and creates it in the
+  `worktrees/<repository>` folder of the server's home. A repository needs at
+  least one commit before it can be forked.
 
 If creating the worktree fails, the dialog says why and nothing is left
 behind. If the worktree is made but its shell cannot start, the worktree is
-kept and listed the next time. Probe never deletes a worktree when a shell
+kept and listed under **Existing**. Probe never deletes a worktree when a shell
 ends.
 
-The dialog remembers the last successful start in each workspace (folder,
-worktree choice and starting point), so the next one is a single click. A
-remembered worktree that has a shell or is gone is not preselected.
+The dialog remembers the last successful start in the workspace, so the next
+one in the same project is a single click. A remembered worktree or branch that
+is gone falls back to the primary worktree and its current branch.
 
-In the tree, shells sit under their folder and worktree. The worktree is
-labelled "checkout" or by its folder name, followed by the branch it has checked
-out now; switching branch in any of its shells updates it within a few seconds.
-A shell that changes directory out of its worktree stays there, marked
-"elsewhere"; hover the mark to see where it is. Shells in folders that are not
-git repositories sit directly under the folder.
+In the tree, a project lists the worktrees that have running shells, each
+labelled by its branch: "primary · main" for the project's own folder, or the
+worktree's folder name and branch. Switching branch in any of its shells updates
+the label within a few seconds. A shell that changes directory out of its
+worktree stays there, marked "elsewhere"; hover the mark to see where it is.
+Shells in projects that are not git repositories sit directly under the
+project.
 
-Each folder is also registered as a project on the server. The **+** dialog
-lists only folders that still exist on disk. A folder deleted from disk stays in the tree, marked
-"missing". Tabs last until the page is reloaded; the shells keep
-running on the server until it stops.
+A project deleted from disk stays in the tree, marked "missing", and can't start
+shells. Tabs last until the page is reloaded; the shells keep running on the
+server until it stops.
 
 ## Agent command
 

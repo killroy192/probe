@@ -18,7 +18,6 @@ import {
   ShellLaunchError,
   type ShellOpenInput,
   VcsProcessSpawnError,
-  type WorkspaceDetail,
 } from "@t3tools/contracts";
 
 import * as ServerConfig from "../config.ts";
@@ -317,13 +316,8 @@ it.layer(NodeServices.layer)("saved workspaces", (it) => {
         expect(detail).toEqual({
           name: "sparta",
           folders: [
-            { path: plain, isGitRepository: false, exists: true, worktrees: null },
-            {
-              path: `${dir}/fresh`,
-              isGitRepository: true,
-              exists: true,
-              worktrees: [expect.objectContaining({ path: `${dir}/fresh`, isMain: true })],
-            },
+            { path: plain, isGitRepository: false, exists: true },
+            { path: `${dir}/fresh`, isGitRepository: true, exists: true },
           ],
           lastStart: null,
         });
@@ -419,7 +413,7 @@ it.layer(NodeServices.layer)("saved workspaces", (it) => {
         yield* fs.remove(app, { recursive: true });
         assert.deepStrictEqual(yield* workspaces.open({ name: "sparta" }), {
           name: "sparta",
-          folders: [{ path: app, isGitRepository: false, exists: false, worktrees: null }],
+          folders: [{ path: app, isGitRepository: false, exists: false }],
           lastStart: null,
         });
         const gone = yield* Effect.flip(workspaces.startShell({ name: "sparta", folder: app }));
@@ -768,99 +762,36 @@ it.layer(NodeServices.layer)("saved workspaces", (it) => {
     ),
   );
 
-  const shown = (detail: WorkspaceDetail) =>
-    detail.folders.map((folder) =>
-      folder.worktrees === null
-        ? [folder.path, null]
-        : [folder.path, folder.worktrees.filter((w) => w.visible).map((w) => w.path)],
-    );
-
-  it.effect("adds a linked worktree's repository showing only that worktree", () =>
+  it.effect("adds a worktree's repository as the project, and a subfolder as itself", () =>
     withWorkspaces({ "sparta.json": '{"version":1}' }, (dir) =>
       Effect.gen(function* () {
         const workspaces = yield* service;
         const { repo } = yield* makeRepo(dir, { add: false });
         NodeFS.mkdirSync(`${repo}/packages`);
 
-        const linkedImport = yield* workspaces.addFolder({
+        const linked = yield* workspaces.addFolder({
           mode: "import",
           name: "sparta",
           path: `${dir}/linked`,
         });
-        assert.strictEqual(linkedImport.folder, repo);
-        assert.strictEqual(linkedImport.resolvedFrom, `${dir}/linked`);
-        expect(shown(linkedImport.workspace)).toEqual([[repo, [`${dir}/linked`]]]);
-        // Importing another worktree of it adds that one; a subfolder of it is kept as itself.
-        yield* workspaces.addFolder({ mode: "import", name: "sparta", path: `${dir}/detached` });
+        const primary = yield* workspaces.addFolder({ mode: "import", name: "sparta", path: repo });
         const subfolder = yield* workspaces.addFolder({
           mode: "import",
           name: "sparta",
           path: `${repo}/packages`,
         });
 
-        assert.strictEqual(subfolder.resolvedFrom, null);
-        const detail = yield* workspaces.open({ name: "sparta" });
-        expect(shown(detail)).toEqual([
-          [repo, [`${dir}/detached`, `${dir}/linked`]],
+        expect(
+          [linked, primary, subfolder].map((added) => [added.folder, added.resolvedFrom]),
+        ).toEqual([
+          [repo, `${dir}/linked`],
+          [repo, null],
           [`${repo}/packages`, null],
         ]);
-        // All worktrees are listed, the primary first, so hidden ones can be shown again.
-        expect(detail.folders[0]?.worktrees?.map((w) => [w.path, w.isMain, w.visible])).toEqual([
-          [repo, true, false],
-          [`${dir}/detached`, false, true],
-          [`${dir}/linked`, false, true],
+        expect((yield* workspaces.open({ name: "sparta" })).folders.map((f) => f.path)).toEqual([
+          repo,
+          `${repo}/packages`,
         ]);
-      }),
-    ),
-  );
-
-  it.effect("shows only a repository's primary worktree until others are shown or used", () =>
-    withWorkspaces({ "sparta.json": '{"version":1}' }, (dir) =>
-      Effect.gen(function* () {
-        const workspaces = yield* service;
-        const { repo } = yield* makeRepo(dir);
-        const visibility = (worktree: string, visible: boolean) =>
-          workspaces.setWorktreeVisible({ name: "sparta", folder: repo, worktree, visible });
-        expect(shown(yield* workspaces.open({ name: "sparta" }))).toEqual([[repo, [repo]]]);
-
-        expect(shown(yield* visibility(`${dir}/linked`, true))).toEqual([
-          [repo, [repo, `${dir}/linked`]],
-        ]);
-        expect(shown(yield* visibility(repo, false))).toEqual([[repo, [`${dir}/linked`]]]);
-        // A shell started in a hidden worktree shows it again.
-        yield* workspaces.startShell({
-          name: "sparta",
-          folder: repo,
-          worktree: { kind: "existing", path: `${dir}/detached` },
-        });
-        expect(shown(yield* workspaces.open({ name: "sparta" }))).toEqual([
-          [repo, [`${dir}/detached`, `${dir}/linked`]],
-        ]);
-        const notOurs = yield* Effect.flip(visibility(dir, true));
-        expect(notOurs.message).toContain("not a worktree of");
-      }),
-    ),
-  );
-
-  it.effect("shows every worktree of a folder saved before visibility, until one is hidden", () =>
-    withWorkspaces({}, (dir) =>
-      Effect.gen(function* () {
-        const workspaces = yield* service;
-        const fs = yield* FileSystem.FileSystem;
-        const { repo } = yield* makeRepo(dir, { add: false });
-        yield* fs.writeFileString(
-          `${dir}/old.json`,
-          JSON.stringify({ version: 1, folders: [{ path: repo }] }),
-        );
-        const all = [repo, `${dir}/detached`, `${dir}/linked`];
-        expect(shown(yield* workspaces.open({ name: "old" }))).toEqual([[repo, all]]);
-        const hidden = yield* workspaces.setWorktreeVisible({
-          name: "old",
-          folder: repo,
-          worktree: `${dir}/detached`,
-          visible: false,
-        });
-        expect(shown(hidden)).toEqual([[repo, [repo, `${dir}/linked`]]]);
       }),
     ),
   );

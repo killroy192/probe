@@ -22,7 +22,6 @@ export const CLIENT_GUARDED_RPC_SCOPES = {
   [WS_METHODS.workspaceCreate]: AuthSettingsWriteScope,
   [WS_METHODS.workspaceRemove]: AuthSettingsWriteScope,
   [WS_METHODS.workspaceAddFolder]: AuthSettingsWriteScope,
-  [WS_METHODS.workspaceSetWorktreeVisible]: AuthSettingsWriteScope,
   [WS_METHODS.workspaceStartShell]: AuthTerminalOperateScope,
   [WS_METHODS.serverCheckOtlpEndpoint]: AuthSettingsWriteScope,
   [WS_METHODS.pullRequestsRunAction]: AuthSourceControlWriteScope,

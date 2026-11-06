@@ -62,20 +62,11 @@ export const WorkspaceWorktree = Schema.Struct({
 });
 export type WorkspaceWorktree = typeof WorkspaceWorktree.Type;
 
-/** A git folder's worktree as the tree knows it; a hidden one keeps running shells out of view. */
-export const WorkspaceFolderWorktree = Schema.Struct({
-  ...WorkspaceWorktree.fields,
-  visible: Schema.Boolean,
-});
-export type WorkspaceFolderWorktree = typeof WorkspaceFolderWorktree.Type;
-
 export const WorkspaceFolder = Schema.Struct({
   path: Schema.String.check(Schema.isNonEmpty()),
   isGitRepository: Schema.Boolean,
   /** False once the folder is gone from disk; it stays in the workspace but cannot start shells. */
   exists: Schema.Boolean,
-  /** A git folder's worktrees, its primary one first; null outside git or when unreadable. */
-  worktrees: Schema.NullOr(Schema.Array(WorkspaceFolderWorktree)),
 });
 export type WorkspaceFolder = typeof WorkspaceFolder.Type;
 
@@ -182,14 +173,6 @@ export const WorkspaceFolderGit = Schema.Struct({
   branchesError: Schema.NullOr(Schema.String),
 });
 export type WorkspaceFolderGit = typeof WorkspaceFolderGit.Type;
-
-export const WorkspaceWorktreeVisibilityInput = Schema.Struct({
-  name: WorkspaceName,
-  folder: TrimmedNonEmptyString,
-  worktree: TrimmedNonEmptyString,
-  visible: Schema.Boolean,
-});
-export type WorkspaceWorktreeVisibilityInput = typeof WorkspaceWorktreeVisibilityInput.Type;
 
 export const WorkspaceListEvent = Schema.Struct({
   workspaces: Schema.Array(WorkspaceSummary),

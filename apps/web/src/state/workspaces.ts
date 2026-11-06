@@ -99,12 +99,6 @@ export interface WorkspacesView {
   ) => Promise<
     { readonly folder: string; readonly resolvedFrom: string | null } | { readonly error: string }
   >;
-  /** Shows or hides one worktree of a folder in the tree; nothing on disk changes. */
-  readonly setWorktreeVisible: (
-    folder: string,
-    worktree: string,
-    visible: boolean,
-  ) => WorkspaceActionResult;
   /** A git folder's worktrees, branches and a fresh worktree name, read anew on each call. */
   readonly folderGit: (
     folder: string,
@@ -136,9 +130,6 @@ export function useWorkspaces(): WorkspacesView {
   const openCommand = useAtomCommand(workspaceEnvironment.open, { reportFailure: false });
   const removeCommand = useAtomCommand(workspaceEnvironment.remove, { reportFailure: false });
   const addFolderCommand = useAtomCommand(workspaceEnvironment.addFolder, {
-    reportFailure: false,
-  });
-  const visibilityCommand = useAtomCommand(workspaceEnvironment.setWorktreeVisible, {
     reportFailure: false,
   });
   const folderGitCommand = useAtomCommand(workspaceEnvironment.folderGit, {
@@ -243,17 +234,6 @@ export function useWorkspaces(): WorkspacesView {
         },
       );
       return error === null ? { folder, resolvedFrom } : { error };
-    },
-    setWorktreeVisible: (folder, worktree, visible) => {
-      if (shown === null) return Promise.resolve("Open a workspace first.");
-      return run(
-        (id) =>
-          visibilityCommand({
-            environmentId: id,
-            input: { name: shown.name, folder, worktree, visible },
-          }),
-        (detail, id) => setShown({ environmentId: id, detail }),
-      );
     },
     folderGit: async (folder) => {
       if (shown === null) return { error: "Open a workspace first." };

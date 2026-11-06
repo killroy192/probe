@@ -1,12 +1,12 @@
 import type {
   WorkspaceDetail,
+  WorkspaceFolder,
   WorkspaceFolderGit,
   WorkspaceWorktreeChoice,
 } from "@t3tools/contracts";
-import { ArrowUpIcon, FolderIcon, GitBranchIcon, GitForkIcon } from "lucide-react";
-import { useEffect, useEffectEvent, useState } from "react";
+import { ArrowUpIcon, FolderIcon, GitBranchIcon } from "lucide-react";
+import { type ReactNode, useEffect, useEffectEvent, useState } from "react";
 
-import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import {
   Dialog,
@@ -17,61 +17,48 @@ import {
   DialogPopup,
   DialogTitle,
 } from "../ui/dialog";
-import { Radio, RadioGroup } from "../ui/radio-group";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
+import { Toggle, ToggleGroup } from "../ui/toggle-group";
 import { useDialogAction } from "./dialogAction";
 import { folderName } from "./shellName";
 import {
-  PRIMARY,
-  resolveSelection,
+  existingWorktrees,
+  resolvePlace,
   startingPoints,
   toChoice,
-  worktreeLabel,
-  type WorktreeSelection,
+  type WorktreeMode,
+  type WorktreeOption,
 } from "./worktreeChoice";
 
 type GitResult = { readonly git: WorkspaceFolderGit } | { readonly error: string };
 
-const NEW = "new";
-const CHECKOUT = "checkout";
-const EXISTING = "existing:";
-
-const selectionValue = (selection: WorktreeSelection) =>
-  selection.kind === "existing" ? `${EXISTING}${selection.path}` : selection.kind;
-
-const selectionFromValue = (value: string): WorktreeSelection =>
-  value === NEW
-    ? { kind: "new" }
-    : value.startsWith(EXISTING)
-      ? { kind: "existing", path: value.slice(EXISTING.length) }
-      : { kind: "checkout" };
+/** The only starting script until scripts can be chosen. */
+const STARTING_SCRIPT = "mock agent";
 
 /**
- * Picks one of the workspace's folders and, in a git folder, its primary worktree, a linked one
- * or a new one, then starts an agent shell there. With `newWorktreeIn` it only creates a new
- * worktree of that folder. Folders gone from disk are not offered. The dialog stays open with the
- * server's reason when the shell cannot start.
+ * Creates a shell in one project: in an existing worktree, or in a new one forked from a worktree
+ * or a branch. A project that is not a git repository only starts a shell in its folder. The
+ * dialog stays open with the server's reason when the shell cannot start.
  */
 export function StartShellDialog({
-  open,
+  folder,
   onOpenChange,
   workspace,
-  newWorktreeIn = null,
   loadGit,
   onStart,
 }: {
-  readonly open: boolean;
+  /** The project the shell is created in; null keeps the dialog closed. */
+  readonly folder: WorkspaceFolder | null;
   readonly onOpenChange: (open: boolean) => void;
   readonly workspace: WorkspaceDetail;
-  readonly newWorktreeIn?: string | null;
   readonly loadGit: (folder: string) => Promise<GitResult>;
   readonly onStart: (
     folder: string,
     worktree: WorkspaceWorktreeChoice | null,
   ) => Promise<string | null>;
 }) {
-  const [chosen, setChosen] = useState<string | null>(null);
-  const [chosenWorktree, setChosenWorktree] = useState<WorktreeSelection | null>(null);
+  const [chosenMode, setChosenMode] = useState<WorktreeMode | null>(null);
+  const [chosenWorktree, setChosenWorktree] = useState<string | null>(null);
   const [chosenStartingPoint, setChosenStartingPoint] = useState<string | null>(null);
   const [loaded, setLoaded] = useState<{
     readonly folder: string;
@@ -79,59 +66,46 @@ export function StartShellDialog({
   } | null>(null);
   const action = useDialogAction();
 
-  const folders = workspace.folders.filter((folder) => folder.exists);
-  const folderPaths = folders.map((folder) => folder.path);
-  const lastFolder = workspace.lastStart?.folder ?? null;
-  // The remembered folder is offered only while it is still in this workspace (AC-14, AC-25).
-  const selected =
-    newWorktreeIn !== null
-      ? folderPaths.includes(newWorktreeIn)
-        ? newWorktreeIn
-        : null
-      : chosen !== null && folderPaths.includes(chosen)
-        ? chosen
-        : lastFolder !== null && folderPaths.includes(lastFolder)
-          ? lastFolder
-          : null;
-  const isGit = folders.some((folder) => folder.path === selected && folder.isGitRepository);
+  const path = folder?.path ?? null;
+  const isGit = folder?.isGitRepository === true;
 
-  const readGit = useEffectEvent((folder: string) => loadGit(folder));
-  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- reads the folder's worktrees from the server each time the dialog shows it
+  const readGit = useEffectEvent((target: string) => loadGit(target));
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- reads the project's worktrees from the server each time the dialog shows it
   useEffect(() => {
-    if (!open || selected === null || !isGit) return;
+    if (path === null || !isGit) return;
     let current = true;
-    void readGit(selected).then((result) => {
-      if (current) setLoaded({ folder: selected, result });
+    void readGit(path).then((result) => {
+      if (current) setLoaded({ folder: path, result });
     });
     return () => {
       current = false;
     };
-  }, [open, selected, isGit]);
+  }, [path, isGit]);
 
-  const result = isGit && loaded?.folder === selected ? loaded.result : null;
+  const result = isGit && loaded?.folder === path ? loaded.result : null;
   const git = result !== null && "git" in result ? result.git : null;
-  const selection =
-    git === null || selected === null
+  const place =
+    git === null || path === null
       ? null
-      : resolveSelection({
-          folder: selected,
+      : resolvePlace({
+          folder: path,
           git,
           lastStart: workspace.lastStart,
-          chosenWorktree: newWorktreeIn === null ? chosenWorktree : { kind: "new" },
+          chosenMode,
+          chosenWorktree,
           chosenStartingPoint,
         });
-  const choice = git === null || selection === null ? null : toChoice(git, selection);
-  const isNew = selection?.worktree.kind === "new";
+  const choice = git === null || place === null ? null : toChoice(git, place);
+  const isNew = place?.mode === "new";
   const canStart =
-    selected !== null &&
+    path !== null &&
     !action.pending &&
-    (newWorktreeIn === null || isNew) &&
     (!isGit ||
       (result !== null &&
         (git === null || (choice !== null && !(isNew && git.branchesError !== null)))));
 
   const reset = () => {
-    setChosen(null);
+    setChosenMode(null);
     setChosenWorktree(null);
     setChosenStartingPoint(null);
     setLoaded(null);
@@ -147,19 +121,19 @@ export function StartShellDialog({
   };
 
   const start = async () => {
-    if (selected === null || !canStart) return;
-    if (await action.run(() => onStart(selected, isGit ? choice : null))) {
+    if (path === null || !canStart) return;
+    const worktree = isGit ? (choice ?? { kind: "checkout" as const }) : null;
+    if (await action.run(() => onStart(path, worktree))) {
       reset();
       onOpenChange(false);
     } else if (isGit) {
       // A worktree kept or removed by the failed start shows up on retry.
-      const folder = selected;
-      void loadGit(folder).then((next) => setLoaded({ folder, result: next }));
+      void loadGit(path).then((next) => setLoaded({ folder: path, result: next }));
     }
   };
 
   return (
-    <Dialog open={open} onOpenChange={close}>
+    <Dialog open={folder !== null} onOpenChange={close}>
       <DialogPopup className="max-w-lg">
         <form
           className="flex min-h-0 flex-col"
@@ -169,65 +143,93 @@ export function StartShellDialog({
           }}
         >
           <DialogHeader>
-            <DialogTitle>{newWorktreeIn === null ? "Start shell" : "New worktree"}</DialogTitle>
+            <DialogTitle>Create shell</DialogTitle>
             <DialogDescription>
-              {newWorktreeIn === null
-                ? `Pick a folder in ${workspace.name}. The agent starts in a new shell there.`
-                : `Create a worktree of ${folderName(newWorktreeIn)}. The agent starts in a new shell there.`}
+              {path === null ? null : `In ${folderName(path)}. The starting script runs in it.`}
             </DialogDescription>
           </DialogHeader>
           <DialogPanel>
-            {/* A single shrinkable column, so a long folder path truncates instead of scrolling. */}
+            {/* A single shrinkable column, so a long path truncates instead of scrolling. */}
             <div className="grid grid-cols-[minmax(0,1fr)] gap-3">
-              {newWorktreeIn !== null ? null : folders.length === 0 ? (
-                <p className="text-sm text-muted-foreground">
-                  This workspace has no folders yet. Add one with Add project in the sidebar.
-                </p>
-              ) : (
-                <RadioGroup
-                  aria-label="Folders"
-                  value={selected ?? ""}
-                  onValueChange={(value) => {
-                    setChosen(String(value));
-                    setChosenWorktree(null);
-                    setChosenStartingPoint(null);
-                    action.clearError();
-                  }}
-                >
-                  {folders.map((folder) => (
-                    <label
-                      key={folder.path}
-                      className="flex min-w-0 items-center gap-2 rounded-md px-2 py-1.5 hover:bg-accent/50"
-                    >
-                      <Radio value={folder.path} aria-label={folder.path} />
-                      <FolderIcon className="size-4 shrink-0 text-muted-foreground" />
-                      <span className="min-w-0 flex-1 truncate font-mono text-xs">
-                        {folder.path}
-                      </span>
-                      {folder.isGitRepository ? <Badge variant="outline">git</Badge> : null}
-                    </label>
-                  ))}
-                </RadioGroup>
-              )}
+              <Field label="Starting script">
+                <Select value={STARTING_SCRIPT} disabled>
+                  <SelectTrigger size="sm" aria-label="Starting script">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectPopup alignItemWithTrigger={false}>
+                    <SelectItem value={STARTING_SCRIPT}>{STARTING_SCRIPT}</SelectItem>
+                  </SelectPopup>
+                </Select>
+              </Field>
               {!isGit ? null : result === null ? (
                 <p className="text-sm text-muted-foreground">Reading worktrees…</p>
               ) : "error" in result ? (
                 <p className="text-sm text-destructive-foreground">{result.error}</p>
-              ) : selection === null ? null : (
-                <WorktreeStep
-                  git={result.git}
-                  onlyNew={newWorktreeIn !== null}
-                  selection={selection.worktree}
-                  startingPoint={selection.startingPoint}
-                  onSelect={(next) => {
-                    setChosenWorktree(next);
-                    action.clearError();
-                  }}
-                  onStartingPoint={(key) => {
-                    setChosenStartingPoint(key);
-                    action.clearError();
-                  }}
-                />
+              ) : place === null ? null : (
+                <>
+                  <ToggleGroup
+                    aria-label="Worktree"
+                    className="w-full *:flex-1"
+                    value={[place.mode]}
+                    onValueChange={(next) => {
+                      const value = next[0];
+                      if (value === "new" || value === "existing") setChosenMode(value);
+                      action.clearError();
+                    }}
+                  >
+                    <Toggle value="existing">Existing</Toggle>
+                    <Toggle value="new" disabled={!result.git.hasCommit}>
+                      Fork
+                    </Toggle>
+                  </ToggleGroup>
+                  {result.git.hasCommit ? null : (
+                    <p className="text-sm text-muted-foreground">
+                      This repository has no commit yet, so it cannot have another worktree.
+                    </p>
+                  )}
+                  {place.mode === "existing" ? (
+                    <Field label="Start in">
+                      {result.git.worktreesError === null ? (
+                        <WorktreeSelect
+                          label="Start in"
+                          value={place.worktree}
+                          options={existingWorktrees(result.git)}
+                          onChange={(key) => {
+                            setChosenWorktree(key);
+                            action.clearError();
+                          }}
+                        />
+                      ) : (
+                        <p className="text-sm text-destructive-foreground">
+                          The worktrees could not be listed: {result.git.worktreesError}. The shell
+                          starts in the project's folder.
+                        </p>
+                      )}
+                    </Field>
+                  ) : (
+                    <Field label="Fork from">
+                      {result.git.branchesError === null ? (
+                        <WorktreeSelect
+                          label="Fork from"
+                          value={place.startingPoint}
+                          options={startingPoints(result.git)}
+                          onChange={(key) => {
+                            setChosenStartingPoint(key);
+                            action.clearError();
+                          }}
+                        />
+                      ) : (
+                        <p className="text-sm text-destructive-foreground">
+                          The starting points could not be listed: {result.git.branchesError}
+                        </p>
+                      )}
+                      <p className="truncate text-sm">
+                        <span className="text-muted-foreground">New worktree and branch: </span>
+                        <span className="font-mono text-xs">{result.git.proposedWorktreeName}</span>
+                      </p>
+                    </Field>
+                  )}
+                </>
               )}
               {action.pending && isNew && git !== null ? (
                 <p className="text-sm text-muted-foreground">
@@ -249,7 +251,7 @@ export function StartShellDialog({
             <Button type="button" variant="ghost" onClick={() => close(false)}>
               Cancel
             </Button>
-            <Button type="submit" size="icon" aria-label="Start shell" disabled={!canStart}>
+            <Button type="submit" size="icon" aria-label="Create shell" disabled={!canStart}>
               <ArrowUpIcon />
             </Button>
           </DialogFooter>
@@ -259,125 +261,71 @@ export function StartShellDialog({
   );
 }
 
-function WorktreeStep({
-  git,
-  onlyNew,
-  selection,
-  startingPoint,
-  onSelect,
-  onStartingPoint,
-}: {
-  readonly git: WorkspaceFolderGit;
-  readonly onlyNew: boolean;
-  readonly selection: WorktreeSelection;
-  readonly startingPoint: string | null;
-  readonly onSelect: (selection: WorktreeSelection) => void;
-  readonly onStartingPoint: (key: string) => void;
-}) {
-  const primary = git.worktrees.find((worktree) => worktree.isMain);
-  const points = startingPoints(git);
+function Field({ label, children }: { readonly label: string; readonly children: ReactNode }) {
   return (
-    <div className="grid grid-cols-[minmax(0,1fr)] gap-2">
-      {onlyNew ? null : (
-        <RadioGroup
-          aria-label="Worktree"
-          value={selectionValue(selection)}
-          onValueChange={(value) => onSelect(selectionFromValue(String(value)))}
-        >
-          <WorktreeOption
-            value={CHECKOUT}
-            label={
-              primary !== undefined
-                ? worktreeLabel(primary)
-                : git.currentBranch === null
-                  ? PRIMARY
-                  : `${PRIMARY} · ${git.currentBranch}`
-            }
-          />
-          {git.worktrees
-            .filter((worktree) => !worktree.isMain)
-            .map((worktree) => (
-              <WorktreeOption
-                key={worktree.path}
-                value={`${EXISTING}${worktree.path}`}
-                label={worktreeLabel(worktree)}
-                detail={worktree.path}
-              />
-            ))}
-          {git.hasCommit ? <WorktreeOption value={NEW} label="New worktree" icon="new" /> : null}
-        </RadioGroup>
-      )}
-      {onlyNew && !git.hasCommit ? (
-        <p className="text-sm text-muted-foreground">
-          This repository has no commit yet, so it cannot have another worktree.
-        </p>
-      ) : null}
-      {git.worktreesError === null ? null : (
-        <p className="text-sm text-destructive-foreground">
-          The worktrees could not be listed: {git.worktreesError}
-        </p>
-      )}
-      {selection.kind !== "new" ? null : (
-        <div className="grid grid-cols-[minmax(0,1fr)] gap-2 rounded-md border p-2">
-          <p className="truncate text-sm">
-            <span className="text-muted-foreground">New worktree and branch: </span>
-            <span className="font-mono text-xs">{git.proposedWorktreeName}</span>
-          </p>
-          {git.branchesError === null ? (
-            <Select
-              value={startingPoint}
-              onValueChange={(key) => {
-                if (key !== null) onStartingPoint(key);
-              }}
-            >
-              <SelectTrigger size="sm" aria-label="Starting point">
-                <SelectValue>
-                  {(key: string | null) =>
-                    points.find((point) => point.key === key)?.label ?? "Pick a starting point"
-                  }
-                </SelectValue>
-              </SelectTrigger>
-              <SelectPopup alignItemWithTrigger={false}>
-                {points.map((point) => (
-                  <SelectItem key={point.key} value={point.key}>
-                    {point.label}
-                  </SelectItem>
-                ))}
-              </SelectPopup>
-            </Select>
-          ) : (
-            <p className="text-sm text-destructive-foreground">
-              The starting points could not be listed: {git.branchesError}
-            </p>
-          )}
-        </div>
-      )}
+    <div className="grid grid-cols-[minmax(0,1fr)] gap-1.5">
+      <span className="text-xs font-medium text-muted-foreground">{label}</span>
+      {children}
     </div>
   );
 }
 
-function WorktreeOption({
-  value,
+function WorktreeSelect({
   label,
-  detail,
-  icon,
+  value,
+  options,
+  onChange,
 }: {
-  readonly value: string;
   readonly label: string;
-  readonly detail?: string;
-  readonly icon?: "new";
+  readonly value: string | null;
+  readonly options: ReadonlyArray<WorktreeOption>;
+  readonly onChange: (key: string) => void;
 }) {
-  const Icon = icon === "new" ? GitForkIcon : GitBranchIcon;
   return (
-    <label className="flex min-w-0 items-center gap-2 rounded-md px-2 py-1.5 hover:bg-accent/50">
-      <Radio value={value} aria-label={label} />
-      <Icon className="size-4 shrink-0 text-muted-foreground" />
-      <span className="shrink-0 text-sm">{label}</span>
-      {detail === undefined ? null : (
-        <span className="min-w-0 flex-1 truncate font-mono text-xs text-muted-foreground">
-          {detail}
-        </span>
-      )}
-    </label>
+    <Select
+      value={value}
+      onValueChange={(key) => {
+        if (key !== null) onChange(key);
+      }}
+    >
+      <SelectTrigger size="sm" aria-label={label}>
+        <SelectValue>
+          {(key: string | null) => {
+            const option = options.find((candidate) => candidate.key === key);
+            return option === undefined ? (
+              "Pick a worktree"
+            ) : (
+              <span className="flex min-w-0 items-center gap-1.5">
+                <OptionIcon kind={option.kind} />
+                <span className="truncate">{option.title}</span>
+                {option.worktree === null ? null : (
+                  <span className="truncate text-muted-foreground">{option.worktree}</span>
+                )}
+              </span>
+            );
+          }}
+        </SelectValue>
+      </SelectTrigger>
+      <SelectPopup alignItemWithTrigger={false}>
+        {options.map((option) => (
+          <SelectItem key={option.key} value={option.key}>
+            <span className="flex min-w-0 items-start gap-2">
+              <OptionIcon kind={option.kind} />
+              <span className="grid min-w-0">
+                <span className="truncate">{option.title}</span>
+                {option.worktree === null ? null : (
+                  <span className="truncate text-xs text-muted-foreground">{option.worktree}</span>
+                )}
+              </span>
+            </span>
+          </SelectItem>
+        ))}
+      </SelectPopup>
+    </Select>
   );
+}
+
+function OptionIcon({ kind }: { readonly kind: WorktreeOption["kind"] }) {
+  const Icon = kind === "worktree" ? FolderIcon : GitBranchIcon;
+  return <Icon className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />;
 }
