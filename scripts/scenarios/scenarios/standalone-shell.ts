@@ -126,20 +126,23 @@ export const standaloneShell: Scenario = {
       );
       if (!(await gone(shell.pid))) throw new Error(`Shell process ${shell.pid} is still running.`);
 
-      // A-14 as the spike recorded it: a server restart ends shells (story 7 changes this).
+      // A-14 (PRB.T-007): a server restart leaves a running shell running, and lists it again.
       const survivor = await openShell(client, workspace);
       await rpc.close();
       await server.restart();
-      if (survivor.pid !== null && !(await gone(survivor.pid))) {
-        throw new Error("A shell survived a server restart; update A-14 and story 7.");
+      if (survivor.pid === null || !alive(survivor.pid)) {
+        throw new Error("A running shell ended with the server restart.");
       }
       const after = await connectRpc(server.origin, page);
       try {
         const first = await Effect.runPromise(
           after.client.subscribeShells({}).pipe(Stream.take(1), Stream.runCollect),
         );
-        const leftover = first.flatMap((event) => (event.type === "snapshot" ? event.shells : []));
-        if (leftover.length > 0) throw new Error("Shells are listed after a server restart.");
+        const listed = first.flatMap((event) => (event.type === "snapshot" ? event.shells : []));
+        const back = listed.find((entry) => entry.shellId === survivor.shellId);
+        if (back?.status !== "running" || back.pid !== survivor.pid) {
+          throw new Error(`The shell is not back as the same process: ${JSON.stringify(back)}.`);
+        }
       } finally {
         await after.close();
       }

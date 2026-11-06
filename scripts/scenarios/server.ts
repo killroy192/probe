@@ -1,6 +1,7 @@
 // @effect-diagnostics nodeBuiltinImport:off globalTimers:off - Scenario runner owns the server child process.
 
 import * as NodeChildProcess from "node:child_process";
+import * as NodeFS from "node:fs";
 import * as NodeNet from "node:net";
 import * as NodePath from "node:path";
 import * as NodeProcess from "node:process";
@@ -29,7 +30,20 @@ export interface ServerHandle {
   readonly pairingUrl: () => Promise<string>;
   /** Runs a `bin.ts` subcommand against this server's home, for fixtures. */
   readonly cli: (args: ReadonlyArray<string>) => Promise<string>;
+  /** The shell host that keeps this home's shells across restarts, from its pid file; null when none runs. */
+  readonly shellHostPid: () => number | null;
+  /** Stops the shell host by the pid it wrote into this home, which ends every shell in it. */
+  readonly stopShellHost: (signal?: NodeJS.Signals) => Promise<void>;
 }
+
+const isAlive = (pid: number) => {
+  try {
+    NodeProcess.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+};
 
 // The child must see only what the harness gives it, never an ambient home or dev URL.
 const childEnv = (overrides: ServerEnv = {}): NodeJS.ProcessEnv => {
@@ -173,6 +187,16 @@ export async function startServer(options: {
     if (child) await stopChild(child);
   };
   const origin = `http://${HOST}:${port}`;
+  // Written by the server's shell host in this throwaway home (`shellHostPidPath`).
+  const shellHostPidFile = NodePath.join(options.home, "userdata", "shell-host-v1.pid");
+  const shellHostPid = () => {
+    try {
+      const pid = Number(NodeFS.readFileSync(shellHostPidFile, "utf8").trim());
+      return Number.isInteger(pid) && pid > 0 && isAlive(pid) ? pid : null;
+    } catch {
+      return null;
+    }
+  };
   const cli = (args: ReadonlyArray<string>) =>
     runCli(serverBin, [...args, "--base-dir", options.home]);
   return {
@@ -195,5 +219,19 @@ export async function startServer(options: {
       return `${origin}/pair#${new URLSearchParams([["token", credential]]).toString()}`;
     },
     cli,
+    shellHostPid,
+    stopShellHost: async (signal = "SIGTERM") => {
+      const pid = shellHostPid();
+      if (pid === null) return;
+      NodeProcess.kill(pid, signal);
+      const deadline = Date.now() + 5_000;
+      while (isAlive(pid)) {
+        if (Date.now() > deadline) {
+          NodeProcess.kill(pid, "SIGKILL");
+          break;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+    },
   };
 }

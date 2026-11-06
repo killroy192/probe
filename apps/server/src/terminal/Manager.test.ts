@@ -22,6 +22,7 @@ import * as Layer from "effect/Layer";
 import * as Logger from "effect/Logger";
 import * as PlatformError from "effect/PlatformError";
 import * as Path from "effect/Path";
+import * as Queue from "effect/Queue";
 import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
 import * as Scope from "effect/Scope";
@@ -114,6 +115,14 @@ class FakePtyProcess implements PtyAdapter.PtyProcess {
   }
 }
 
+/** A process in the shell host: shutdown lets go of it instead of ending it. */
+class DetachablePtyProcess extends FakePtyProcess {
+  detached = false;
+  detach(): void {
+    this.detached = true;
+  }
+}
+
 class FakePtyAdapter {
   readonly spawnInputs: PtyAdapter.PtySpawnInput[] = [];
   readonly processes: FakePtyProcess[] = [];
@@ -121,9 +130,11 @@ class FakePtyAdapter {
   private readonly mode: "sync" | "async";
   private nextPid = 9000;
   exitOnSubscribe: PtyAdapter.PtyExitEvent | undefined;
+  private readonly detachable: boolean;
 
-  constructor(mode: "sync" | "async" = "sync") {
+  constructor(mode: "sync" | "async" = "sync", detachable = false) {
     this.mode = mode;
+    this.detachable = detachable;
   }
 
   spawn(
@@ -140,7 +151,9 @@ class FakePtyAdapter {
         }),
       );
     }
-    const process = new FakePtyProcess(this.nextPid++);
+    const process = this.detachable
+      ? new DetachablePtyProcess(this.nextPid++)
+      : new FakePtyProcess(this.nextPid++);
     process.exitOnSubscribe = this.exitOnSubscribe;
     this.processes.push(process);
     if (this.mode === "async") {
@@ -232,6 +245,9 @@ interface CreateManagerOptions {
   maxRetainedInactiveSessions?: number;
   historyByteLimit?: number;
   ptyAdapter?: FakePtyAdapter;
+  shellPtyAdapter?: FakePtyAdapter;
+  /** A folder that outlives the manager, for what it saves at shutdown. */
+  baseDir?: string;
   resolveProviderInstanceEnvironment?: Parameters<
     typeof TerminalManager.makeWithOptions
   >[0]["resolveProviderInstanceEnvironment"];
@@ -258,7 +274,8 @@ const createManager = (
   Effect.flatMap(Effect.service(FileSystem.FileSystem), (fs) =>
     Effect.gen(function* () {
       const { join } = yield* Path.Path;
-      const baseDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3code-terminal-" });
+      const baseDir =
+        options.baseDir ?? (yield* fs.makeTempDirectoryScoped({ prefix: "t3code-terminal-" }));
       const logsDir = join(baseDir, "userdata", "logs", "terminals");
       const ptyAdapter = options.ptyAdapter ?? new FakePtyAdapter();
 
@@ -266,6 +283,9 @@ const createManager = (
         logsDir,
         historyLineLimit,
         ptyAdapter,
+        ...(options.shellPtyAdapter !== undefined
+          ? { shellPtyAdapter: options.shellPtyAdapter }
+          : {}),
         ...(options.historyByteLimit !== undefined
           ? { historyByteLimit: options.historyByteLimit }
           : {}),
@@ -2165,7 +2185,13 @@ it.layer(
       });
       expect(logs.lines).toContainEqual({
         message: "shell ended",
-        fields: { shellId: agent.shellId, cwd: process.cwd(), exitCode: 0, exitSignal: 9 },
+        fields: {
+          shellId: agent.shellId,
+          cwd: process.cwd(),
+          exitCode: 0,
+          exitSignal: 9,
+          reason: "signal",
+        },
       });
     }).pipe(Effect.provide(logs.layer));
   });
@@ -2225,7 +2251,7 @@ it.layer(
       const shells = yield* makeShells(manager, {
         newToken: Effect.sync(() => `token-${++nextToken}`),
         selfKill: {
-          endpoint: "http://127.0.0.1:1/kill",
+          endpointFile: "/state/shell-bin/endpoint",
           bin: "/bin-dir/probe",
           path: "/bin-dir:/usr/bin",
         },
@@ -2236,7 +2262,7 @@ it.layer(
       expect(ptyAdapter.spawnInputs[0]?.env).toMatchObject({
         PROBE_SHELL_ID: first.shellId,
         PROBE_SHELL_TOKEN: "token-1",
-        PROBE_SHELL_ENDPOINT: "http://127.0.0.1:1/kill",
+        PROBE_SHELL_ENDPOINT_FILE: "/state/shell-bin/endpoint",
         PROBE_BIN: "/bin-dir/probe",
         PATH: "/bin-dir:/usr/bin",
       });
@@ -2247,6 +2273,208 @@ it.layer(
       assert.equal(yield* shells.killByToken("forged"), false);
       expect((yield* shells.list).map((shell) => shell.shellId)).toEqual([first.shellId]);
       expect(second.shellId).not.toBe(first.shellId);
+    }),
+  );
+  /** The shells an earlier server left in the host, as the next server finds them. */
+  const fakeHost = (
+    sessions: ReadonlyArray<{
+      readonly pid: number;
+      readonly output?: string;
+      readonly exit?: { readonly exitCode: number; readonly signal: number | null };
+    }>,
+  ) =>
+    Effect.gen(function* () {
+      const forgotten = yield* Queue.unbounded<number>();
+      const processes = sessions.map((entry) => new FakePtyProcess(entry.pid));
+      return {
+        forgotten,
+        processes,
+        host: {
+          list: Effect.succeed(
+            sessions.map((entry, index) => ({
+              session: {
+                id: `host-${entry.pid}`,
+                pid: entry.pid,
+                cwd: process.cwd(),
+                cols: 90,
+                rows: 30,
+                output: entry.output ?? "",
+                exit: entry.exit ?? null,
+              },
+              process: processes[index]!,
+            })),
+          ),
+          forget: (pid: number) => Queue.offer(forgotten, pid).pipe(Effect.asVoid),
+        },
+      };
+    });
+
+  const registryIn = Effect.fnUntraced(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const dir = yield* fs.makeTempDirectoryScoped({ prefix: "t3code-shells-" });
+    return `${dir}/shells/registry.json`;
+  });
+
+  const historyOf = (shells: ShellsService, shellId: string) =>
+    shells.attach({ shellId }, "history-check").pipe(
+      Stream.take(1),
+      Stream.runCollect,
+      Effect.map(([first]) => (first?.type === "snapshot" ? first.snapshot.history : null)),
+    );
+
+  it.effect("spawns shells in the host and lets go of them at shutdown, keeping history", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const hostAdapter = new FakePtyAdapter("sync", true);
+      const scope = yield* Scope.make();
+      const { manager, ptyAdapter, logsDir } = yield* createManager(5, {
+        shellPtyAdapter: hostAdapter,
+        baseDir: yield* fs.makeTempDirectoryScoped({ prefix: "t3code-terminal-" }),
+      }).pipe(Scope.provide(scope));
+      const shells = yield* makeShells(manager).pipe(Scope.provide(scope));
+      const shell = yield* shells.open({ cwd: process.cwd() });
+      yield* manager.open(openInput());
+      const hosted = hostAdapter.processes[0] as DetachablePtyProcess;
+      hosted.emitData("kept output\n");
+      yield* historyOf(shells, shell.shellId);
+
+      yield* Scope.close(scope, Exit.void);
+
+      expect(hosted).toMatchObject({ detached: true, killed: false });
+      // Thread terminals never go to the host and still end with the server.
+      expect(ptyAdapter.processes.map((entry) => entry.killed)).toEqual([true]);
+      const history = yield* fs.readFileString(
+        yield* historyLogPath(logsDir, `shell:${shell.shellId}`),
+      );
+      expect(history).toContain("kept output");
+    }),
+  );
+
+  it.effect("takes over the shells the host kept, and lists the ones that ended", () => {
+    const logs = captureLogs();
+    return Effect.gen(function* () {
+      const registryPath = yield* registryIn();
+      const before = yield* createManager();
+      const earlier = yield* makeShells(before.manager, { registryPath });
+      const [alive, exited, signalled, lost] = [
+        yield* earlier.open({ cwd: process.cwd() }),
+        yield* earlier.open({ cwd: process.cwd() }),
+        yield* earlier.open({ cwd: process.cwd() }),
+        yield* earlier.open({ cwd: process.cwd() }),
+      ];
+
+      const { host, forgotten, processes } = yield* fakeHost([
+        { pid: alive!.pid!, output: "earlier output\r\n" },
+        { pid: exited!.pid!, exit: { exitCode: 1, signal: null } },
+        { pid: signalled!.pid!, exit: { exitCode: 0, signal: 9 } },
+        // Started by a server that crashed before it saved the shell.
+        { pid: 4242 },
+      ]);
+      const after = yield* createManager();
+      const shells = yield* makeShells(after.manager, { registryPath, host });
+
+      const listed = yield* shells.list;
+      expect(listed.map((shell) => [shell.shellId, shell.status, shell.ended])).toEqual([
+        [alive!.shellId, "running", null],
+        [signalled!.shellId, "exited", "signal"],
+        [lost!.shellId, "exited", "lost"],
+      ]);
+      expect(listed[0]).toMatchObject({ pid: alive!.pid, cwd: process.cwd() });
+      expect(yield* historyOf(shells, alive!.shellId)).toContain("earlier output");
+      yield* shells.write({ shellId: alive!.shellId, data: "still here\r" });
+      expect(processes[0]!.writes).toEqual(["still here\r"]);
+      expect(after.ptyAdapter.spawnInputs).toEqual([]);
+      expect(killedTrees).toContain(4242);
+      expect([...(yield* Queue.takeAll(forgotten))].sort()).toEqual(
+        [exited!.pid!, signalled!.pid!, 4242].sort(),
+      );
+      expect(logs.lines).toContainEqual({
+        message: "shell reattached",
+        fields: { shellId: alive!.shellId, cwd: process.cwd(), pid: alive!.pid },
+      });
+
+      // Removing an ended shell is for good: the next server does not list it either.
+      yield* shells.kill(lost!.shellId);
+      yield* shells.kill(signalled!.shellId);
+      const next = yield* makeShells((yield* createManager()).manager, {
+        registryPath,
+        host: (yield* fakeHost([{ pid: alive!.pid! }])).host,
+      });
+      expect((yield* next.list).map((shell) => shell.shellId)).toEqual([alive!.shellId]);
+    }).pipe(Effect.provide(logs.layer));
+  });
+
+  it.effect("removes a shell that exits on its own, and keeps one a signal ended", () =>
+    Effect.gen(function* () {
+      const registryPath = yield* registryIn();
+      const { manager, ptyAdapter } = yield* createManager();
+      const { host, forgotten } = yield* fakeHost([]);
+      const shells = yield* makeShells(manager, { registryPath, host });
+      const events = yield* collectList(shells);
+      const exited = yield* shells.open({ cwd: process.cwd() });
+      const signalled = yield* shells.open({ cwd: process.cwd() });
+
+      ptyAdapter.processes[0]!.emitExit({ exitCode: 1, signal: 0 });
+      ptyAdapter.processes[1]!.emitExit({ exitCode: 0, signal: 9 });
+      // Each end is saved before the host is told to forget the shell.
+      expect([yield* Queue.take(forgotten), yield* Queue.take(forgotten)].sort()).toEqual(
+        [exited.pid!, signalled.pid!].sort(),
+      );
+
+      expect(yield* events).toContainEqual({ type: "remove", shellId: exited.shellId });
+      expect((yield* shells.list).map((shell) => [shell.shellId, shell.ended])).toEqual([
+        [signalled.shellId, "signal"],
+      ]);
+      const next = yield* makeShells((yield* createManager()).manager, {
+        registryPath,
+        host: (yield* fakeHost([])).host,
+      });
+      expect((yield* next.list).map((shell) => [shell.shellId, shell.ended])).toEqual([
+        [signalled.shellId, "signal"],
+      ]);
+    }),
+  );
+
+  it.effect("keeps an ended shell listed when its removal cannot be saved", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const registryPath = yield* registryIn();
+      const earlier = yield* makeShells((yield* createManager()).manager, { registryPath });
+      const shell = yield* earlier.open({ cwd: process.cwd() });
+      const shells = yield* makeShells((yield* createManager()).manager, {
+        registryPath,
+        host: (yield* fakeHost([])).host,
+      });
+
+      // The registry's folder becomes a file, so the next save fails.
+      const folder = registryPath.slice(0, registryPath.lastIndexOf("/"));
+      yield* fs.remove(folder, { recursive: true });
+      yield* fs.writeFileString(folder, "");
+      const failure = yield* Effect.flip(shells.kill(shell.shellId));
+      expect(failure._tag).toBe("ShellStorageError");
+      expect((yield* shells.list).map((entry) => [entry.shellId, entry.ended])).toEqual([
+        [shell.shellId, "lost"],
+      ]);
+    }),
+  );
+
+  it.effect("lets probe kill end a shell that was taken over after a restart", () =>
+    Effect.gen(function* () {
+      const registryPath = yield* registryIn();
+      const earlier = yield* makeShells((yield* createManager()).manager, {
+        registryPath,
+        newToken: Effect.succeed("the-token"),
+      });
+      const shell = yield* earlier.open({ cwd: process.cwd() });
+      const shells = yield* makeShells((yield* createManager()).manager, {
+        registryPath,
+        host: (yield* fakeHost([{ pid: shell.pid! }])).host,
+      });
+
+      assert.equal(yield* shells.killByToken("forged"), false);
+      assert.equal(yield* shells.killByToken("the-token"), true);
+      expect(yield* shells.list).toEqual([]);
+      expect(killedTrees).toContain(shell.pid);
     }),
   );
 });

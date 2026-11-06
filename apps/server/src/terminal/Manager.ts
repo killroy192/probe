@@ -32,6 +32,7 @@ import {
   type TerminalSummary,
   type TerminalWriteInput,
   ClaudeSettings,
+  isShellOwnerId,
   CodexSettings,
   ProviderInstanceId,
 } from "@t3tools/contracts";
@@ -73,6 +74,7 @@ import * as PortScanner from "../preview/PortScanner.ts";
 import * as NativeTelemetryClient from "../resourceTelemetry/NativeTelemetryClient.ts";
 import { terminalOutputStream } from "./OutputProtocol.ts";
 import * as PtyAdapter from "@t3tools/shared/PtyAdapter";
+import { ShellHost } from "./shellHost/client.ts";
 
 export {
   TerminalCwdError,
@@ -204,6 +206,12 @@ export class TerminalManager extends Context.Service<
 
     readonly clear: (input: TerminalClearInput) => Effect.Effect<void, TerminalError>;
 
+    /**
+     * Takes over a process that outlived an earlier server (the shell host's), with the output it
+     * kept as the session's history. Nothing is spawned.
+     */
+    readonly adopt: (input: TerminalAdoptInput) => Effect.Effect<TerminalSessionSnapshot>;
+
     /** Whether this server holds a session for the terminal, running or ended. */
     readonly has: (threadId: string, terminalId: string) => Effect.Effect<boolean>;
 
@@ -225,6 +233,17 @@ export class TerminalManager extends Context.Service<
     ) => Effect.Effect<() => void>;
   }
 >()("t3/terminal/Manager/TerminalManager") {}
+
+export interface TerminalAdoptInput {
+  readonly threadId: string;
+  readonly terminalId: string;
+  readonly cwd: string;
+  readonly cols: number;
+  readonly rows: number;
+  /** The raw output the process produced, oldest first; it becomes the history. */
+  readonly output: string;
+  readonly process: PtyAdapter.PtyProcess;
+}
 
 interface TerminalSubprocessInspectResult {
   readonly hasRunningSubprocess: boolean;
@@ -1419,6 +1438,8 @@ interface TerminalManagerOptions {
   historyLineLimit?: number;
   historyByteLimit?: number;
   ptyAdapter: PtyAdapter.PtyAdapter["Service"];
+  /** Spawns shells (`shell:` owners) where they outlive the server; thread terminals never. */
+  shellPtyAdapter?: PtyAdapter.PtyAdapter["Service"] | undefined;
   shellResolver?: () => string;
   env?: NodeJS.ProcessEnv;
   managedBinaryCacheDir?: string;
@@ -1494,6 +1515,7 @@ export const resolveProviderInstanceTerminalEnvironment = Effect.fn(
 export const make = Effect.fn("TerminalManager.make")(function* () {
   const { terminalLogsDir, providerStatusCacheDir, baseDir } = yield* ServerConfig.ServerConfig;
   const ptyAdapter = yield* PtyAdapter.PtyAdapter;
+  const shellHost = yield* Effect.serviceOption(ShellHost);
   const portDiscovery = yield* PortScanner.PortDiscovery;
   const nativeTelemetry = yield* NativeTelemetryClient.NativeTelemetryClient;
   const serverSettings = yield* ServerSettings.ServerSettingsService;
@@ -1511,6 +1533,7 @@ export const make = Effect.fn("TerminalManager.make")(function* () {
   return yield* makeWithOptions({
     logsDir: terminalLogsDir,
     ptyAdapter,
+    shellPtyAdapter: Option.isSome(shellHost) ? shellHost.value.adapter : undefined,
     processTable: nativeTelemetry.processTable.pipe(
       Effect.mapError(
         (cause) => new TerminalSubprocessCheckError({ cause, command: "resource-monitor" }),
@@ -2368,8 +2391,12 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
       env: spawnEnv,
       survivesRestart: true,
     });
+    const adapter =
+      options.shellPtyAdapter !== undefined && isShellOwnerId(session.threadId)
+        ? options.shellPtyAdapter
+        : options.ptyAdapter;
     const attempt = yield* Effect.result(
-      options.ptyAdapter.spawn({
+      adapter.spawn({
         shell: launch.command,
         ...(launch.args.length > 0 ? { args: [...launch.args] } : {}),
         cwd: session.cwd,
@@ -2394,10 +2421,53 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
     return yield* trySpawn(shellCandidates, spawnEnv, session, index + 1, spawnError);
   });
 
+  const spawnNew = Effect.fn("terminal.spawnNew")(function* (session: TerminalSessionState) {
+    const shellCandidates = resolveShellCandidates(shellResolver, platform, baseEnv);
+    const terminalEnv = createTerminalSpawnEnv(
+      baseEnv,
+      session.runtimeEnv,
+      platform,
+      yield* HostProcess.HomeDirectory,
+    );
+    // Append managed install directories so agent commands resolve without shadowing user/system tools.
+    if (
+      options.managedBinaryCacheDir !== undefined &&
+      options.managedBinaryToolsDir !== undefined
+    ) {
+      const managedDirectories = yield* acpRegistryManagedBinaryDirectories({
+        cacheDir: options.managedBinaryCacheDir,
+        toolsDir: options.managedBinaryToolsDir,
+        platform,
+        architecture,
+      }).pipe(
+        Effect.provideService(FileSystem.FileSystem, fileSystem),
+        Effect.provideService(Path.Path, path),
+      );
+      if (managedDirectories.length > 0) {
+        const delimiter = platform === "win32" ? ";" : ":";
+        const pathKey =
+          platform === "win32"
+            ? (Object.keys(terminalEnv).find((candidate) => candidate.toLowerCase() === "path") ??
+              "PATH")
+            : "PATH";
+        const merged = mergePathEntries(
+          terminalEnv[pathKey],
+          managedDirectories.join(delimiter),
+          platform,
+        );
+        if (merged !== undefined) {
+          terminalEnv[pathKey] = merged;
+        }
+      }
+    }
+    return yield* trySpawn(shellCandidates, terminalEnv, session);
+  });
+
   const startSession = Effect.fn("terminal.startSession")(function* (
     session: TerminalSessionState,
     input: TerminalStartInput,
     eventType: "started" | "restarted",
+    adopted?: PtyAdapter.PtyProcess,
   ) {
     yield* stopProcess(session);
     yield* Effect.annotateCurrentSpan({
@@ -2432,46 +2502,10 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
       increment(terminalSessionsTotal, { lifecycle: eventType }).pipe(
         Effect.andThen(
           Effect.gen(function* () {
-            const shellCandidates = resolveShellCandidates(shellResolver, platform, baseEnv);
-            const terminalEnv = createTerminalSpawnEnv(
-              baseEnv,
-              session.runtimeEnv,
-              platform,
-              yield* HostProcess.HomeDirectory,
-            );
-            // Append managed install directories so agent commands resolve without shadowing user/system tools.
-            if (
-              options.managedBinaryCacheDir !== undefined &&
-              options.managedBinaryToolsDir !== undefined
-            ) {
-              const managedDirectories = yield* acpRegistryManagedBinaryDirectories({
-                cacheDir: options.managedBinaryCacheDir,
-                toolsDir: options.managedBinaryToolsDir,
-                platform,
-                architecture,
-              }).pipe(
-                Effect.provideService(FileSystem.FileSystem, fileSystem),
-                Effect.provideService(Path.Path, path),
-              );
-              if (managedDirectories.length > 0) {
-                const delimiter = platform === "win32" ? ";" : ":";
-                const pathKey =
-                  platform === "win32"
-                    ? (Object.keys(terminalEnv).find(
-                        (candidate) => candidate.toLowerCase() === "path",
-                      ) ?? "PATH")
-                    : "PATH";
-                const merged = mergePathEntries(
-                  terminalEnv[pathKey],
-                  managedDirectories.join(delimiter),
-                  platform,
-                );
-                if (merged !== undefined) {
-                  terminalEnv[pathKey] = merged;
-                }
-              }
-            }
-            const spawnResult = yield* trySpawn(shellCandidates, terminalEnv, session);
+            const spawnResult =
+              adopted !== undefined
+                ? { process: adopted, shellLabel: "adopted" }
+                : yield* spawnNew(session);
             ptyProcess = spawnResult.process;
             startedShell = spawnResult.shellLabel;
 
@@ -2815,6 +2849,12 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
       ) {
         cleanupProcessHandles(session);
         if (!session.process) return;
+        // A shell in the shell host keeps running for the next server, with its history saved.
+        if (session.process.detach !== undefined) {
+          session.process.detach();
+          yield* persistHistory(session.threadId, session.terminalId, session.history);
+          return;
+        }
         yield* clearKillFiber(session.process);
         yield* runKillEscalation(session.process, session.threadId, session.terminalId);
       });
@@ -2953,6 +2993,62 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
 
     return snapshot(liveSession);
   });
+
+  const adopt: TerminalManager["Service"]["adopt"] = (input) =>
+    withThreadLock(
+      input.threadId,
+      Effect.gen(function* () {
+        const existing = yield* getSession(input.threadId, input.terminalId);
+        if (Option.isSome(existing)) return snapshot(existing.value);
+        // The process is live: its output is kept like live output, not reset like inherited history.
+        const sanitized = sanitizeTerminalHistoryChunk("", input.output);
+        const session: TerminalSessionState = {
+          threadId: input.threadId,
+          terminalId: input.terminalId,
+          cwd: input.cwd,
+          worktreePath: null,
+          status: "starting",
+          pid: null,
+          history: new BoundedTerminalHistory(
+            historyLineLimit,
+            sanitized.visibleText,
+            historyByteLimit,
+          ),
+          pendingHistoryControlSequence: sanitized.pendingControlSequence,
+          pendingProcessEvents: [],
+          pendingProcessEventIndex: 0,
+          processEventDrainRunning: false,
+          exitCode: null,
+          exitSignal: null,
+          updatedAt: yield* nowIso,
+          eventSequence: 0,
+          inputCount: 0,
+          cols: input.cols,
+          rows: input.rows,
+          process: null,
+          unsubscribeData: null,
+          unsubscribeExit: null,
+          hasRunningSubprocess: false,
+          childCommandLabel: null,
+          runtimeEnv: null,
+        };
+        const sessionKey = toSessionKey(input.threadId, input.terminalId);
+        yield* modifyManagerState((state) => {
+          const sessions = new Map(state.sessions);
+          sessions.set(sessionKey, session);
+          closedSessionKeys.delete(sessionKey);
+          return [undefined, { ...state, sessions }] as const;
+        });
+        yield* startSession(
+          session,
+          { cwd: input.cwd, cols: input.cols, rows: input.rows },
+          "started",
+          input.process,
+        );
+        yield* persistHistory(session.threadId, session.terminalId, session.history);
+        return snapshot(session);
+      }),
+    );
 
   const openLocked = (input: TerminalOpenInput) =>
     withWorkspaceLease(
@@ -3447,6 +3543,7 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
 
   return TerminalManager.of({
     open,
+    adopt,
     attachStream,
     attachOutputStream,
     observeStream,

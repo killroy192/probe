@@ -30,6 +30,8 @@ export interface PtyProcess {
   kill(signal?: string): void;
   onData(callback: (data: string) => void): () => void;
   onExit(callback: (event: PtyExitEvent) => void): () => void;
+  /** Lets go of a process that outlives the server, instead of ending it at shutdown. */
+  detach?(): void;
 }
 
 export interface PtySpawnInput {

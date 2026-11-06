@@ -113,6 +113,8 @@ const layerDependencies = (fakes: Fakes) =>
                 worktree: options?.worktree ?? null,
                 branch: null,
                 elsewhere: null,
+                ended: null,
+                missing: false,
                 updatedAt: "now",
               };
               fakes.running?.push(shell);

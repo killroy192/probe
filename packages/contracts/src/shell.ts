@@ -51,6 +51,9 @@ export const ShellResizeInput = Schema.Struct({
 });
 export type ShellResizeInput = typeof ShellResizeInput.Type;
 
+export const ShellEndReason = Schema.Literals(["signal", "lost"]);
+export type ShellEndReason = typeof ShellEndReason.Type;
+
 export const ShellSummary = Schema.Struct({
   shellId: ShellId,
   cwd: Schema.String.check(Schema.isNonEmpty()),
@@ -71,6 +74,13 @@ export const ShellSummary = Schema.Struct({
   branch: Schema.NullOr(Schema.String),
   /** The shell's current folder while it is outside its worktree (or folder), else null. */
   elsewhere: Schema.NullOr(Schema.String),
+  /**
+   * Why an ended shell is still listed: a signal ended it, or it was lost with the process that
+   * held it (a reboot). Null while it runs. A normal exit or a kill removes a shell instead.
+   */
+  ended: Schema.NullOr(ShellEndReason),
+  /** True once the folder or worktree the shell was started in is gone from disk. */
+  missing: Schema.Boolean,
   updatedAt: Schema.String,
 });
 export type ShellSummary = typeof ShellSummary.Type;
@@ -80,6 +90,16 @@ export class ShellLaunchError extends Schema.TaggedError<ShellLaunchError>()("Sh
 }) {
   override get message() {
     return `The shell could not start: ${this.reason}`;
+  }
+}
+
+/** The server could not save its list of shells, so the change was not made. */
+export class ShellStorageError extends Schema.TaggedError<ShellStorageError>()(
+  "ShellStorageError",
+  { reason: Schema.String },
+) {
+  override get message() {
+    return `Probe could not save its shells: ${this.reason}`;
   }
 }
 

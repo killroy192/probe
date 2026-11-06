@@ -89,6 +89,7 @@ import * as GitManager from "./git/GitManager.ts";
 import * as EnvironmentTheme from "./environmentTheme.ts";
 import * as SavedWorkspaces from "./savedWorkspaces/SavedWorkspaces.ts";
 import * as Shells from "./terminal/Shells.ts";
+import * as ShellHostClient from "./terminal/shellHost/client.ts";
 import * as ShellSelfKillRoute from "./terminal/shellSelfKillRoute.ts";
 import * as Keybindings from "./keybindings.ts";
 import * as ServerRuntimeStartup from "./serverRuntimeStartup.ts";
@@ -454,6 +455,8 @@ const layerTerminal = Shells.layer.pipe(
       Layer.provide(layerNativeTelemetry),
     ),
   ),
+  // Shells are spawned in, and taken back from, the shell host that outlives the server.
+  Layer.provideMerge(ShellHostClient.layer),
 );
 
 const layerPreview = Layer.empty.pipe(

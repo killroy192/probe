@@ -1,3 +1,6 @@
+// @effect-diagnostics-next-line nodeBuiltinImport:off -- A token's hash is a plain sync digest.
+import * as NodeCrypto from "node:crypto";
+
 import {
   DEFAULT_TERMINAL_ID,
   type ShellAttachInput,
@@ -6,7 +9,9 @@ import {
   type ShellResizeInput,
   type ShellSummary,
   type ShellWriteInput,
+  ShellEndReason,
   ShellLaunchError,
+  ShellStorageError,
   type TerminalMetadataStreamEvent,
   type TerminalSessionSnapshot,
   type TerminalSummary,
@@ -19,16 +24,21 @@ import * as HostProcess from "@t3tools/shared/HostProcess";
 import { resolveSelfInvocation, selfInvocationArgs } from "@t3tools/shared/nodeRuntime";
 import * as Context from "effect/Context";
 import * as Crypto from "effect/Crypto";
+import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
 import * as Schedule from "effect/Schedule";
+import * as Schema from "effect/Schema";
 import { HttpServer } from "effect/http";
 import * as NetAddress from "effect/net/NetAddress";
 
 import * as ServerConfig from "../config.ts";
+import { writeFileStringAtomically } from "@t3tools/shared/atomicWrite";
+
 import * as ProcessRunner from "../processRunner.ts";
+import { ShellHost } from "./shellHost/client.ts";
 import { TerminalManager } from "./Manager.ts";
 import { killProcessTree, makeReadProcessTable } from "./processTree.ts";
 import { PROBE_COMMAND, SELF_KILL_PATH, SHELL_ENV, type ShellSelfKill } from "./shellEnv.ts";
@@ -44,6 +54,8 @@ interface ShellRecord {
   readonly home: string | null;
   branch: string | null;
   elsewhere: string | null;
+  /** The home folder is gone from disk. */
+  missing: boolean;
 }
 
 const NO_RECORD: ShellRecord = {
@@ -53,7 +65,44 @@ const NO_RECORD: ShellRecord = {
   home: null,
   branch: null,
   elsewhere: null,
+  missing: false,
 };
+
+/** A shell as the registry keeps it across server restarts. */
+const SavedShell = Schema.Struct({
+  shellId: Schema.String,
+  pid: Schema.NullOr(Schema.Int),
+  cwd: Schema.String,
+  label: Schema.String,
+  title: Schema.NullOr(Schema.String),
+  folder: Schema.NullOr(Schema.String),
+  worktree: Schema.NullOr(Schema.String),
+  home: Schema.NullOr(Schema.String),
+  tokenHash: Schema.NullOr(Schema.String),
+  /** Set once the shell ended in a way that keeps it listed until it is removed. */
+  ended: Schema.NullOr(
+    Schema.Struct({
+      reason: ShellEndReason,
+      exitCode: Schema.NullOr(Schema.Int),
+      exitSignal: Schema.NullOr(Schema.Int),
+      at: Schema.String,
+    }),
+  ),
+});
+type SavedShell = typeof SavedShell.Type;
+
+const RegistryFile = Schema.Struct({
+  version: Schema.Literal(1),
+  shells: Schema.Array(SavedShell),
+});
+const encodeRegistry = Schema.encodeSync(Schema.fromJsonString(RegistryFile));
+const decodeRegistry = Schema.decodeUnknownExit(Schema.fromJsonString(RegistryFile));
+
+const hashToken = (token: string) =>
+  NodeCrypto.createHash("sha256").update(token).digest("base64url");
+
+/** A signal number, or null for an exit that had none (node-pty reports 0). */
+const signalOf = (signal: number | null | undefined) => (signal ? signal : null);
 
 // A shell is one terminal owned by `shell:<id>` instead of a chat thread.
 const toSummary = (
@@ -76,22 +125,49 @@ const toSummary = (
   worktree: record.worktree,
   branch: record.branch,
   elsewhere: record.elsewhere,
+  ended: terminal.status === "exited" && signalOf(terminal.exitSignal) !== null ? "signal" : null,
+  missing: record.missing,
   updatedAt: terminal.updatedAt,
+});
+
+// A shell that ended before this server started has no terminal, only its saved entry.
+const endedSummary = (saved: SavedShell, record: ShellRecord): ShellSummary => ({
+  shellId: saved.shellId,
+  cwd: saved.cwd,
+  status: "exited",
+  pid: null,
+  exitCode: saved.ended?.exitCode ?? null,
+  exitSignal: saved.ended?.exitSignal ?? null,
+  label: saved.label,
+  title: saved.title,
+  process: null,
+  folder: saved.folder,
+  worktree: saved.worktree,
+  branch: record.branch,
+  elsewhere: null,
+  ended: saved.ended?.reason ?? "lost",
+  missing: record.missing,
+  updatedAt: saved.ended?.at ?? "",
 });
 
 const listEvent = (
   event: TerminalMetadataStreamEvent,
   recordOf: (shellId: string) => ShellRecord,
+  endedOf: (shellId: string) => ShellSummary | null,
+  endedOnly: () => ReadonlyArray<ShellSummary>,
 ): ShellListStreamEvent | null => {
   switch (event.type) {
-    case "snapshot":
+    case "snapshot": {
+      const shells = event.terminals.flatMap((terminal) => {
+        const shellId = shellIdFromOwnerId(terminal.threadId);
+        return shellId === null ? [] : [toSummary(shellId, terminal, recordOf(shellId))];
+      });
+      const listed = new Set(shells.map((shell) => shell.shellId));
       return {
         type: "snapshot",
-        shells: event.terminals.flatMap((terminal) => {
-          const shellId = shellIdFromOwnerId(terminal.threadId);
-          return shellId === null ? [] : [toSummary(shellId, terminal, recordOf(shellId))];
-        }),
+        shells: [...shells, ...endedOnly().filter((shell) => !listed.has(shell.shellId))],
       };
+    }
     case "upsert": {
       const shellId = shellIdFromOwnerId(event.terminal.threadId);
       return shellId === null
@@ -100,7 +176,10 @@ const listEvent = (
     }
     case "remove": {
       const shellId = shellIdFromOwnerId(event.threadId);
-      return shellId === null ? null : { type: "remove", shellId };
+      if (shellId === null) return null;
+      // A shell kept as ended stays listed when the manager lets go of its session.
+      const ended = endedOf(shellId);
+      return ended === null ? { type: "remove", shellId } : { type: "upsert", shell: ended };
     }
   }
 };
@@ -135,6 +214,10 @@ interface ShellsOptions {
   readonly newToken?: Effect.Effect<string>;
   /** Where `probe kill` reaches the server; null leaves shells without the command. */
   readonly selfKill?: ShellSelfKill | null;
+  /** The file that keeps shells across server restarts; null keeps them in memory only. */
+  readonly registryPath?: string | null;
+  /** The shell host whose shells this server takes over at start. */
+  readonly host?: Pick<ShellHost["Service"], "list" | "forget"> | null;
 }
 
 export interface ShellOpenOptions {
@@ -206,17 +289,21 @@ export const makeShells = Effect.fn("Shells.make")(function* (
 ) {
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
+  const scope = yield* Effect.scope;
   const platform = options.platform ?? (yield* HostProcess.Platform);
   const agentCommand = options.agentCommand ?? null;
+  const host = options.host ?? null;
+  const registryPath = options.registryPath ?? null;
   const session = (shellId: string) => ({
     threadId: shellOwnerId(shellId),
     terminalId: DEFAULT_TERMINAL_ID,
   });
-  // Records live as long as the server; a shell does not outlive it either.
   const records = new Map<string, ShellRecord>();
   const recordOf = (shellId: string) => records.get(shellId) ?? NO_RECORD;
   // The last terminal state of each shell, so a location change can be sent as a full summary.
   const terminals = new Map<string, TerminalSummary>();
+  // What survives a restart: every shell this server started or took over, until it is removed.
+  const saved = new Map<string, SavedShell>();
   const listeners = new Set<(event: ShellListStreamEvent) => Effect.Effect<void>>();
   const readCwds = options.readCwds ?? (yield* makeReadCwds(platform));
   const killTree =
@@ -226,13 +313,60 @@ export const makeShells = Effect.fn("Shells.make")(function* (
     ));
   const newToken: Effect.Effect<string | null> = options.newToken ?? Effect.succeed(null);
   const selfKill = options.selfKill ?? null;
-  // Each shell's own token, so `probe kill` can end that shell and no other.
+  // Each shell's token hash, so `probe kill` can end that shell and no other.
   const tokens = new Map<string, string>();
   const forgetToken = (shellId: string) => {
-    for (const [token, owner] of tokens) if (owner === shellId) tokens.delete(token);
+    for (const [hash, owner] of tokens) if (owner === shellId) tokens.delete(hash);
   };
   // Shells Probe is killing; their end is logged by the kill, with its reason.
   const killing = new Set<string>();
+  const nowIso = DateTime.now.pipe(Effect.map(DateTime.formatIso));
+
+  /** A shell kept as ended with no terminal in this server: it ended before the server started. */
+  const endedOf = (shellId: string) => {
+    const entry = saved.get(shellId);
+    return entry?.ended == null ? null : endedSummary(entry, recordOf(shellId));
+  };
+  const endedOnly = () =>
+    [...saved.keys()].flatMap((shellId) => {
+      const summary = terminals.has(shellId) ? null : endedOf(shellId);
+      return summary === null ? [] : [summary];
+    });
+  const summaryOf = (shellId: string) => {
+    const terminal = terminals.get(shellId);
+    return terminal === undefined
+      ? endedOf(shellId)
+      : toSummary(shellId, terminal, recordOf(shellId));
+  };
+  const emit = Effect.fnUntraced(function* (event: ShellListStreamEvent) {
+    for (const listener of listeners) yield* listener(event);
+  });
+
+  const persist = Effect.gen(function* () {
+    if (registryPath === null) return;
+    yield* writeFileStringAtomically({
+      filePath: registryPath,
+      contents: encodeRegistry({ version: 1, shells: [...saved.values()] }),
+    }).pipe(
+      Effect.provideService(FileSystem.FileSystem, fs),
+      Effect.provideService(Path.Path, path),
+      Effect.provideService(HostProcess.Platform, platform),
+      Effect.mapError((error) => new ShellStorageError({ reason: error.message })),
+    );
+  });
+  const persistOrWarn = persist.pipe(
+    Effect.catch((error) =>
+      Effect.logWarning("could not save the shell list", { reason: error.reason }),
+    ),
+  );
+
+  /** Drops a shell from the saved list; on failure the entry stays and the error says why. */
+  const unsave = Effect.fn("Shells.unsave")(function* (shellId: string) {
+    const previous = saved.get(shellId);
+    if (previous === undefined) return;
+    saved.delete(shellId);
+    yield* persist.pipe(Effect.tapError(() => Effect.sync(() => saved.set(shellId, previous))));
+  });
 
   const readText = (file: string) => fs.readFileString(file).pipe(Effect.orElseSucceed(() => null));
 
@@ -247,6 +381,7 @@ export const makeShells = Effect.fn("Shells.make")(function* (
   });
 
   const realPath = (folder: string) => fs.realPath(folder).pipe(Effect.orElseSucceed(() => folder));
+  const exists = (folder: string) => fs.exists(folder).pipe(Effect.orElseSucceed(() => true));
 
   const isInside = (folder: string, home: string) => {
     const relative = path.relative(home, folder);
@@ -271,8 +406,10 @@ export const makeShells = Effect.fn("Shells.make")(function* (
           const shellId = shellIdFromOwnerId(event.threadId);
           if (shellId !== null) {
             terminals.delete(shellId);
-            records.delete(shellId);
-            forgetToken(shellId);
+            if (!saved.has(shellId)) {
+              records.delete(shellId);
+              forgetToken(shellId);
+            }
           }
           return;
         }
@@ -281,16 +418,22 @@ export const makeShells = Effect.fn("Shells.make")(function* (
   );
   yield* Effect.addFinalizer(() => Effect.sync(stopTracking));
 
-  /** Reads every tracked shell's branch and folder once and sends the shells that changed. */
+  /** Reads every tracked shell's branch, folder and home once and sends the shells that changed. */
   const refreshLocations = Effect.gen(function* () {
     const tracked = [...records].filter(
-      ([shellId, record]) => record.home !== null && terminals.has(shellId),
+      ([shellId, record]) => record.home !== null && (terminals.has(shellId) || saved.has(shellId)),
     );
     if (tracked.length === 0) return;
     const branches = new Map<string, string | null>();
     for (const [, record] of tracked) {
       if (record.worktree !== null && !branches.has(record.worktree)) {
         branches.set(record.worktree, yield* readBranch(record.worktree));
+      }
+    }
+    const homes = new Map<string, boolean>();
+    for (const [, record] of tracked) {
+      if (record.home !== null && !homes.has(record.home)) {
+        homes.set(record.home, yield* exists(record.home));
       }
     }
     const pids = tracked.flatMap(([shellId]) => {
@@ -300,9 +443,15 @@ export const makeShells = Effect.fn("Shells.make")(function* (
     const cwds = yield* readCwds(pids);
     for (const [shellId, record] of tracked) {
       const terminal = terminals.get(shellId);
-      if (terminal === undefined) continue;
-      const branch = record.worktree === null ? null : (branches.get(record.worktree) ?? null);
-      const cwd = terminal.pid === null ? undefined : cwds.get(terminal.pid);
+      const missing = record.home !== null && homes.get(record.home) === false;
+      // A gone worktree has no branch to read; keep the last one shown next to the warning.
+      const branch =
+        record.worktree === null
+          ? null
+          : missing
+            ? record.branch
+            : (branches.get(record.worktree) ?? null);
+      const cwd = terminal?.pid == null ? undefined : cwds.get(terminal.pid);
       // An unreadable folder keeps the last answer instead of flickering.
       const elsewhere =
         cwd === undefined
@@ -310,14 +459,18 @@ export const makeShells = Effect.fn("Shells.make")(function* (
           : record.home !== null && isInside(cwd, record.home)
             ? null
             : cwd;
-      if (branch === record.branch && elsewhere === record.elsewhere) continue;
+      if (
+        branch === record.branch &&
+        elsewhere === record.elsewhere &&
+        missing === record.missing
+      ) {
+        continue;
+      }
       record.branch = branch;
       record.elsewhere = elsewhere;
-      const event: ShellListStreamEvent = {
-        type: "upsert",
-        shell: toSummary(shellId, terminal, record),
-      };
-      for (const listener of listeners) yield* listener(event);
+      record.missing = missing;
+      const shell = summaryOf(shellId);
+      if (shell !== null) yield* emit({ type: "upsert", shell });
     }
   });
 
@@ -355,20 +508,61 @@ export const makeShells = Effect.fn("Shells.make")(function* (
     return null;
   });
 
-  // A shell that ends on its own or is killed leaves a line in the server log (NFR-6).
-  const stopEndLog = yield* manager.subscribe((event) => {
+  /** A shell that exited on its own without a signal is gone for good, like a killed one. */
+  const removeExited = Effect.fn("Shells.removeExited")(function* (shellId: string, pid: number) {
+    yield* unsave(shellId).pipe(
+      Effect.catch((error) =>
+        Effect.logWarning("could not save the shell list", { reason: error.reason }),
+      ),
+    );
+    yield* manager.close({ ...session(shellId), deleteHistory: true });
+    if (host !== null) yield* host.forget(pid);
+  });
+
+  /** A shell a signal ended stays listed as ended, also after a restart, until it is removed. */
+  const keepEnded = Effect.fn("Shells.keepEnded")(function* (
+    shellId: string,
+    pid: number,
+    exitCode: number | null,
+    exitSignal: number,
+  ) {
+    const entry = saved.get(shellId);
+    if (entry !== undefined) {
+      saved.set(shellId, {
+        ...entry,
+        ended: { reason: "signal", exitCode, exitSignal, at: yield* nowIso },
+      });
+      yield* persistOrWarn;
+    }
+    if (host !== null) yield* host.forget(pid);
+  });
+
+  // Every end leaves a line in the server log (NFR-6); a kill logs its own.
+  const stopEndHandling = yield* manager.subscribe((event) => {
     if (event.type !== "exited") return Effect.void;
     const shellId = shellIdFromOwnerId(event.threadId);
-    return shellId === null || killing.has(shellId)
-      ? Effect.void
-      : Effect.logInfo("shell ended", {
-          shellId,
-          cwd: terminals.get(shellId)?.cwd ?? null,
-          exitCode: event.exitCode,
-          exitSignal: event.exitSignal,
-        });
+    if (shellId === null || killing.has(shellId)) return Effect.void;
+    const terminal = terminals.get(shellId);
+    const signal = signalOf(event.exitSignal);
+    const pid = terminal?.pid ?? saved.get(shellId)?.pid ?? null;
+    return Effect.logInfo("shell ended", {
+      shellId,
+      cwd: terminal?.cwd ?? null,
+      exitCode: event.exitCode,
+      exitSignal: signal,
+      reason: signal === null ? "exited" : "signal",
+    }).pipe(
+      Effect.andThen(
+        pid === null
+          ? Effect.void
+          : (signal === null
+              ? removeExited(shellId, pid)
+              : keepEnded(shellId, pid, event.exitCode, signal)
+            ).pipe(Effect.forkIn(scope), Effect.asVoid),
+      ),
+    );
   });
-  yield* Effect.addFinalizer(() => Effect.sync(stopEndLog));
+  yield* Effect.addFinalizer(() => Effect.sync(stopEndHandling));
 
   /**
    * Force-ends a shell and everything it started, and forgets it. A shell that already ended or
@@ -377,24 +571,45 @@ export const makeShells = Effect.fn("Shells.make")(function* (
    */
   const kill = Effect.fn("Shells.kill")(function* (shellId: string) {
     const terminal = terminals.get(shellId);
+    const running =
+      terminal?.pid != null && (terminal.status === "running" || terminal.status === "starting");
     killing.add(shellId);
     yield* Effect.gen(function* () {
-      if (
-        terminal?.pid != null &&
-        (terminal.status === "running" || terminal.status === "starting")
-      ) {
-        yield* killTree(terminal.pid);
+      if (running) yield* killTree(terminal.pid!);
+      const known = terminal !== undefined || saved.has(shellId);
+      const pid = terminal?.pid ?? saved.get(shellId)?.pid ?? null;
+      const forgotten = yield* Effect.exit(unsave(shellId));
+      if (pid !== null && host !== null) yield* host.forget(pid);
+      if (forgotten._tag === "Failure") {
+        // A shell already ended stays listed, so the user can try again.
+        if (!running) return yield* forgotten;
+        const entry = saved.get(shellId);
+        if (entry !== undefined) {
+          saved.set(shellId, {
+            ...entry,
+            ended: { reason: "signal", exitCode: null, exitSignal: 9, at: yield* nowIso },
+          });
+        }
       }
-      yield* manager.close({ ...session(shellId), deleteHistory: true });
-      if (terminal !== undefined) {
-        yield* Effect.logInfo("shell ended", { shellId, cwd: terminal.cwd, reason: "killed" });
+      yield* manager.close({ ...session(shellId), deleteHistory: forgotten._tag === "Success" });
+      if (known) {
+        yield* Effect.logInfo("shell ended", {
+          shellId,
+          cwd: terminal?.cwd ?? null,
+          reason: "killed",
+        });
       }
+      if (forgotten._tag === "Failure") return yield* forgotten;
+      // A kept-as-ended shell has no terminal to send its removal.
+      if (terminal === undefined) yield* emit({ type: "remove", shellId });
     }).pipe(
       Effect.ensuring(
         Effect.sync(() => {
           killing.delete(shellId);
-          records.delete(shellId);
-          forgetToken(shellId);
+          if (!saved.has(shellId)) {
+            records.delete(shellId);
+            forgetToken(shellId);
+          }
         }),
       ),
       Effect.uninterruptible,
@@ -405,6 +620,89 @@ export const makeShells = Effect.fn("Shells.make")(function* (
     Effect.logWarning("shell failed to start", { cwd, reason }).pipe(
       Effect.andThen(Effect.fail(new ShellLaunchError({ reason }))),
     );
+
+  /** Takes over the shells an earlier server left in the host, and lists the ones that ended. */
+  const takeOver = Effect.gen(function* () {
+    if (registryPath === null) return;
+    const text = yield* fs.readFileString(registryPath).pipe(Effect.option);
+    if (text._tag === "None") return;
+    const decoded = decodeRegistry(text.value);
+    if (decoded._tag === "Failure") {
+      return yield* Effect.logWarning("the shell list is not readable; starting without it", {
+        path: registryPath,
+      });
+    }
+    const hosted = host === null ? [] : yield* host.list;
+    const byPid = new Map(hosted.map((entry) => [entry.session.pid, entry]));
+    for (const entry of decoded.value.shells) {
+      const home = entry.home;
+      records.set(entry.shellId, {
+        title: entry.title,
+        folder: entry.folder,
+        worktree: entry.worktree,
+        home,
+        branch: entry.worktree === null ? null : yield* readBranch(entry.worktree),
+        elsewhere: null,
+        missing: home !== null && !(yield* exists(home)),
+      });
+      if (entry.tokenHash !== null) tokens.set(entry.tokenHash, entry.shellId);
+      const found = entry.pid === null ? undefined : byPid.get(entry.pid);
+      if (entry.pid !== null) byPid.delete(entry.pid);
+      if (entry.ended !== null) {
+        saved.set(entry.shellId, entry);
+      } else if (found === undefined) {
+        saved.set(entry.shellId, {
+          ...entry,
+          ended: { reason: "lost", exitCode: null, exitSignal: null, at: yield* nowIso },
+        });
+        yield* Effect.logInfo("shell lost", { shellId: entry.shellId, cwd: entry.cwd });
+      } else if (found.session.exit === null) {
+        saved.set(entry.shellId, entry);
+        const snapshot = yield* manager.adopt({
+          ...session(entry.shellId),
+          cwd: found.session.cwd,
+          cols: found.session.cols,
+          rows: found.session.rows,
+          output: found.session.output,
+          process: found.process,
+        });
+        yield* Effect.logInfo("shell reattached", {
+          shellId: entry.shellId,
+          cwd: snapshot.cwd,
+          pid: snapshot.pid,
+        });
+      } else if (signalOf(found.session.exit.signal) === null) {
+        records.delete(entry.shellId);
+        forgetToken(entry.shellId);
+        if (host !== null) yield* host.forget(found.session.pid);
+        yield* manager.close({ ...session(entry.shellId), deleteHistory: true });
+        yield* Effect.logInfo("shell ended", {
+          shellId: entry.shellId,
+          cwd: entry.cwd,
+          exitCode: found.session.exit.exitCode,
+          reason: "exited",
+        });
+      } else {
+        saved.set(entry.shellId, {
+          ...entry,
+          ended: {
+            reason: "signal",
+            exitCode: found.session.exit.exitCode,
+            exitSignal: signalOf(found.session.exit.signal),
+            at: yield* nowIso,
+          },
+        });
+        if (host !== null) yield* host.forget(found.session.pid);
+      }
+    }
+    // A shell the host holds with no saved entry was started by a server that crashed first.
+    for (const orphan of byPid.values()) {
+      if (orphan.session.exit === null) yield* killTree(orphan.session.pid);
+      if (host !== null) yield* host.forget(orphan.session.pid);
+    }
+    yield* persistOrWarn;
+  });
+  yield* takeOver;
 
   return {
     // A shell that cannot start is not kept: the caller gets the launch error's reason instead.
@@ -425,6 +723,7 @@ export const makeShells = Effect.fn("Shells.make")(function* (
         home: home === null ? null : yield* realPath(home),
         branch: worktree === null ? null : yield* readBranch(worktree),
         elsewhere: null,
+        missing: false,
       });
       let reason = "The shell program could not be launched.";
       const stop = yield* manager.subscribe((event) =>
@@ -433,7 +732,8 @@ export const makeShells = Effect.fn("Shells.make")(function* (
         }),
       );
       const token = yield* newToken;
-      if (token !== null) tokens.set(token, shellId);
+      const tokenHash = token === null ? null : hashToken(token);
+      if (tokenHash !== null) tokens.set(tokenHash, shellId);
       const env =
         selfKill === null || token === null
           ? terminal.env
@@ -441,7 +741,7 @@ export const makeShells = Effect.fn("Shells.make")(function* (
               ...terminal.env,
               [SHELL_ENV.id]: shellId,
               [SHELL_ENV.token]: token,
-              [SHELL_ENV.endpoint]: selfKill.endpoint,
+              [SHELL_ENV.endpointFile]: selfKill.endpointFile,
               [SHELL_ENV.bin]: selfKill.bin,
               PATH: selfKill.path,
             };
@@ -455,6 +755,19 @@ export const makeShells = Effect.fn("Shells.make")(function* (
         return yield* failToStart(input.cwd, reason);
       }
       const record = recordOf(shellId);
+      saved.set(shellId, {
+        shellId,
+        pid: snapshot.pid,
+        cwd: snapshot.cwd,
+        label: snapshot.label,
+        title: record.title,
+        folder: record.folder,
+        worktree: record.worktree,
+        home: record.home,
+        tokenHash,
+        ended: null,
+      });
+      yield* persistOrWarn;
       yield* Effect.logInfo(
         "shell started",
         record.worktree === null
@@ -485,20 +798,23 @@ export const makeShells = Effect.fn("Shells.make")(function* (
     kill,
     /** Kills the shell the token was given to; false when no live shell has it. */
     killByToken: Effect.fn("Shells.killByToken")(function* (token: string) {
-      const shellId = tokens.get(token);
+      const shellId = tokens.get(hashToken(token));
       if (shellId === undefined) return false;
       yield* kill(shellId);
       return true;
     }),
     /** Every shell the server runs or still lists. */
-    list: Effect.sync(() =>
-      [...terminals].map(([shellId, terminal]) => toSummary(shellId, terminal, recordOf(shellId))),
-    ),
+    list: Effect.sync(() => [
+      ...[...terminals].map(([shellId, terminal]) =>
+        toSummary(shellId, terminal, recordOf(shellId)),
+      ),
+      ...endedOnly(),
+    ]),
     subscribe: Effect.fnUntraced(function* (
       listener: (event: ShellListStreamEvent) => Effect.Effect<void>,
     ) {
       const stop = yield* manager.subscribeMetadata((event) => {
-        const mapped = listEvent(event, recordOf);
+        const mapped = listEvent(event, recordOf, endedOf, endedOnly);
         return mapped === null ? Effect.void : listener(mapped);
       });
       listeners.add(listener);
@@ -537,6 +853,7 @@ const prepareSelfKill = Effect.fn("Shells.prepareSelfKill")(function* (platform:
   const self = yield* resolveSelfInvocation();
   const dir = path.join(stateDir, "shell-bin");
   const bin = path.join(dir, "probe");
+  const endpointFile = path.join(dir, "endpoint");
   const command = [self.command, ...selfInvocationArgs(self, [PROBE_COMMAND])]
     .map(shellQuote)
     .join(" ");
@@ -544,8 +861,10 @@ const prepareSelfKill = Effect.fn("Shells.prepareSelfKill")(function* (platform:
     yield* fs.makeDirectory(dir, { recursive: true });
     yield* fs.writeFileString(bin, `#!/bin/sh\nexec ${command} "$@"\n`);
     yield* fs.chmod(bin, 0o755);
+    // Shells outlive the server, so they read where it listens now rather than when they started.
+    yield* fs.writeFileString(endpointFile, `http://${host}:${address.port}${SELF_KILL_PATH}\n`);
     return {
-      endpoint: `http://${host}:${address.port}${SELF_KILL_PATH}`,
+      endpointFile,
       bin,
       path: [dir, process.env.PATH ?? ""].join(":"),
     } satisfies ShellSelfKill;
@@ -563,9 +882,13 @@ export const layer = Layer.effect(
   Effect.gen(function* () {
     const manager = yield* TerminalManager;
     const crypto = yield* Crypto.Crypto;
-    const { agentCommand } = yield* ServerConfig.ServerConfig;
+    const { agentCommand, stateDir } = yield* ServerConfig.ServerConfig;
+    const path = yield* Path.Path;
+    const host = yield* Effect.serviceOption(ShellHost);
     const shells = yield* makeShells(manager, crypto.randomUUIDv4().pipe(Effect.orDie), {
       agentCommand: agentCommand ?? null,
+      registryPath: path.join(stateDir, "shells", "registry.json"),
+      host: host._tag === "Some" ? host.value : null,
       newToken: crypto.randomBytes(32).pipe(
         Effect.map((bytes) => Buffer.from(bytes).toString("base64url")),
         Effect.orDie,

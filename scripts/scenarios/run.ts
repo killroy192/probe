@@ -71,6 +71,8 @@ async function runScenario(
   const server = await startServer({ home, serverBin: options.serverBin });
   const stopServer = async () => {
     await server.stop();
+    // Shells outlive the server in its shell host; this home's host goes with the home.
+    await server.stopShellHost();
     await removeThrowawayHome(home);
   };
   cleanups.push(stopServer);

@@ -35,6 +35,10 @@ if (
     // The `probe` command Probe puts on every shell's PATH.
     const { runProbeShellCli } = await import("./cli/probeShell.ts");
     await runProbeShellCli(process.argv.slice(3));
+  } else if (command === "__shell-host") {
+    // The detached process that keeps shells running while the server restarts.
+    const { runShellHostCli } = await import("./terminal/shellHost/host.ts");
+    await runShellHostCli(process.argv.slice(3));
   } else if (command === "acp-mcp-bridge" || command === "acp-mcp-call") {
     const { runAcpMcpCliFastPath } = await import("./mcp/AcpMcpStdioBridge.ts");
     await runAcpMcpCliFastPath(command, process.argv.slice(3));

@@ -270,6 +270,7 @@ import {
   ShellListStreamEvent,
   ShellOpenInput,
   ShellLaunchError,
+  ShellStorageError,
   ShellResizeInput,
   ShellSummary,
   ShellWriteInput,
@@ -1594,6 +1595,7 @@ const WsTerminalCloseRpc = Rpc.make(WS_METHODS.terminalClose, {
 const ShellRpcError = Schema.Union([
   TerminalError,
   ShellLaunchError,
+  ShellStorageError,
   EnvironmentAuthorizationError,
 ]);
 
