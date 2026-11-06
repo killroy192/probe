@@ -41,6 +41,12 @@ describe("shell contracts", () => {
       exitCode: null,
       exitSignal: null,
       label: "zsh",
+      title: null,
+      process: null,
+      folder: null,
+      worktree: null,
+      branch: null,
+      elsewhere: null,
       updatedAt: "2026-11-03T00:00:00.000Z",
     };
     expect(decodes(ShellSummary, summary)).toBe(true);
