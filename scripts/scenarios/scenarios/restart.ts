@@ -13,6 +13,7 @@ import type { Scenario } from "../scenario.ts";
 import { alive, gone, pageFrames } from "../support.ts";
 import {
   addFolder,
+  agentReady,
   allGone,
   answerConfirm,
   askToKill,
@@ -95,11 +96,13 @@ export const restartSurvival: Scenario = {
     const unlisted = (shell: ShellSummary) =>
       shells.current().every((entry) => entry.shellId !== shell.shellId);
     /** Restarts the server (optionally ending the shell host while it is down) and reloads. */
+    let reloadedFrom = 0;
     const restart = async (endHost = false) => {
       await rpc.close();
       await server.stop();
       if (endHost) await server.stopShellHost();
       await server.restart();
+      reloadedFrom = frames.seen.length;
       await page.reload();
       await shown(page, "sparta");
       rpc = await connectRpc(server.origin, page);
@@ -120,6 +123,7 @@ export const restartSurvival: Scenario = {
       stage = "setup shells";
       const agent = await startShell(page, shells, repo);
       await openFromTree(page, agent.shellId);
+      await agentReady(rpc.client, agent.shellId);
       await typeLine(page, "before-restart-s7");
       await frames.until("the agent's line", (frame) => frame.includes("echo: before-restart-s7"));
       const plainShell = await startShell(page, shells, plain);
@@ -206,6 +210,12 @@ export const restartSurvival: Scenario = {
           `Shell ${shellId} is not the same running process after the restart (AC-6): ${JSON.stringify(entry)}.`,
         );
       }
+      // The reopened tab is attached once its earlier output has arrived.
+      await frames.until(
+        "the agent's earlier output after the restart",
+        (frame) => frame.includes("echo: before-restart-s7"),
+        reloadedFrom,
+      );
       await typeLine(page, "after-restart-s7");
       await frames.until("input after the restart", (frame) =>
         frame.includes("echo: after-restart-s7"),

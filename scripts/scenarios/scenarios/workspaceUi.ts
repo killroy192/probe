@@ -357,6 +357,19 @@ export async function gitOk(cwd: string, ...args: Array<string>) {
   return result.stdout.trim();
 }
 
+/** Waits until the shell's mock agent runs, so a typed line reaches the agent, not the shell. */
+export async function agentReady(client: WsClient, shellId: string) {
+  const output = recorder<string>();
+  const viewer = follow(client["shell.attach"]({ shellId }), (event) =>
+    output.push(JSON.stringify(event)),
+  );
+  try {
+    await output.until("the agent's banner", (event) => event.includes("Mock Agent v1"));
+  } finally {
+    await Effect.runPromise(Fiber.interrupt(viewer));
+  }
+}
+
 /**
  * Types `exit` into the shell's mock agent once it runs, and waits for its goodbye, so the next
  * line reaches the shell, not the agent's input buffer.
