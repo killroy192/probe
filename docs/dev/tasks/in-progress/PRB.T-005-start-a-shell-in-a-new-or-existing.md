@@ -14,27 +14,28 @@ updated: 2026-11-05
 
 **Problem:** After story 4 a user can start a shell only in a folder's own checkout. Agents running in parallel on one repository then share one working tree and step on each other's files. The user has no way, from the "+" modal, to give an agent its own isolated worktree, or to start a second shell in a worktree that already exists.
 
-**Proposed solution:** For a git folder, the "+" modal gets a worktree step (an existing worktree, none, or "new worktree") and, for "new worktree", a starting-point step. Probe names the new worktree and its branch automatically, creates it, and runs the shell there. If creating it fails, the user sees why and nothing is left behind. The modal remembers the last worktree choice and starting point, so repeating a start takes one click.
+**Proposed solution:** Each project row in the sidebar gets a "+" that opens a "Create shell" modal. For a git project the modal offers **Existing** (start in any of its worktrees) or **Fork** (create a new worktree from a linked worktree or a branch). Probe names the new worktree and its branch automatically, creates it, and runs the shell there. If creating it fails, the user sees why and nothing is left behind. The modal remembers the project's last choice, so repeating a start takes one click. (Design revised with the user on 2026-11-05 and 2026-11-06 during the manual pass; see the handoff.)
 
 ## Epic and Requirements
 
 - **Epic:** PRB.E-001 Terminal-first workspace: shell tree with mock-agent shells
 - **Candidate story:** # 5 Start a shell in a new or existing worktree ("Fork-or-open per agent", after story 4).
 - **Delivers:**
-  - FR-4: "new worktree" with a chosen starting point (branch or existing worktree); Probe names the worktree `probe-worktree-<6 hex>`, creates it in the worktrees folder of the Probe home (the existing T3 home), gives its new branch the same name, and the shell runs in the new worktree.
-  - FR-5: the existing-worktree picker (lists the folder's worktrees that have no active shell, plus "new"; an active shell is any shell still in the tree) and the "none" choice with the starting-point step skipped. The "none" path itself already exists from story 4; this story adds the picker and the skip rule.
+  - FR-4: "Fork" with a chosen origin (a linked worktree or a local branch); Probe names the worktree `probe-worktree-<6 hex>`, creates it in the worktrees folder of the Probe home (the existing T3 home), gives its new branch the same name, and the shell runs in the new worktree.
+  - FR-5: "Existing" lists every worktree of the project, the primary one first; a worktree may hold any number of shells (revised 2026-11-05). The primary worktree path already exists from story 4.
+  - FR-3 and FR-21 (revised 2026-11-06): the "+" moves from the top of the sidebar to each project row and opens the modal for that project; importing any worktree of a repository adds the repository as the project.
   - FR-13: a failed fork shows why and creates no shell. The part about non-git folders not offering worktree or branch choices is already delivered by story 4 (FR-21) and is only kept working here.
-  - FR-22 (part): the remembered worktree choice and starting point (existing worktree, none, or "new worktree") are preselected on the next open, so one click on the up-arrow button starts another shell. The remembered folder is delivered by story 4.
+  - FR-22 (part): the project's last choice (Existing with its worktree, or Fork with its origin) is preselected the next time the modal opens on that project, so one click on the up-arrow button starts another shell.
   - NFR-2 (part): a failed fork leaves no partial shell or half-created worktree.
   - NFR-1 (part): no continuously repainting animation in the new steps; the time limit for a worktree start is left open (SU-1) and no criterion checks it.
   - NFR-5 (part): the new steps work with mouse or touchpad alone.
   - NFR-6 (part): the server logs shell start with the worktree path and branch (FR-4).
   - NFR-7 (part): docs updated in the same PR.
   - FR-6 (part): a shell started in a new or existing worktree runs the mock agent CLI and opens as a tab.
-  - FR-7 (part, per the epic's verification table): the worktree and branch levels of the tree. A shell's branch is the one it was started on and is updated when the user switches branch inside that shell; the branch level is hidden while all shells of a worktree are on one branch. Story 3 owns the tree and grouping and story 4 the 1-second appearance; the node disappearing with its last shell and the worktree staying in the picker are checked here too, because story 6's scope assigns node removal rules to stories 3, 4 and 5 (see SU-5).
+  - FR-7 (part, per the epic's verification table): the worktree level of the tree, each worktree node labelled with its current branch and shown only while it has running shells, and the "elsewhere" mark. Story 3 owns the tree and grouping and story 4 the 1-second appearance; the node disappearing with its last shell is checked here too, because story 6's scope assigns node removal rules to stories 3, 4 and 5 (see SU-5).
   - Epic U-2 is resolved here: the default starting point is the folder's current branch (location and name are decided in FR-4). NFR-2 (failed fork) is named in the epic's S3 row; the NFR-2 owner list names only stories 6 and 8, which is noted as an epic inconsistency.
-  - A-11 (epic assumption, owned by this story): learning a shell's current branch, recorded at start and updated on a branch switch inside the shell.
-- **One deployable outcome:** A user can start a shell in a brand-new, automatically named worktree forked from a chosen starting point, or in an existing worktree, and repeat that with one click; this gives each agent its own isolated checkout, which is the "fork-or-open per agent" step of the epic's workspace promise.
+  - A-11 (epic assumption, owned by this story): learning each worktree's current branch from its HEAD, updated after a branch switch in any of its shells.
+- **One deployable outcome:** A user can start a shell in a brand-new, automatically named worktree forked from a chosen origin, or in any existing worktree, and repeat that with one click; this gives each agent its own isolated checkout, which is the "fork-or-open per agent" step of the epic's workspace promise.
 
 ## Current Behavior
 
@@ -52,42 +53,43 @@ Verified by reading `../probe` (read only); nothing was run.
 
 ## Expected Behavior
 
-Once this story ships, in the "+" modal of a workspace, a git folder offers a worktree step after the folder step, and a starting-point step after "new worktree". A folder that is not a git repository offers neither. Everything is done with the mouse or touchpad; Enter on the up-arrow is only a shortcut.
+Once this story ships, every project row in the sidebar has a "+" that opens the "Create shell" modal for that project; it is the only way to start a shell. The modal shows a "Starting script" dropdown that is disabled and reads "mock agent". A git project also gets an **Existing | Fork** switch and one dropdown; a project that is not a git repository gets neither. Everything is done with the mouse or touchpad; Enter on the up-arrow is only a shortcut.
 
 ### User Flow
 
-1. The user clicks "+" and selects a git folder (folders are added beforehand with the sidebar's "Add project" dialog, decided in story 4).
-2. The worktree step shows three choices: an existing worktree of the folder, none (the folder's own checkout on its current branch), or "new worktree". The existing-worktree list shows only the folder's worktrees that have no active shell (including detached-HEAD ones); a worktree that already has an active shell is not offered. On the first open the preselected choice is none; later opens preselect the remembered choice (FR-22).
-3. If the user selects none or an existing worktree, the starting-point step is skipped. The user clicks the up-arrow button; a tab opens with a shell running the mock agent CLI in that checkout, and the shell appears under its folder and worktree in the tree.
-4. If the user selects "new worktree", Probe shows the automatically generated worktree and branch name, and the starting-point step lets the user select the branch or an existing worktree the new worktree forks from. The folder's current branch is preselected as the starting point.
-5. The user clicks the up-arrow button; a second click while the start runs is ignored. Probe creates the worktree `probe-worktree-<6 hex>` in the worktrees folder of the Probe home with a new branch of the same name from the chosen starting point, then opens a tab with a shell running the mock agent CLI inside the new worktree. The shell appears in the tree under its folder, the new worktree and its branch.
-6. The next time the user clicks "+" in this workspace, the modal preselects the same folder, the same worktree choice ("new worktree", or the existing worktree, or none) and, for "new worktree", the same starting point. One click on the up-arrow button starts another shell: for "new worktree" this creates another new worktree with a new automatic name; an existing worktree is preselected again only while it still has no active shell, otherwise the modal falls back to the default choice.
+1. The user adds a project with the sidebar's "Add project" dialog (story 4). Importing any worktree of a repository adds the repository; the tree shows only the project row until it has shells.
+2. The user clicks "+" on a git project's row. The modal opens with Existing selected and the dropdown "Start in" listing every worktree: the primary worktree first, shown as its branch (branch icon), then each linked worktree (folder icon) with its branch (or short commit id) on the first line and "<name> worktree" on the second.
+3. With Existing, the user picks a worktree and clicks the up-arrow. A tab opens with a shell running the mock agent CLI in that worktree, and the tree shows project > worktree > shell. A worktree that already has shells can take more.
+4. With Fork, the dropdown "Fork from" lists the origins: linked worktrees (forking from their current commit), a branch named exactly like a linked worktree grouped with that worktree, then the remaining local branches with the primary worktree's current one first, marked "(current)". A branch checked out in a linked worktree is listed only as that worktree. The modal shows the generated `probe-worktree-<6 hex>` name. The default origin is the primary worktree's current branch.
+5. The user clicks the up-arrow; a second click while the start runs is ignored, and the modal shows "Creating probe-worktree-<hex>…". Probe creates the worktree in the worktrees folder of the Probe home with a new branch of the same name at the origin's commit, then opens a tab with a shell running the mock agent CLI inside it.
+6. The next time the user opens the modal on that project, it preselects the same choice (Existing with the same worktree, or Fork with the same origin). One click starts another shell; for Fork it creates another worktree with a new name.
 
 ### Edge Cases
 
-- **EC-1.** Automatic name: two new-worktree starts in the same folder always get different `probe-worktree-<6 hex>` names, also when started within the same second; a name that already exists on disk or as a branch is never reused (a random name that collides is replaced by another).
-- **EC-2.** A folder with no commit (SA-3, A-17): the new-worktree choice is not offered; the folder's own checkout stays available.
-- **EC-3.** The remembered existing worktree has been removed from disk since the last start: the modal does not preselect it and falls back to the default choice; it does not fail on open.
-- **EC-4.** The remembered starting point (a branch or worktree) no longer exists: the modal falls back to the default starting point (the folder's current branch) instead of failing on open. If it was still shown as selected and the fork then fails, ER-1 applies.
-- **EC-5.** The remembered choices are a single record per workspace (kept in that workspace's saved layout) of the last successful start. When the user selects a different folder than the remembered one, its worktree choice and starting point are not applied and the defaults are used.
-- **EC-6.** A worktree that has an active shell is not listed in the picker; once its last shell ends it is listed again. Because of this, scenarios that need several shells in one checkout use the folder's own checkout ("none"), which may hold several shells.
-- **EC-7.** A folder that is not a git repository: no worktree step, no starting-point step, no remembered worktree choice is applied (kept from story 4).
-- **EC-8.** The starting point list contains local branches and existing worktrees of the folder only; remote branches are not listed and Probe does not fetch before forking.
-- **EC-9.** The user clicks the up-arrow button a second time while the first start is in progress: the second click is ignored and only one worktree and one shell are created.
-- **EC-10.** The user closes the modal after choosing "new worktree" but before starting: nothing is created on disk, and the remembered choice is not updated.
-- **EC-11.** A worktree on a detached HEAD is listed in the picker and is a valid starting point: the new worktree forks from its current commit.
-- **EC-12.** The user switches to a different branch inside a shell: the worktree node shows the new branch for all of its shells (git keeps one branch per worktree; decided 2026-11-05).
-- **EC-13.** A shell in a worktree is started on the worktree's branch (for a new worktree, the new `probe-worktree-<6 hex>` branch). A detached-HEAD worktree node is labelled with the short commit hash (SU-4, decided). A shell that changes directory to outside its worktree stays under it and is marked "elsewhere".
-- **EC-14.** The last shell of a worktree or branch ends: its node disappears from the tree, and the worktree stays in the picker (FR-7).
+- **EC-1.** Automatic name: two forks in the same project always get different `probe-worktree-<6 hex>` names, also when started within the same second; a name that already exists on disk or as a branch is never reused.
+- **EC-2.** A project with no commit: Fork is disabled with a note; Existing still starts in the primary worktree.
+- **EC-3.** The remembered worktree has been removed from disk: the modal preselects the primary worktree instead and shows no error.
+- **EC-4.** The remembered origin no longer exists: the modal falls back to the primary worktree's current branch. If it was still shown and the fork then fails, ER-1 applies.
+- **EC-5.** The remembered choice is one record per workspace (the last successful start). Opening the modal on another project ignores it and shows the defaults.
+- **EC-6.** Any worktree, including the primary one, may hold any number of shells; nothing is hidden from the dropdown because it has shells.
+- **EC-7.** A project that is not a git repository: no switch and no worktree dropdown; the shell starts in the project's folder.
+- **EC-8.** Fork origins are local branches and worktrees of the project only; remote branches are not listed and Probe does not fetch before forking.
+- **EC-9.** A second click on the up-arrow while a start runs is ignored: one worktree and one shell are created.
+- **EC-10.** Closing the modal after choosing Fork creates nothing on disk and does not change the remembered choice.
+- **EC-11.** A detached-HEAD worktree is listed with its short commit id and is a valid origin: the fork starts from its current commit.
+- **EC-12.** A branch switch inside any shell of a worktree relabels that worktree's node for all of its shells (git keeps one branch per worktree).
+- **EC-13.** A shell that changes directory out of its worktree stays under it, marked "elsewhere" with its location in a tooltip.
+- **EC-14.** The last running shell of a worktree ends: its node disappears; the worktree stays on disk and in the modal.
+- **EC-15.** Importing a linked worktree's folder adds its repository as the project (a toast says so); a subfolder of a repository is added as itself.
 
 ### Error Handling
 
-- **ER-1.** The fork fails (for example the starting point no longer exists, the destination cannot be created, or git reports an error): the user sees a message that says why, no shell and no tab is created, and the modal stays open so the user can change the starting point and retry.
-- **ER-2.** After any failed fork, no worktree directory, no registered worktree and no new branch created for this attempt is left behind (NFR-2); this is the only cleanup the epic allows. A worktree or branch that existed before the attempt is never removed.
-- **ER-3.** The worktree is created but the shell cannot start: the user sees why and no shell appears. The created worktree and its branch are kept: only a worktree whose creation failed is cleaned up. The remembered choices are not updated (only a successful start updates them), and on retry the user can pick the kept worktree (it has no active shell, so it is listed) or choose "new worktree" to create another; Probe never reuses it automatically and never removes it.
-- **ER-4.** Listing the folder's worktrees fails (for example git is unavailable): the worktree step shows the error and does not offer the existing-worktree choice; "none" stays available, and so does "new worktree" with branches as starting points if they can be listed.
-- **ER-5.** A failed fork is not remembered: the last successful choices stay as the defaults.
-- **ER-6.** Listing the starting points fails: the starting-point step shows the error and the up-arrow button does not start a new worktree; the user can go back to "none" or an existing worktree.
+- **ER-1.** The fork fails (for example the origin no longer exists, the destination cannot be created, or git reports an error): the modal shows why, no shell or tab is created, and the modal stays open for another try.
+- **ER-2.** After any failed fork, no worktree directory, no registered worktree and no branch created by this attempt is left behind (NFR-2). A worktree or branch that existed before the attempt is never removed.
+- **ER-3.** The worktree is created but the shell cannot start: the modal shows why and no shell appears. The worktree and its branch are kept and offered under Existing next time; the remembered choice is not updated.
+- **ER-4.** Listing the project's worktrees fails: Existing shows the error and starts in the project's folder; Fork still works when the branches can be listed.
+- **ER-5.** A failed start is not remembered.
+- **ER-6.** Listing the fork origins fails: Fork shows the error and the up-arrow is disabled; Existing still works.
 
 ## Out Of Scope
 
@@ -105,7 +107,7 @@ Once this story ships, in the "+" modal of a workspace, a git folder offers a wo
 
 ## Technical Scope
 
-- **Layers:** terminal UI (the worktree step, the existing-worktree picker, the starting-point step and the remembered choices inside the "+" modal); server (a call that lists a folder's worktrees including detached ones, worktree start, automatic naming, failure handling, log lines); contracts (the new start inputs and results, the error shape); the saved workspace layout (the remembered worktree choice and starting point); the tree (worktree and branch levels, branch tracking); scenario harness run by `vp run test:scenarios` (S3 and the worktree and branch parts of S2 and S4 with a real git repository fixture, including a folder with no commit, a detached-HEAD worktree and a failing fork).
+- **Layers:** terminal UI (the per-project "+", the "Create shell" modal with its Existing | Fork switch and dropdown, and the remembered choice); server (a call that lists a folder's worktrees including detached ones, worktree start, automatic naming, failure handling, log lines); contracts (the new start inputs and results, the error shape); the saved workspace layout (the remembered worktree choice and starting point); the tree (worktree level with branch labels, branch and "elsewhere" tracking); scenario harness run by `vp run test:scenarios` (S3 and the worktree and branch parts of S2 and S4 with a real git repository fixture, including a folder with no commit, a detached-HEAD worktree and a failing fork).
 - **Docs impact:** `probe/docs/` pages that describe the "+" modal and starting a shell (created by story 4); the text must say where new worktrees are placed (the worktrees folder of the Probe home), how they are named (`probe-worktree-<6 hex>`) and that they are kept when a shell ends. No inherited chat-worktree docs are extended.
 - **Mobile impact:** none (the epic does not require mobile). Shared contract changes must not break the existing mobile compile where it is built today; this is `unverified` and is not an acceptance criterion because of NFR-4.
 
@@ -121,42 +123,42 @@ Once this story ships, in the "+" modal of a workspace, a git folder offers a wo
 
 ## Acceptance Criteria
 
+Rewritten 2026-11-06 for the revised design; the scenario S3 is being rewritten to match.
+
 | ID | Criterion (Given / When / Then) | Check (auto / manual) | Covers (FR / NFR / EC / ER) |
 | --- | --- | --- | --- |
-| AC-1 | Given a git folder with its own checkout and two linked worktrees, one with an active shell and one without, when the user opens the worktree step in the "+" modal, then the picker lists only the linked worktree without a shell, the own checkout is offered as "none" (it is not listed a second time), and "new worktree" is offered. | auto | FR-5, EC-6 |
-| AC-2 | Given the worktree step, when the user selects an existing worktree and clicks the up-arrow button, then the starting-point step was never shown, a tab opens with a shell running the mock agent CLI whose cwd is that worktree, and the shell appears under that worktree in the tree. | auto | FR-5, FR-6 (part) |
-| AC-3 | Given a git folder with at least one commit, when the user selects "new worktree", then the modal shows a generated `probe-worktree-<6 hex>` name, the starting-point step lists the folder's local branches and existing worktrees (no remote branches), and the folder's current branch is preselected. | auto | FR-4, EC-8 |
-| AC-4 | Given "new worktree" and a starting branch selected, when the user clicks the up-arrow button, then a new worktree named `probe-worktree-<6 hex>` exists (with the name the modal showed) in the worktrees folder of the Probe home on a new branch of the same name that points at the starting branch's current commit, a tab opens with a shell running the mock agent CLI whose cwd is the new worktree, and the shell appears under the folder and the new worktree in the tree. | auto | FR-4, FR-6 (part), FR-7 (part) |
-| AC-5 | Given "new worktree" with an existing worktree selected as the starting point, when the user starts the shell, then the new worktree forks from that worktree's current commit and the shell runs in the new worktree. | auto | FR-4 |
-| AC-6 | Given a worktree on a detached HEAD with no active shell, when the user opens the worktree step, then it is listed in the picker labelled with the short commit hash, and when it is chosen as the starting point of a new worktree, then the new worktree's branch points at the detached worktree's current commit. | auto | EC-11, FR-5, FR-4 |
-| AC-7 | Given two "new worktree" starts in the same folder (the second within the same second), when both complete, then there are two worktrees with different `probe-worktree-<6 hex>` names and branches and one shell in each; no existing worktree or branch was reused. | auto | FR-4, EC-1 |
-| AC-8 | Given a started new-worktree shell, when the server logs are read, then they contain one shell-start line with the shell id, the cwd, the worktree path and the branch. | auto | NFR-6 |
-| AC-9 | Given the last start used "new worktree" from branch X in folder F, when the user clicks "+" again in the same workspace, then F, "new worktree" and X are preselected, and one click on the up-arrow button creates a second new worktree and opens a shell in it. | auto | FR-22 |
-| AC-10 | Given the last start used an existing worktree W and W has no active shell now (its shell was killed), when the user clicks "+" again, then W is preselected and one click on the up-arrow button starts a shell in W without creating a worktree; while W has an active shell it is not listed and the default choice is preselected. | auto | FR-22, FR-5 |
-| AC-11 | Given a git folder and no earlier start in the workspace, when the user opens the worktree step, then none is preselected, and when the user starts, then the starting-point step was never shown and the shell runs in the folder's own checkout. | auto | FR-5, FR-22 |
-| AC-12 | Given the last start used "none", when the user clicks "+" again, then none is preselected and one click starts a shell in the folder's own checkout. | auto | FR-22, FR-5 |
-| AC-13 | Given the remembered worktree W was removed from disk, when the user clicks "+", then W is not preselected, the modal opens with the default choice and shows no error. | auto | EC-3 |
-| AC-14 | Given the remembered starting point no longer exists, when the user clicks "+" and "new worktree" is preselected, then the folder's current branch is selected instead and the modal shows no error. | auto | EC-4, FR-22 |
-| AC-15 | Given choices remembered for folder F1, when the user selects another git folder F2, then F1's worktree choice and starting point are not applied to F2. | auto | EC-5, FR-22 |
-| AC-16 | Given a folder that is not a git repository, when the user selects it in the modal, then no worktree step and no starting-point step are shown and the shell starts in the folder. | auto | FR-13, FR-21, EC-7 |
-| AC-17 | Given a git folder with no commit, when the user opens the worktree step, then "new worktree" is not offered and the folder's own checkout can still be started. | auto | EC-2 |
-| AC-18 | Given "new worktree" with a starting point that no longer exists at the moment of the click, when the user clicks the up-arrow button, then the modal shows a message that names the cause, no shell, tab or tree node appears, and the modal stays open. | auto | FR-13, ER-1 |
-| AC-19 | Given a failed fork (AC-18), when the folder's worktrees, branches and the worktrees directory are compared with the state before the click, then they are identical: no new directory, no registered worktree, no new branch. | auto | NFR-2, ER-2 |
-| AC-20 | Given a failed fork, when the user opens the modal again, then the choices remembered from the last successful start are still the ones preselected. | auto | ER-5 |
-| AC-21 | Given a failed fork, when the user picks a valid starting point in the still open modal and clicks the up-arrow button, then a worktree and a shell are created. | auto | ER-1 |
-| AC-22 | Given the worktree list cannot be read, when the user opens the worktree step, then it shows the error, does not offer the existing-worktree choice, and starting with none in the folder's own checkout still works; "new worktree" with branches as starting points is still offered when branches can be listed. | auto | ER-4 |
-| AC-23 | Given "new worktree" selected and the starting-point list cannot be read, when the user looks at the modal, then it shows the error and the up-arrow button does not create a worktree. | auto | ER-6 |
-| AC-24 | Given a worktree that has an active shell, when the user opens the worktree step, then it is not listed; and given the folder's own checkout with two shells, then "none" is still offered and starts a third. | auto | EC-6 |
-| AC-25 | Given a created worktree whose shell cannot start (the failure is induced by the scenario harness), when the user clicks the up-arrow button, then the modal shows why, no shell or tab appears, and the created worktree and its branch still exist; the remembered choices are not updated, and on retry the kept worktree is listed in the existing-worktree step and can be picked, or "new worktree" creates another (the earlier one stays). | auto | ER-3 |
-| AC-26 | Given "new worktree" selected, when the user clicks the up-arrow button a second time while the first start is in progress (the harness holds the fork open), then the second click is ignored and exactly one worktree and one shell are created. | auto | EC-9 |
-| AC-27 | Given "new worktree" selected, when the user closes the modal without starting, then nothing is created on disk and the next open preselects the previous remembered choices. | auto | EC-10, FR-22 |
-| AC-28 | Given shells in a worktree, when the user looks at the tree, then the shells sit under one node for that worktree, labelled with the worktree (the folder's own checkout as "checkout") and its current branch, and there is no separate branch level. | auto | FR-7 (part) |
-| AC-29 | Given two shells in one worktree, when the user switches branch inside one of them, then within about 2 seconds the worktree node shows the new branch and both shells stay under it. | auto | FR-7 (part), EC-12 |
-| AC-30 | Given a shell in a worktree, when the user changes directory inside it to a place outside that worktree, then the shell stays under its worktree and its row shows "elsewhere" with the new location; back inside the worktree, the mark goes away. | auto | FR-7 (part), EC-13 |
-| AC-31 | Given the last shell of a worktree ends (ended by the harness), when the user looks at the tree, then that worktree node is gone and the worktree is still listed in the picker of the "+" modal. | auto | FR-7 (part), EC-14 |
-| AC-32 | Given the steps above, when the scenario drives all of them, then every action (select folder, worktree, starting point, up-arrow, close) is done with pointer actions only. | auto | NFR-5 |
-| AC-33 | Given the final story, when the author checks the shipped pages, then `probe/docs/` describes starting a shell in a new or existing worktree and where new worktrees go. | manual (author) | NFR-7 |
-| AC-34 | Given the code review of the story, when the fork progress is inspected, then no continuously repainting animation was added to the modal or the tree. | manual (author, code review) | NFR-1 |
+| AC-1 | Given a git project with a primary worktree, a linked worktree and a detached one, when the user opens "+" on its row, then Existing is selected and "Start in" lists the primary worktree first as its branch (branch icon), then the linked ones with their branch or short commit id and "<name> worktree" (folder icon). | auto | FR-5, EC-11 |
+| AC-2 | Given Existing with a linked worktree selected, when the user clicks the up-arrow, then a tab opens with a shell running the mock agent CLI whose cwd is that worktree, and the tree shows project > that worktree > the shell. | auto | FR-5, FR-6 (part) |
+| AC-3 | Given a worktree that already has a running shell, when the user opens the modal, then it is still listed and starting there adds a second shell under the same node. | auto | EC-6 |
+| AC-4 | Given Fork, when the user opens "Fork from", then it lists linked worktrees, a branch named exactly like a linked worktree grouped with it, then the other local branches with the primary's current one first and marked "(current)"; a branch checked out in a linked worktree is not listed again, no remote branch is listed, the current branch is preselected and the generated `probe-worktree-<6 hex>` name is shown. | auto | FR-4, EC-8 |
+| AC-5 | Given Fork from a branch, when the user clicks the up-arrow, then a worktree with the shown name exists in the worktrees folder of the Probe home on a new branch of that name at the branch's commit, a tab opens with the mock agent CLI running in it, and the tree shows it under the project. | auto | FR-4, FR-6 (part), FR-7 (part) |
+| AC-6 | Given Fork from a linked or detached worktree, when the shell starts, then the new branch points at that worktree's current commit. | auto | FR-4, EC-11 |
+| AC-7 | Given two forks in one project, the second right after the first, when both complete, then they have different names and branches and nothing existing was reused. | auto | FR-4, EC-1 |
+| AC-8 | Given a forked shell, when the server logs are read, then one shell-start line has the shell id, cwd, worktree path and branch. | auto | NFR-6 |
+| AC-9 | Given the last start in the workspace was a fork from origin X in project P, when the user opens "+" on P, then Fork and X are preselected and one click creates another worktree. | auto | FR-22 |
+| AC-10 | Given the last start in P was Existing in worktree W, when the user opens "+" on P, then Existing and W are preselected and one click starts a shell in W without creating a worktree. | auto | FR-22, FR-5 |
+| AC-11 | Given no earlier start in the workspace, when the user opens "+" on a git project, then Existing with the primary worktree is preselected and one click starts there. | auto | FR-5, FR-22 |
+| AC-12 | Given the remembered worktree was removed from disk, when the user opens "+", then the primary worktree is preselected and no error shows. | auto | EC-3 |
+| AC-13 | Given the remembered origin no longer exists, when the user opens "+" and Fork is preselected, then the primary's current branch is selected instead and no error shows. | auto | EC-4, FR-22 |
+| AC-14 | Given choices remembered for project P1, when the user opens "+" on another git project P2, then P1's choice is not applied. | auto | EC-5, FR-22 |
+| AC-15 | Given a project that is not a git repository, when the user opens "+" on it, then there is no switch and no worktree dropdown and the shell starts in the project's folder. | auto | FR-21, EC-7 |
+| AC-16 | Given a git project with no commit, when the user opens "+", then Fork is disabled and Existing starts in the primary worktree. | auto | EC-2 |
+| AC-17 | Given Fork with an origin that no longer exists at the click, when the user clicks the up-arrow, then the modal names the cause, no shell, tab or node appears and the modal stays open. | auto | FR-13, ER-1 |
+| AC-18 | Given a failed fork (AC-17), when the project's worktrees, branches and the worktrees folder are compared with before the click, then they are identical. | auto | NFR-2, ER-2 |
+| AC-19 | Given a failed fork, when the user reopens the modal, then the last successful start's choice is still preselected; and given the still open modal, when the user picks a valid origin and clicks the up-arrow, then a worktree and a shell are created. | auto | ER-5, ER-1 |
+| AC-20 | Given the worktree list cannot be read, when the user opens "+", then Existing shows the error and still starts in the project's folder, and Fork is still offered when branches can be listed. | auto (unit and browser test) | ER-4 |
+| AC-21 | Given Fork and the origin list cannot be read, when the user looks at the modal, then it shows the error and the up-arrow does not create a worktree. | auto (unit and browser test) | ER-6 |
+| AC-22 | Given a created worktree whose shell cannot start (induced by the harness), when the user clicks the up-arrow, then the modal shows why, no shell appears, the worktree and branch still exist, the remembered choice is unchanged, and the kept worktree is listed under Existing on retry. | auto | ER-3 |
+| AC-23 | Given Fork, when the user clicks the up-arrow twice while the first start runs (the harness holds the fork open), then the modal shows "Creating probe-worktree-<hex>…" with the up-arrow disabled, and exactly one worktree and one shell are created. | auto | EC-9, SU-2 |
+| AC-24 | Given Fork selected, when the user closes the modal, then nothing is created on disk and the next open preselects the previous choice. | auto | EC-10 |
+| AC-25 | Given shells in a worktree, when the user looks at the tree, then they sit under one node labelled with the worktree ("primary · <branch>" for the project's own checkout, else "<name> · <branch>") and there is no branch level. | auto | FR-7 (part) |
+| AC-26 | Given two shells in one worktree, when the user switches branch in one, then within about 2 seconds the node shows the new branch and both shells stay under it. | auto | FR-7 (part), EC-12 |
+| AC-27 | Given a shell in a worktree, when the user changes directory out of it, then the row shows "elsewhere" with the location in a tooltip and stays under its worktree; back inside, the mark goes away. | auto | FR-7 (part), EC-13 |
+| AC-28 | Given the last running shell of a worktree ends (ended by the harness), when the user looks at the tree, then the worktree node is gone and the worktree is still listed under Existing. | auto | FR-7 (part), EC-14 |
+| AC-29 | Given the user imports a linked worktree's folder with "Add project", when the dialog closes, then the repository is the project, a toast says so, and no worktree is shown under it until it has shells. | auto | FR-21, EC-15 |
+| AC-30 | Given the steps above, when the scenario drives them, then every action is done with pointer actions only. | auto | NFR-5 |
+| AC-31 | Given the final story, when the author checks the shipped pages, then `probe/docs/` describes the "Create shell" modal, forking and where new worktrees go. | manual (author) | NFR-7 |
+| AC-32 | Given the code review, when the fork progress is inspected, then no continuously repainting animation was added to the modal or the tree. | manual (author, code review) | NFR-1 |
 
 ## Dependencies
 
@@ -185,22 +187,18 @@ Once this story ships, in the "+" modal of a workspace, a git folder offers a wo
 
 ## Implementation Status and Handoff
 
-Implemented 2026-11-05 on `feat/worktrees-prb-t-005` (stacked on `feat/plus-modal-prb-t-004`); not committed or pushed yet. Next: verify stage, manual dev pass.
+Implemented on `feat/worktrees-prb-t-005` (stacked on `feat/plus-modal-prb-t-004`); first version committed in `eacf06fc0`, the 2026-11-06 redesign not yet committed. Nothing pushed.
 
-**Decisions (user, 2026-11-05)**
-- Branch model is the real git state: each worktree node in the tree shows its current branch, read by the server from the worktree's HEAD; no per-shell branch and no branch level (epic FR-7, S4, A-11 and AC-28 to AC-30 rewritten). A shell whose cwd left its worktree stays under it, marked "elsewhere" with its location in a tooltip.
-- While a worktree is created, the "+" dialog shows static text "Creating probe-worktree-<hex>…" (SU-2).
-- The tree labels the own checkout "checkout · <branch>"; a linked worktree by its directory name (plus the branch when it differs); non-git folders have no worktree node.
-- The worktree step lives in the "+" (Start shell) dialog; folders are added in the separate Add folder dialog (story 4).
-- Defaults: U-2 the folder's current branch is the default starting point; SU-1 measured and reported, not enforced; SU-5 a scenario kills the shell pid.
-- An ended shell (exited) leaves the tree and frees its worktree for the picker (EC-14); its tab stays until story 6.
+**Decisions (user)**
+- 2026-11-05: branch model is the real git state. Each worktree node shows its current branch, read by the server from the worktree's HEAD; no per-shell branch and no branch level. A shell whose cwd left its worktree stays under it, marked "elsewhere" with its location in a tooltip.
+- 2026-11-05: while a worktree is created, the modal shows static text "Creating probe-worktree-<hex>…" (SU-2). Defaults: the primary worktree's current branch is the default origin (U-2); SU-1 measured and reported, not enforced; SU-5 a scenario kills the shell pid.
+- 2026-11-05 to 2026-11-06 (manual pass, three iterations): a workspace holds **projects** (code and saved data keep "folder" until PRB.T-009). Importing any worktree of a repository adds the repository and shows nothing else. The only start control is a "+" on each project row, opening "Create shell": a disabled "Starting script" dropdown ("mock agent"), an **Existing | Fork** switch and one dropdown. Existing lists every worktree; any worktree takes any number of shells. Fork lists linked worktrees, then same-named branches grouped with their worktree, then remaining branches (current first); branches checked out in a linked worktree are not repeated. Items: icon (branch for branches and the primary worktree, folder for linked worktrees), branch on line 1, "<name> worktree" on line 2. The repository's own checkout is called **primary** ("primary · main" in the tree). The tree shows only worktrees with running shells; there are no per-worktree buttons, hiding or worktree management (tried and dropped).
 
 **What was built**
-- Contracts: `workspace.folderGit` (read scope), `WorkspaceWorktreeChoice` on `workspace.startShell`, `WorkspaceDetail.lastStart` (replaces `lastFolder`; old files with `lastFolder` still read as a checkout start), `ShellSummary.folder/worktree/branch/elsewhere`.
-- Server: `GitVcsDriver.listWorktrees` and `hasCommit`; `SavedWorkspaces.folderGit` and the worktree start (new worktrees go to `<home>/worktrees/<repo>/probe-worktree-<6 hex>`, a taken name is redrawn, forks are serialized, a failed fork is rolled back, a shell failure keeps the worktree); `Shells` keeps folder and worktree per shell and polls HEAD files and shell cwds every 2 s.
-- Web: worktree and starting-point steps in `StartShellDialog` (rules in `worktreeChoice.ts`), tree folder > worktree > shell.
-- Scenario S3 (`scripts/scenarios/scenarios/worktrees.ts`) with git fixtures and a post-checkout hook that holds a fork open (AC-26); shared UI helpers moved to `workspaceUi.ts`. AC-22/AC-23 are covered by `SavedWorkspaces.test.ts` and `StartShellDialog.browser.test.tsx`, since real git cannot fail one listing but not the other.
+- Contracts: `workspace.folderGit`, `WorkspaceWorktreeChoice` on `workspace.startShell`, `WorkspaceDetail.lastStart` (old `lastFolder` files still read), `WorkspaceAddFolderResult.resolvedFrom`, `ShellSummary.folder/worktree/branch/elsewhere`.
+- Server: `GitVcsDriver.listWorktrees` and `hasCommit`; `SavedWorkspaces.folderGit`, worktree starts with rollback of a failed fork, linked-worktree import resolved to its repository; `Shells` polls HEAD files and shell cwds every 2 s.
+- Web: `StartShellDialog` ("Create shell", per project), rules in `worktreeChoice.ts`, tree project > worktree > shell in `WorkspaceSidebar`.
 
-**Verification so far**
-- Focused tests pass; typecheck of contracts, client-runtime, server, web, mobile, desktop and scripts; lint, format, knip.
-- `vp run test:scenarios`: S1, S2, S3 and T-002 pass; S3 passed three runs in a row; selftest and `harness.test.ts` pass.
+**Not done**
+- Scenarios S2 and S3 still drive the first version's top "+" dialog and must be rewritten for the per-project modal and the ACs above (S3 also covers the post-checkout hold for AC-23).
+- Verify stage.

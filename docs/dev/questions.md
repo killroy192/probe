@@ -13,10 +13,7 @@ it is verified or decided; settled decisions go to `roadmap.md`.
   submitting (the "stage text, no Enter" primitive).
 - Agent CLIs' handling of staged input: bracketed paste, multi-line, kitty keyboard protocol.
 - Claude Code's current support for MCP prompts as slash commands and for server-pushed messages.
-- PRB.E-001 assumptions its stories depend on (2026-11-02): A-17 forking a worktree needs at least one commit (PRB.T-005; PRB.T-004 showed a folder
-  without one runs in its own checkout); A-11 Probe can read each worktree's current branch
-  (real git state, decided 2026-11-05) and A-12 list a folder's worktrees, including detached and shell-less ones (PRB.T-005). Unknowns:
-  U-2 default base branch and worktree location; U-5 the kill command's name and how it finds its own shell (PRB.T-006). The 5 s resume limit
+- PRB.E-001 unknowns its stories depend on: U-5 the kill command's name and how it finds its own shell (PRB.T-006). The 5 s resume limit
   is provisional (PRB.T-008).
 - Whether a shell exiting on its own closes its tab (PRB.T-006 SU-2, split with PRB.T-007 and
   PRB.T-008).
