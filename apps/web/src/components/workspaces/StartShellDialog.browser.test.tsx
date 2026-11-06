@@ -6,7 +6,12 @@ import { render } from "../../../test/render";
 import { StartShellDialog } from "./StartShellDialog";
 
 const repo = { path: "/repo", isGitRepository: true, exists: true };
-const workspace: WorkspaceDetail = { name: "sparta", folders: [repo], lastStart: null };
+const workspace: WorkspaceDetail = {
+  name: "sparta",
+  folders: [repo],
+  lastStart: null,
+  tabs: { shellIds: [], active: null },
+};
 
 const git: WorkspaceFolderGit = {
   hasCommit: true,

@@ -1,6 +1,6 @@
 import type { EnvironmentId, ShellSummary } from "@t3tools/contracts";
 import { ChevronDownIcon, FolderOpenIcon, PlusIcon, SquareTerminalIcon } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { cn } from "~/lib/utils";
 import { useShells } from "../../state/shells";
@@ -22,6 +22,9 @@ export function WorkspaceScreen() {
   const view = useWorkspaces();
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const { restoreShown } = view;
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Reads browser storage once the workspace list arrives, to show the workspace a reload left.
+  useEffect(() => restoreShown(), [restoreShown]);
 
   return (
     <SidebarInset className="h-dvh min-h-0" data-testid="workspace-screen">

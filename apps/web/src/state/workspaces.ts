@@ -13,6 +13,7 @@ import {
   type WorkspaceDetail,
   type WorkspaceFolderGit,
   type WorkspaceSummary,
+  type WorkspaceTabs as SavedWorkspaceTabs,
   type WorkspaceWorktreeChoice,
 } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
@@ -41,7 +42,31 @@ interface WorkspaceTabs {
 
 const NO_TABS: WorkspaceTabs = { shellIds: [], activeShellId: null };
 
-// Kept in memory only: a reload returns to the start screen until story 7 restores it.
+const fromSaved = (saved: SavedWorkspaceTabs): WorkspaceTabs => ({
+  shellIds: saved.shellIds as ReadonlyArray<ShellId>,
+  activeShellId: saved.active as ShellId | null,
+});
+
+// Per browser: which workspace this page showed last, so a reload shows it again.
+const SHOWN_KEY_PREFIX = "probe:shown-workspace:";
+
+const rememberShown = (environmentId: EnvironmentId, name: string | null) => {
+  try {
+    if (name === null) localStorage.removeItem(SHOWN_KEY_PREFIX + environmentId);
+    else localStorage.setItem(SHOWN_KEY_PREFIX + environmentId, name);
+  } catch {
+    // Storage can be blocked; the page then starts on the start screen after a reload.
+  }
+};
+
+const rememberedShown = (environmentId: EnvironmentId) => {
+  try {
+    return localStorage.getItem(SHOWN_KEY_PREFIX + environmentId);
+  } catch {
+    return null;
+  }
+};
+
 const shownWorkspaceAtom = Atom.make<ShownWorkspace | null>(null).pipe(
   Atom.keepAlive,
   Atom.withLabel("web-shown-workspace"),
@@ -50,6 +75,18 @@ const shownWorkspaceAtom = Atom.make<ShownWorkspace | null>(null).pipe(
 const tabsAtom = Atom.make<Readonly<Record<string, WorkspaceTabs>>>({}).pipe(
   Atom.keepAlive,
   Atom.withLabel("web-workspace-tabs"),
+);
+
+// Why the last tab change was not saved; cleared by the next one that is.
+const layoutErrorAtom = Atom.make<string | null>(null).pipe(
+  Atom.keepAlive,
+  Atom.withLabel("web-workspace-layout-error"),
+);
+
+// Whether this page already tried to show the workspace it showed before a reload.
+const restoredAtom = Atom.make(false).pipe(
+  Atom.keepAlive,
+  Atom.withLabel("web-workspace-restored"),
 );
 
 /** The tabs without `shellId`; closing the active tab shows its right neighbour, else its left. */
@@ -102,6 +139,8 @@ export interface WorkspacesView {
   /** The shown workspace, or null for the start screen. */
   readonly shown: WorkspaceDetail | null;
   readonly tabs: WorkspaceTabs;
+  /** Why the open tabs are not being saved, or null while they are. */
+  readonly layoutError: string | null;
   readonly create: (name: string) => WorkspaceActionResult;
   readonly open: (name: string) => WorkspaceActionResult;
   /** Reads the shown workspace again, so a folder deleted on disk is no longer preselected. */
@@ -131,6 +170,8 @@ export interface WorkspacesView {
   readonly closeTab: (shellId: ShellId) => void;
   /** Ends the shell and everything it started, and closes its tab. */
   readonly killShell: (shellId: ShellId) => WorkspaceActionResult;
+  /** Shows the workspace this page showed before a reload, once per page. */
+  readonly restoreShown: () => void;
 }
 
 /** Saved workspaces of the primary environment and the one this page shows. */
@@ -163,6 +204,11 @@ export function useWorkspaces(): WorkspacesView {
     reportFailure: false,
   });
   const killCommand = useAtomCommand(shellEnvironment.kill, { reportFailure: false });
+  const saveTabsCommand = useAtomCommand(workspaceEnvironment.saveTabs, { reportFailure: false });
+  const layoutError = useAtomValue(layoutErrorAtom);
+  const setLayoutError = useAtomSet(layoutErrorAtom);
+  const restored = useAtomValue(restoredAtom);
+  const setRestored = useAtomSet(restoredAtom);
   const canChange = useAtomValue(workspaceEnvironment.create.permissionAtom(environmentId));
   const canStartShell = useAtomValue(workspaceEnvironment.startShell.permissionAtom(environmentId));
 
@@ -179,11 +225,13 @@ export function useWorkspaces(): WorkspacesView {
     shown === null || environmentId === null
       ? NO_TABS
       : (allTabs[tabsKey(environmentId, shown.name)] ?? NO_TABS);
-  // A shell the server no longer has leaves its tab.
+  // A shell the server no longer has, or one listed only as ended, leaves its tab.
   const liveShellIds =
     shells === null
       ? storedTabs.shellIds
-      : storedTabs.shellIds.filter((id) => shells.some((shell) => shell.shellId === id));
+      : storedTabs.shellIds.filter((id) =>
+          shells.some((shell) => shell.shellId === id && shell.ended === null),
+        );
   const tabs: WorkspaceTabs = {
     shellIds: liveShellIds,
     activeShellId:
@@ -192,15 +240,32 @@ export function useWorkspaces(): WorkspacesView {
         : (liveShellIds.at(-1) ?? null),
   };
 
+  /** Changes a workspace's tabs and saves them with the workspace. */
   const updateTabs = (
     id: EnvironmentId,
     name: string,
     update: (tabs: WorkspaceTabs) => WorkspaceTabs,
-  ) =>
-    setAllTabs((all) => {
-      const key = tabsKey(id, name);
-      return { ...all, [key]: update(all[key] ?? NO_TABS) };
-    });
+  ) => {
+    const key = tabsKey(id, name);
+    const next = update(allTabs[key] ?? NO_TABS);
+    setAllTabs((all) => ({ ...all, [key]: next }));
+    void saveTabsCommand({
+      environmentId: id,
+      input: { name, tabs: { shellIds: next.shellIds, active: next.activeShellId } },
+    }).then((result) =>
+      setLayoutError(
+        result._tag === "Failure"
+          ? `The layout is not being saved: ${formatEnvironmentQueryError(result.cause)}`
+          : null,
+      ),
+    );
+  };
+
+  const showDetail = (id: EnvironmentId, detail: WorkspaceDetail) => {
+    setShown({ environmentId: id, detail });
+    setAllTabs((all) => ({ ...all, [tabsKey(id, detail.name)]: fromSaved(detail.tabs) }));
+    rememberShown(id, detail.name);
+  };
 
   const run = async <A>(
     action: (environmentId: EnvironmentId) => Promise<AtomCommandResult<A, unknown>>,
@@ -217,7 +282,7 @@ export function useWorkspaces(): WorkspacesView {
   const show = (name: string) =>
     run(
       (id) => openCommand({ environmentId: id, input: { name } }),
-      (detail, id) => setShown({ environmentId: id, detail }),
+      (detail, id) => showDetail(id, detail),
     );
 
   return {
@@ -228,13 +293,16 @@ export function useWorkspaces(): WorkspacesView {
     canStartShell,
     shown,
     tabs,
+    layoutError,
     create: (name) =>
       run(
         (id) => createCommand({ environmentId: id, input: { name } }),
         (created, id) =>
-          setShown({
-            environmentId: id,
-            detail: { name: created.name, folders: [], lastStart: null },
+          showDetail(id, {
+            name: created.name,
+            folders: [],
+            lastStart: null,
+            tabs: { shellIds: [], active: null },
           }),
       ),
     open: (name) => (shown?.name === name ? Promise.resolve(null) : show(name)),
@@ -242,8 +310,10 @@ export function useWorkspaces(): WorkspacesView {
     remove: (name) =>
       run(
         (id) => removeCommand({ environmentId: id, input: { name } }),
-        () => {
-          if (shown?.name === name) setShown(null);
+        (_, id) => {
+          if (shown?.name !== name) return;
+          setShown(null);
+          rememberShown(id, null);
         },
       ),
     addFolder: async (request) => {
@@ -334,6 +404,14 @@ export function useWorkspaces(): WorkspacesView {
         (id) => killCommand({ environmentId: id, input: { shellId } }),
         (_, id) => updateTabs(id, name, (current) => withoutTab(current, shellId)),
       );
+    },
+    restoreShown: () => {
+      if (restored || environmentId === null || workspaces === null || shownState !== null) return;
+      setRestored(true);
+      const name = rememberedShown(environmentId);
+      if (name !== null && workspaces.some((workspace) => workspace.name === name)) {
+        void show(name);
+      }
     },
     activateShell: (shellId) => {
       if (shown === null || environmentId === null) return;

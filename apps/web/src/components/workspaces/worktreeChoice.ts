@@ -49,9 +49,11 @@ export function worktreeLabel(
   return branch === name ? name : `${name} · ${branch}`;
 }
 
-/** A shell the tree shows; an ended one leaves the tree (EC-14). */
-export const isActiveShell = (shell: ShellSummary) =>
+export const isRunningShell = (shell: ShellSummary) =>
   shell.status === "running" || shell.status === "starting";
+
+/** A shell the tree shows: a running one, or one kept as ended until it is removed. */
+export const isListedShell = (shell: ShellSummary) => isRunningShell(shell) || shell.ended !== null;
 
 const worktreeOption = (key: string, worktree: WorkspaceWorktree, suffix = ""): WorktreeOption => ({
   key,

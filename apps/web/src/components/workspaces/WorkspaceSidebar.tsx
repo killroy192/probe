@@ -35,7 +35,7 @@ import { CreateWorkspaceDialog } from "./CreateWorkspaceDialog";
 import { AddFolderDialog } from "./AddFolderDialog";
 import { folderName, shellName } from "./shellName";
 import { StartShellDialog } from "./StartShellDialog";
-import { isActiveShell, worktreeLabel } from "./worktreeChoice";
+import { isListedShell, isRunningShell, worktreeLabel } from "./worktreeChoice";
 
 const NEEDS_WORKSPACE = "Open a workspace first";
 
@@ -56,12 +56,21 @@ const confirmRemoveProject = async (folder: string, workspace: string, running: 
 const confirmKill = async (shell: ShellSummary) =>
   (await requestConfirmDialog(
     [
-      `Kill ${shellName(shell, { folder: false })}?`,
-      "Its process and everything it started end now.",
+      shell.ended === null
+        ? `Kill ${shellName(shell, { folder: false })}?`
+        : `Remove ${shellName(shell, { folder: false })}?`,
+      shell.ended === null
+        ? "Its process and everything it started end now."
+        : "It has ended; it leaves the tree for good.",
       ...(shell.worktree === null ? [] : ["Its worktree stays on disk."]),
     ].join("\n"),
     { variant: "destructive" },
   )) === true;
+
+const ENDED_REASON = {
+  signal: "A signal ended this shell.",
+  lost: "This shell was lost when the process that held it ended, for example in a reboot.",
+} as const;
 
 /** The app sidebar of the terminal-first screen: workspace actions and the shell tree. */
 export function WorkspaceSidebar() {
@@ -155,6 +164,11 @@ export function WorkspaceSidebar() {
             {error === null ? null : (
               <p role="alert" className="px-2 pt-1 text-xs text-destructive-foreground">
                 {error}
+              </p>
+            )}
+            {view.layoutError === null ? null : (
+              <p role="alert" className="px-2 pt-1 text-xs text-destructive-foreground">
+                {view.layoutError}
               </p>
             )}
           </SidebarGroup>
@@ -284,12 +298,44 @@ function ShellTree({
             role="treeitem"
             aria-level={level}
             aria-selected={shell.shellId === activeShellId}
+            aria-disabled={shell.ended !== null}
             isActive={shell.shellId === activeShellId}
             data-shell-id={shell.shellId}
-            onClick={() => onChooseShell(shell.shellId)}
+            data-ended={shell.ended ?? undefined}
+            // An ended shell has no terminal to show; it can only be removed.
+            onClick={() => (shell.ended === null ? onChooseShell(shell.shellId) : undefined)}
           >
             <SquareTerminalIcon />
-            <span className="truncate">{shellName(shell, { folder: false })}</span>
+            <span className={shell.ended === null ? "truncate" : "truncate text-muted-foreground"}>
+              {shellName(shell, { folder: false })}
+            </span>
+            {shell.ended === null ? null : (
+              <Tooltip>
+                <TooltipTrigger
+                  render={<span className="ml-auto shrink-0 text-xs text-muted-foreground" />}
+                >
+                  ended
+                </TooltipTrigger>
+                <TooltipPopup side="right">{ENDED_REASON[shell.ended]}</TooltipPopup>
+              </Tooltip>
+            )}
+            {shell.missing ? (
+              <Tooltip>
+                <TooltipTrigger
+                  render={
+                    <span
+                      data-missing
+                      className="ml-auto shrink-0 text-xs text-destructive-foreground"
+                    />
+                  }
+                >
+                  not found
+                </TooltipTrigger>
+                <TooltipPopup side="right">
+                  Its folder was not found: {shell.worktree ?? shell.folder ?? shell.cwd}
+                </TooltipPopup>
+              </Tooltip>
+            ) : null}
             {shell.elsewhere === null ? null : (
               <Tooltip>
                 <TooltipTrigger
@@ -309,8 +355,8 @@ function ShellTree({
           {/* Shown on hover; a pointer reaches it by hovering the row first. */}
           <span className="opacity-0 group-hover/shell:opacity-100 focus-within:opacity-100">
             <SidebarHeaderIconButton
-              label={`Kill ${shellName(shell, { folder: false })}`}
-              tooltip="Kill shell"
+              label={`${shell.ended === null ? "Kill" : "Remove"} ${shellName(shell, { folder: false })}`}
+              tooltip={shell.ended === null ? "Kill shell" : "Remove shell"}
               disabled={!canStart}
               onClick={() => onKillShell(shell)}
             >
@@ -337,8 +383,9 @@ function ShellTree({
         {workspace.folders.map((folder) => {
           // Shells from before folders were recorded fall back to their starting folder.
           const inFolder = shells.filter(
-            (shell) => isActiveShell(shell) && (shell.folder ?? shell.cwd) === folder.path,
+            (shell) => isListedShell(shell) && (shell.folder ?? shell.cwd) === folder.path,
           );
+          const running = inFolder.filter(isRunningShell).length;
           return (
             <div key={folder.path} data-folder={folder.path}>
               <div className="group/project flex items-center gap-1 pr-1">
@@ -361,7 +408,7 @@ function ShellTree({
                     label={`Remove ${folderName(folder.path)} from the workspace`}
                     tooltip="Remove project"
                     disabled={!canRemoveProject}
-                    onClick={() => onRemoveProject(folder.path, inFolder.length)}
+                    onClick={() => onRemoveProject(folder.path, running)}
                   >
                     <FolderMinusIcon />
                   </SidebarHeaderIconButton>
