@@ -136,6 +136,11 @@ substantial disk space before pruning.
 Never run a development server against the live `~/.t3/userdata`.
 See [test data](../../AGENTS.md#test-data) for copying a consistent database snapshot.
 
+Stopping a dev server leaves its shells running in that state folder's shell host
+(`<state dir>/shell-host-v1.pid`), and the next start takes them back. End them from the
+UI, or stop the host by the pid in that file, which ends every shell it holds. Never look
+the host up by its command line: every checkout's host runs the same command.
+
 Read ports from the `[dev-runner]` output. Worktrees derive stable preferences from their paths,
 but occupied ports can shift them. `T3CODE_PORT_OFFSET` or `T3CODE_DEV_INSTANCE` can select a
 different preference when needed.
@@ -278,7 +283,7 @@ Runtime-discovered entrypoints and dependency exceptions belong in [knip.jsonc](
 
 ### Scenario tests
 
-`vp run test:scenarios` starts Probe on a throwaway data directory, drives it in headless Chromium, and prints each scenario as `PASS`, `FAIL` or `PENDING` plus how many of the 8 pass. It exits non-zero when a scenario fails. It uses the same Playwright Chromium as the web browser tests (install it once with `node scripts/node_modules/playwright-core/cli.js install --only-shell chromium`, or pass `--browser <path>`) and builds the web bundle if `apps/web/dist` is missing; pass `--rebuild` after web changes. It never touches `~/.t3` and does not disturb a running dev server. Scenarios themselves are not a CI gate.
+`vp run test:scenarios` starts Probe on a throwaway data directory, drives it in headless Chromium, and prints each scenario as `PASS`, `FAIL` or `PENDING` plus how many of the 8 pass. It exits non-zero when a scenario fails. It uses the same Playwright Chromium as the web browser tests (install it once with `node scripts/node_modules/playwright-core/cli.js install --only-shell chromium`, or pass `--browser <path>`) and builds the web bundle if `apps/web/dist` is missing; pass `--rebuild` after web changes. It never touches `~/.t3` and does not disturb a running dev server. Each scenario stops its server's shell host, by the pid in its throwaway home, before deleting that home. Scenarios themselves are not a CI gate.
 
 `vp run test:scenarios -- --only S1` runs a single scenario by id. `vp run test:scenarios -- --selftest` runs the harness self-tests (restart persistence and a deliberate failure, so it exits non-zero by design). See [Testing](../internals/testing.md#scenario-tests).
 

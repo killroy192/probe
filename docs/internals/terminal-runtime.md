@@ -45,14 +45,37 @@ shell it kills.
 `probe kill` reaches the server without environment auth, like `/mcp`. At startup `Shells`
 writes a `probe` wrapper into `<state dir>/shell-bin` that runs the server's own entry with the
 hidden `__probe` command, dispatched in [`bin.ts`](../../apps/server/src/bin.ts) before the full
-CLI loads. Each shell gets a random token, the endpoint (`POST /api/shell/self/kill` on the
-address the server bound, loopback when it bound every interface), `PROBE_BIN` and a `PATH`
-with that folder first ([`shellEnv.ts`](../../apps/server/src/terminal/shellEnv.ts)). The token
-kills only its own shell and is dropped when the shell ends.
+CLI loads, and writes the current endpoint (`POST /api/shell/self/kill` on the address the
+server bound, loopback when it bound every interface) to `shell-bin/endpoint`. Each shell gets a
+random token, the endpoint file's path, `PROBE_BIN` and a `PATH` with that folder first
+([`shellEnv.ts`](../../apps/server/src/terminal/shellEnv.ts)). Shells outlive the server, so the
+command reads the file at each call rather than an endpoint fixed at the shell's start. The
+token kills only its own shell; only its hash is kept, in the shell registry.
 
-A shell outlives its viewers: closing or reloading a page only detaches, and closing a tab
-in the app is a client-side detach too. It does not outlive the server. Shutdown ends every PTY, and the `survivesRestart` process-scope
-flag does not change that.
+## Shell host
+
+A shell outlives its viewers and the server. Closing or reloading a page only detaches. Shells
+(owners `shell:<id>`) are spawned in the **shell host**
+([`shellHost/`](../../apps/server/src/terminal/shellHost/)), a detached process the server starts
+with the hidden `__shell-host <state dir>` command, one per state folder. It owns the PTYs,
+keeps up to 8 MiB of output per shell, and speaks newline-delimited JSON to one server at a time
+over `<state dir>/shell-host-v<N>.sock` (a temp-folder path when that is too long for a unix
+socket), writing its pid next to it. The manager's shutdown detaches from host processes
+instead of killing them; thread terminals still use the in-process PTY and end with the server.
+Windows has no host. The host exits by itself when it has no shells and no server.
+
+`Shells` saves every shell it starts in `<state dir>/shells/registry.json` (folder, worktree,
+pid, token hash). At startup it matches the registry against the host's sessions by pid: a live
+one is adopted into the manager (`TerminalManager.adopt`) with the host's output as its history,
+so the same process continues with its scrollback; a host session with no registry entry is a
+crashed server's leftover and is killed.
+
+How a shell ended decides whether it stays: a Probe kill or an exit without a signal (any status)
+removes it and its history; a signal exit, or a registry entry the host no longer has (the host
+died, for example in a reboot), keeps it listed with `ended: "signal" | "lost"` until it is
+killed. The host remembers an exit that happens while no server is connected until a server
+forgets it. The socket name carries the protocol version, so a server of another version starts
+its own host and shows the old host's shells as lost.
 
 ## Output and retention
 

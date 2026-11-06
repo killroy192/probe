@@ -29,7 +29,7 @@ its projects, including shells another workspace started in a project they
 share. It never deletes folders or worktrees on disk. Removing the shown
 workspace returns to the start screen, where **Open workspace** lists the rest.
 
-A reload returns to the start screen; the list of saved workspaces stays.
+A reload shows the same workspace again, in the same browser, with its tabs.
 
 ## Projects and shells
 
@@ -104,8 +104,8 @@ disk. A missing project can be removed the same way.
 Each shell you start or select in the tree opens as a tab. Closing a tab (the
 **×** its icon turns into on hover) only hides the terminal: the shell keeps
 running, stays in the tree, and selecting it there opens its tab again with the
-output it printed meanwhile. Tabs last until the page is reloaded; the shells
-keep running on the server until it stops.
+output it printed meanwhile. The open tabs and the selected one are saved with
+the workspace.
 
 To end a shell, hover its row in the tree, click **×** and confirm. The kill
 ends the shell and everything it started, such as background jobs and the
@@ -115,6 +115,25 @@ Inside a shell, the command `probe kill` does the same to that shell, so an
 agent can end its own shell. If the shell's startup files replace `PATH`, run
 `"$PROBE_BIN" kill` instead. When the server can't be reached, the command says
 so and the shell keeps running.
+
+## Reloads and restarts
+
+Shells run on the server, not in the page, so a reload or a closed browser
+leaves them running. Stopping the server or closing the app leaves them running
+too: when the server starts again, each shell is back as the same process, with
+its output, in the same place in the tree, and the workspace opens with the same
+tabs. A small helper process owns the shells while the server is down; it ends
+by itself once no shells are left.
+
+A shell that ends on its own, whatever its exit status, leaves the tree for
+good, as a killed shell does. A shell that a signal ended, or that was lost
+because its helper ended (for example in a reboot), stays in the tree marked
+"ended"; hover the mark to see why, and click **×** to remove it. An ended shell
+has no tab.
+
+When a shell's folder or worktree is gone from disk, its row is marked "not
+found". A shell still running there keeps working; an ended one can only be
+removed.
 
 ## Agent command
 
