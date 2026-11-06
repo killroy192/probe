@@ -13,10 +13,8 @@ it is verified or decided; settled decisions go to `roadmap.md`.
   submitting (the "stage text, no Enter" primitive).
 - Agent CLIs' handling of staged input: bracketed paste, multi-line, kitty keyboard protocol.
 - Claude Code's current support for MCP prompts as slash commands and for server-pushed messages.
-- PRB.E-001 unknowns its stories depend on: U-5 the kill command's name and how it finds its own shell (PRB.T-006). The 5 s resume limit
-  is provisional (PRB.T-008).
-- Whether a shell exiting on its own closes its tab (PRB.T-006 SU-2, split with PRB.T-007 and
-  PRB.T-008).
+- PRB.E-001: the 5 s resume limit is provisional (PRB.T-008).
+- Whether a shell exiting on its own closes its tab (left by PRB.T-006 to PRB.T-007 and PRB.T-008).
 - How Probe tells an unexpected end from a normal exit or a Probe kill at the moment of death. The
   rule is decided; the mechanism comes from PRB.T-007, and PRB.T-008 depends on it.
 - Mock CLI gaps left by PRB.T-001: behavior for an unknown session id, and a switch that makes

@@ -3,9 +3,9 @@ id: PRB.T-006
 type: story
 parent: PRB.E-001
 phase: 1
-labels: [terminal-first, plan]
+labels: [terminal-first, plan, implement]
 created: 2026-11-02
-updated: 2026-11-02
+updated: 2026-11-06
 ---
 
 # Multiple shells, close tab and kill
@@ -33,16 +33,15 @@ updated: 2026-11-02
 
 ## Current Behavior
 
-Verified by reading `/Users/Dzmitry_Lahunouski/dev/probe-org/probe`; the epic states that earlier stories (PRB.T-002 to PRB.T-005) change this, so what follows is the state of the repository today, not the state when this story starts.
+State after PRB.T-002 to PRB.T-005 (re-read 2026-11-06 at planning):
 
-- **Server terminals.** `apps/server/src/terminal/Manager.ts` keeps terminal sessions keyed by a thread id plus a terminal id (`toSessionKey`). Several terminals per thread exist. The contract `TerminalCloseInput` in `packages/contracts/src/terminal.ts` takes a thread id, an optional terminal id and an optional "delete history" flag; the RPC is `terminal.close` in `packages/contracts/src/rpc.ts`.
-- **Close today ends the process.** `close` in `Manager.ts` stops the session's process (SIGTERM, then SIGKILL escalation after a wait), drops the session and persists history. There is no server operation that hides a terminal while its process keeps running; hiding a tab today is a client-side state.
-- **Kill reach.** The code signals the pty process only. Whether child processes started by the shell (as agents do) are also ended is unverified.
-- **No standalone shell and no shell-side kill command.** Terminals are scoped to a chat thread. `shouldExcludeTerminalEnvKey` in `Manager.ts` removes `T3CODE_*` and `VITE_*` variables from the terminal environment. No command inside a terminal that reaches the server to end its own terminal was found (unverified beyond that search of `apps/server/src/terminal/` and `apps/server/src/mcp/`).
-- **Web tabs.** `apps/web/src/components/ThreadTerminalDrawer.tsx` and `PersistentThreadTerminals.tsx` render a bottom drawer of terminals per thread, with tab buttons, a close button per tab (`PanelTabCloseButton`, `onCloseTerminal`), a new-terminal button and split groups. UI state (open terminals, active terminal) lives in `apps/web/src/terminalUiStateStore.ts`. Closing from the drawer calls the server close (ending the process); `confirmTerminalClose` (`apps/web/src/lib/terminalCloseConfirm.ts`) asks first.
-- **Labels.** `packages/shared/src/terminalLabels.ts` derives a label from the terminal id ("Terminal N") or from a summary label (`resolveTerminalSessionLabel`). Whether a user can set the label is unverified.
-- **Tree and workspaces.** The sidebar is a project > thread tree; there is no shell tree and no workspace concept in the code (the epic says PRB.T-003 adds them).
-- **Mobile.** Not inspected; the epic excludes desktop and mobile.
+- **Shells.** `apps/server/src/terminal/Shells.ts` runs standalone shells (owner `shell:<id>`) that outlive their viewers (PRB.T-002). Each records its project folder, worktree, current branch and an "elsewhere" folder. `shell.close` exists on the wire but no client calls it; it stops the pty process with SIGTERM, then SIGKILL after a grace period, and signals nothing else.
+- **Projects and the tree.** `WorkspaceSidebar.tsx` shows workspace > project (with "+") > worktree (labelled with its branch, only while it has running shells) > shell. Ended shells leave the tree.
+- **Tabs.** `WorkspaceScreen.tsx` shows one tab per started or selected shell, all mounted, only the active one visible. A tab cannot be closed; selecting a shell in the tree opens or activates its tab. Tabs live in memory only (`apps/web/src/state/workspaces.ts`).
+- **Workspace removal** deletes the workspace's file and returns to the start screen; its shells keep running.
+- **No in-shell command.** Shell environments drop `T3CODE_*` and `VITE_*`; nothing in a shell can reach the server. The ACP agents' `t3 acp-mcp-call` (env endpoint plus bearer token, fast-path dispatch in `apps/server/src/bin.ts`) is the precedent for a subprocess calling back.
+- **Confirmations.** `requestConfirmDialog` (`apps/web/src/confirmDialog.ts`) with its host mounted at the app root.
+- **Mobile.** Out of scope for the epic.
 
 ## Expected Behavior
 
@@ -149,6 +148,7 @@ Work areas, not steps:
 | ID | Statement | Kind (assumption / unknown) | Status (unverified / verified / false) | How and when to verify | Owner |
 | --- | --- | --- | --- | --- | --- |
 | SA-1 | A running shell can stay alive while no tab is open for it (epic A-6, depends on PRB.T-002) | assumption | verified | PRB.T-002: a shell outlives its viewers (scenario T-002, [spike](../../research/t-002-standalone-shell-spike.md)) | author |
-| SA-2 | Ending the shell process also ends what it started (current code signals the pty process only) | assumption | unverified | Run a shell with a child, kill it, check processes, at the start of planning | author |
-| SU-1 | Name of the kill command and how it finds its own shell (epic U-5, designed in this story's plan stage) | unknown | unverified | Decide in the plan stage; do not decide here | author |
-| SU-2 | Whether a shell exiting on its own (for example `exit`) while a tab is open closes the tab; the epic assigns the not-restored rule to PRB.T-007 and PRB.T-008 | unknown | unverified | Confirm the split with PRB.T-007 and PRB.T-008 authors | author |
+| SA-2 | Ending the shell process also ends what it started (current code signals the pty process only) | assumption | false | False for background jobs (`sleep 1000 &` outlives a SIGKILLed shell); the kill therefore ends the shell's whole process tree and session. Verified by the kill test in `Manager.test.ts` (PRB.T-006 implementation) | author |
+| SU-1 | Name of the kill command and how it finds its own shell (epic U-5, designed in this story's plan stage) | unknown | verified | Decided by the user 2026-11-06: `probe kill`, a `probe` command with subcommands that Probe puts on each shell's PATH; it finds its shell by a per-shell token in the shell's environment | author |
+| SU-2 | Whether a shell exiting on its own (for example `exit`) while a tab is open closes the tab; the epic assigns the not-restored rule to PRB.T-007 and PRB.T-008 | unknown | verified | Decided at planning 2026-11-06: left to PRB.T-007 and PRB.T-008; this story keeps today's behaviour (an ended shell leaves the tree) | author |
+| SA-3 | Removing a workspace ends the shells of its projects | assumption | verified | Decided by the user 2026-11-06: every running shell whose project folder is in the workspace is killed, also when another workspace shares that folder; shells do not record their workspace | author |
