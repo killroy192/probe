@@ -1168,7 +1168,8 @@ function TerminalSessionViewport({
     <div
       ref={attachContainer}
       tabIndex={-1}
-      className="relative h-full w-full overflow-hidden bg-(--terminal-background)"
+      // Focus rests here only until the surface loads; the cursor, not a ring, shows focus.
+      className="relative h-full w-full overflow-hidden bg-(--terminal-background) outline-none"
     />
   );
 }
