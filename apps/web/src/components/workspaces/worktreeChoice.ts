@@ -10,7 +10,7 @@ import type {
 import { folderName } from "./shellName";
 
 /** What the tree and the dialogs call a repository's original worktree, its own folder. */
-export const PRIMARY = "primary";
+const PRIMARY = "primary";
 
 export type WorktreeMode = "existing" | "new";
 
