@@ -1,6 +1,6 @@
 import type { EnvironmentId, ShellSummary } from "@t3tools/contracts";
 import { ChevronDownIcon, FolderOpenIcon, PlusIcon, SquareTerminalIcon } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useEffectEvent, useState } from "react";
 
 import { cn } from "~/lib/utils";
 import { useShells } from "../../state/shells";
@@ -25,10 +25,26 @@ export function WorkspaceScreen() {
   const { restoreShown } = view;
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Reads browser storage once the workspace list arrives, to show the workspace a reload left.
   useEffect(() => restoreShown(), [restoreShown]);
+  const refresh = useEffectEvent(() => void view.refresh());
+  const { shells } = useShells(view.environmentId);
+  const notFound = (shells ?? [])
+    .filter((shell) => shell.missing)
+    .map((shell) => shell.shellId)
+    .join(",");
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- A shell's folder gone from disk may be a project's; the server's project state is read again to mark it missing.
+  useEffect(() => {
+    if (notFound !== "") refresh();
+  }, [notFound]);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Folders change on disk outside the app; coming back to the window reads the projects again.
+  useEffect(() => {
+    const onFocus = () => refresh();
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
+  }, []);
 
   return (
     <SidebarInset className="h-dvh min-h-0" data-testid="workspace-screen">
-      {view.shown === null ? (
+      {view.shown === null && view.restoring ? null : view.shown === null ? (
         <div className="flex flex-1 flex-col items-center justify-center gap-3">
           <Menu>
             <MenuTrigger render={<Button variant="outline" size="lg" />}>

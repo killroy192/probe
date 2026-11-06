@@ -89,7 +89,7 @@ const latestTabs = new Map<string, WorkspaceTabs>();
 const pendingSaves = new Map<string, Promise<unknown>>();
 
 // Whether this page already tried to show the workspace it showed before a reload.
-const restoredAtom = Atom.make(false).pipe(
+const restoredAtom = Atom.make<"no" | "pending" | "done">("no").pipe(
   Atom.keepAlive,
   Atom.withLabel("web-workspace-restored"),
 );
@@ -177,6 +177,8 @@ export interface WorkspacesView {
   readonly killShell: (shellId: ShellId) => WorkspaceActionResult;
   /** Shows the workspace this page showed before a reload, once per page. */
   readonly restoreShown: () => void;
+  /** True while the page may still bring back the workspace it showed before a reload. */
+  readonly restoring: boolean;
 }
 
 /** Saved workspaces of the primary environment and the one this page shows. */
@@ -427,13 +429,22 @@ export function useWorkspaces(): WorkspacesView {
       );
     },
     restoreShown: () => {
-      if (restored || environmentId === null || workspaces === null || shownState !== null) return;
-      setRestored(true);
+      if (restored !== "no" || environmentId === null || workspaces === null) return;
+      if (shownState !== null) return setRestored("done");
       const name = rememberedShown(environmentId);
-      if (name !== null && workspaces.some((workspace) => workspace.name === name)) {
-        void show(name);
+      if (name === null || !workspaces.some((workspace) => workspace.name === name)) {
+        return setRestored("done");
       }
+      setRestored("pending");
+      void show(name).finally(() => setRestored("done"));
     },
+    // The start screen would flash before the remembered workspace shows.
+    restoring:
+      restored !== "done" &&
+      shownState === null &&
+      canRead &&
+      query.error === null &&
+      (environmentId === null || rememberedShown(environmentId) !== null),
     activateShell: (shellId) => {
       if (shown === null || environmentId === null) return;
       updateTabs(environmentId, shown.name, (current) =>
