@@ -3,7 +3,7 @@ id: PRB.T-006
 type: story
 parent: PRB.E-001
 phase: 1
-labels: [terminal-first, plan, implement]
+labels: [terminal-first, plan, implement, verify]
 created: 2026-11-02
 updated: 2026-11-06
 ---
@@ -153,3 +153,27 @@ Work areas, not steps:
 | SU-1 | Name of the kill command and how it finds its own shell (epic U-5, designed in this story's plan stage) | unknown | verified | Decided by the user 2026-11-06: `probe kill`, a `probe` command with subcommands that Probe puts on each shell's PATH; it finds its shell by a per-shell token in the shell's environment | author |
 | SU-2 | Whether a shell exiting on its own (for example `exit`) while a tab is open closes the tab; the epic assigns the not-restored rule to PRB.T-007 and PRB.T-008 | unknown | verified | Decided at planning 2026-11-06: left to PRB.T-007 and PRB.T-008; this story keeps today's behaviour (an ended shell leaves the tree) | author |
 | SA-3 | Removing a workspace ends the shells of its projects | assumption | verified | Decided by the user 2026-11-06: every running shell whose project folder is in the workspace is killed, also when another workspace shares that folder; shells do not record their workspace | author |
+
+## Implementation Status and Handoff
+
+Done 2026-11-06 on `feat/shell-kill-prb-t-006` (stacked on `feat/worktrees-prb-t-005`). Durable decisions are in `docs/dev/roadmap.md`, usage in `docs/user/workspaces.md`, the kill's reach and `probe kill`'s path to the server in `docs/internals/terminal-runtime.md`.
+
+**Decisions**
+- User, 2026-11-06: the in-shell command is `probe kill` (SU-1, epic U-5). Removing a workspace kills every running shell in its projects' folders, also shells another workspace started in a shared folder; shells record no workspace (SA-3). After the manual pass the user added removing one project from a workspace, which kills that project's shells the same way (AC-22).
+- Planning: `shell.close` became `shell.kill`, the one way Probe ends a shell; closing a tab is client-only. SU-2 stays with PRB.T-007 and PRB.T-008. SA-2 is false, so the kill stops and SIGKILLs the shell's process tree and, on Linux, its session; macOS can miss a job that double-forked before the kill, Windows signals the shell only.
+
+**What was built**
+- Contracts: `shell.kill` (was `shell.close`), `workspace.removeFolder`.
+- Server: `processTree.ts` (read with `ps`, stop, re-read, SIGKILL); `Shells.kill` (uninterruptible, since `probe kill`'s request dies with its shell), `killByToken`, `list`; a per-shell token and `PROBE_*` env, the `probe` wrapper in `<state dir>/shell-bin`, the `__probe` fast path in `bin.ts` (`cli/probeShell.ts`) and `POST /api/shell/self/kill` (`shellSelfKillRoute.ts`); the "shell ended" log carries the cwd and `reason: "killed"`. `SavedWorkspaces.remove` and `removeFolder` kill shells by folder, under a per-workspace lock shared with starts.
+- Web: tab close button (`WorkspaceScreen`), hover kill and remove-project buttons with confirmations (`WorkspaceSidebar`), `closeTab`, `killShell`, `removeFolder` in `state/workspaces.ts`.
+- Scenarios: S4 (`many-shells.ts`, without its reload part, which PRB.T-007 adds), S5 (`close-tab.ts`), S6 (`kill-shell.ts`); shared helpers in `workspaceUi.ts`. The mock agent prints `mock-agent: bye` on exit, which `leaveAgent` waits for before typing into the shell.
+
+**Verification (2026-11-06, author; no separate verify-agent report, as for PRB.T-004 and PRB.T-005)**
+- Checks: focused tests (431 across `terminal`, `savedWorkspaces`, `cli/probeShell`, `auth`, contracts, web workspaces and the mock agent; the React compiler check); typecheck of contracts, client-runtime, server, web, mobile, desktop and scripts; format, lint and knip; `vp run test:scenarios` with S1 to S6 and T-002 passing, the self-test and `harness.test.ts`.
+- AC-1, AC-2: met by S4. AC-3 to AC-6: met by S5 (the output made while the tab is closed comes back on reopen).
+- AC-7 to AC-18, AC-20: met by S6, each stage named after its ACs; AC-9 kills a background job and a double-forked job (also `processTree.test.ts`); AC-14 uses an unreachable endpoint (also `probeShell.test.ts`); AC-17 ends the shell from outside while the confirmation is open; AC-20 by S6 and `Manager.test.ts`.
+- AC-19: met; S4 to S6 drive the UI with pointer actions only and type only into shells.
+- AC-21: met; the diff adds no animation (hover reveals are plain opacity, no transition).
+- AC-22: met by S6 ("remove project") and `SavedWorkspaces.test.ts`.
+- Found on the way: the shell summary fixture in `packages/contracts/src/shell.test.ts` had failed since `1251962ba` (missing newer fields); fixed.
+- Manual pass by the user in `vp run dev` (2026-11-06): accepted.
