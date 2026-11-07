@@ -20,6 +20,15 @@ and an optional cloud API (Next.js, Postgres, Redis, auth, billing).
 - **Send selection to agent** from diff views and from browser "Design" mode.
 - **Plugins** are skills + MCP tools bundles, not UI extensions.
 
+## Terminal reattach (studied 2026-11-07 for PRB.T-010)
+
+Paradev renders with xterm.js, not Ghostty (its "ghostty" code is only ported selection tests).
+Its terminal host feeds every PTY's output into a server-side `@xterm/headless` terminal that is
+resized with the PTY (`apps/desktop/src/main/lib/terminal-host/headless-emulator.ts`). Attach sends
+a snapshot, not raw history: screen and scrollback serialized as VT with `@xterm/addon-serialize`,
+plus sequences that restore input modes (app cursor keys, mouse tracking, bracketed paste, alt
+screen). A client therefore never replays old redraws at a width they were not written for.
+
 ## Skipped for probe
 
 Accounts, billing, cloud sandboxes, relay, email, marketing, mobile (for now), Postgres/Docker dev setup.
