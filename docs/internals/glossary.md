@@ -5,21 +5,21 @@ Terms whose meaning matters across T3 Code. Architecture and lifecycle constrain
 
 ## Workspace and conversation
 
-| Term           | Meaning                                                                                                                                                                                                |
-| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Environment    | One running server and the machine, credentials, workspace access, and state it owns.                                                                                                                  |
-| Client         | A web, desktop, or mobile UI connected to an environment. The desktop app can also host a server.                                                                                                      |
-| Project        | An environment-local workspace record rooted at a directory.                                                                                                                                           |
-| Workspace root | The project's base filesystem directory on the environment.                                                                                                                                            |
-| Workspace      | A named set of folders and the layout of their shells, saved as one file per workspace.                                                                                                                |
-| Folder         | What the code and saved workspace files call a workspace's project (the UI says "project"; renamed in PRB.T-009). A git one has a primary worktree, its own folder.                                    |
-| Worktree       | A separate Git checkout of a repository; a thread or a workspace shell can run in one.                                                                                                                 |
-| Thread         | The durable conversation and work history for a project. It survives provider process exits.                                                                                                           |
-| Shell          | A terminal the environment owns instead of a thread. It keeps running with no client attached and across server restarts. Closing its tab only hides it; killing it ends it and everything it started. |
-| Shell host     | The detached process, one per server state folder, that owns every shell's PTY so shells outlive the server.                                                                                           |
-| Turn           | One user-to-agent cycle, a V2 run. Provider work can end before checkpoint and diff work settles.                                                                                                      |
-| Activity       | A non-message timeline item, such as a tool action, approval, or failure.                                                                                                                              |
-| T3 home        | The base data directory. Runtime state normally lives under its `userdata` directory.                                                                                                                  |
+| Term              | Meaning                                                                                                                                                                                                                                    |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Environment       | One running server and the machine, credentials, workspace access, and state it owns.                                                                                                                                                      |
+| Client            | A web, desktop, or mobile UI connected to an environment. The desktop app can also host a server.                                                                                                                                          |
+| Project           | An environment-local record that threads belong to, rooted at a directory. Not a workspace project.                                                                                                                                        |
+| Workspace         | A named set of workspace projects and the layout of their shells, saved as one file per workspace.                                                                                                                                         |
+| Workspace         | A named set of workspace projects and the layout of their shells, saved as one file per workspace.                                                                                                                                         |
+| Workspace project | One app or service in a workspace: its folder on disk (a git one's primary worktree) plus the worktrees of its repository. Code and saved files say "project" for it, with the `Workspace` prefix where a thread's project could be meant. |
+| Worktree          | A separate Git checkout of a repository; a thread or a workspace shell can run in one.                                                                                                                                                     |
+| Thread            | The durable conversation and work history for a project. It survives provider process exits.                                                                                                                                               |
+| Shell             | A terminal the environment owns instead of a thread. It keeps running with no client attached and across server restarts. Closing its tab only hides it; killing it ends it and everything it started.                                     |
+| Shell host        | The detached process, one per server state folder, that owns every shell's PTY so shells outlive the server.                                                                                                                               |
+| Turn              | One user-to-agent cycle, a V2 run. Provider work can end before checkpoint and diff work settles.                                                                                                                                          |
+| Activity          | A non-message timeline item, such as a tool action, approval, or failure.                                                                                                                                                                  |
+| T3 home           | The base data directory. Runtime state normally lives under its `userdata` directory.                                                                                                                                                      |
 
 ## Orchestration
 

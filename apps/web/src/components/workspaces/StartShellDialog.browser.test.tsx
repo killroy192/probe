@@ -1,4 +1,4 @@
-import type { WorkspaceDetail, WorkspaceFolderGit } from "@t3tools/contracts";
+import type { WorkspaceDetail, WorkspaceProjectGit } from "@t3tools/contracts";
 import { describe, expect, it, vi } from "vite-plus/test";
 import { page, userEvent } from "vite-plus/test/browser";
 
@@ -8,12 +8,12 @@ import { StartShellDialog } from "./StartShellDialog";
 const repo = { path: "/repo", isGitRepository: true, exists: true };
 const workspace: WorkspaceDetail = {
   name: "sparta",
-  folders: [repo],
+  projects: [repo],
   lastStart: null,
   tabs: { shellIds: [], active: null },
 };
 
-const git: WorkspaceFolderGit = {
+const git: WorkspaceProjectGit = {
   hasCommit: true,
   currentBranch: "main",
   worktrees: [
@@ -26,14 +26,14 @@ const git: WorkspaceFolderGit = {
   branchesError: null,
 };
 
-const renderDialog = (folderGit: WorkspaceFolderGit) => {
+const renderDialog = (projectGit: WorkspaceProjectGit) => {
   const onStart = vi.fn(async () => null);
   return render(
     <StartShellDialog
-      folder={repo}
+      project={repo}
       onOpenChange={() => undefined}
       workspace={workspace}
-      loadGit={async () => ({ git: folderGit })}
+      loadGit={async () => ({ git: projectGit })}
       onStart={onStart}
     />,
   ).then((screen) => ({ screen, onStart }));

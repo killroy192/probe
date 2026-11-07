@@ -25,7 +25,7 @@ spawning so a missing CLI fails the start instead of leaving a shell that only p
 not found". Writing the command, rather than spawning the CLI directly, keeps the shell open when
 the CLI exits. `Shells` logs each start, failed start (with the cwd) and end at info level.
 
-A shell started from a workspace carries its folder and worktree. Every 2 seconds, and only
+A shell started from a workspace carries its project and worktree. Every 2 seconds, and only
 while such shells exist, `Shells` reads each worktree's `HEAD` file (following a linked
 worktree's `.git` file) and each shell process's current folder (`/proc/<pid>/cwd` on Linux, one
 batched `lsof` on macOS, nothing elsewhere), and sends an upsert for the shells whose branch or
@@ -64,8 +64,9 @@ socket), writing its pid next to it. The manager's shutdown detaches from host p
 instead of killing them; thread terminals still use the in-process PTY and end with the server.
 Windows has no host. The host exits by itself when it has no shells and no server.
 
-`Shells` saves every shell it starts in `<state dir>/shells/registry.json` (folder, worktree,
-pid, token hash). At startup it matches the registry against the host's sessions by pid: a live
+`Shells` saves every shell it starts in `<state dir>/shells/registry.json` (project, worktree,
+pid, token hash; an older server wrote `folder` for `project`, which is still read, as are `folders` and
+`lastStart.folder` in workspace files). At startup it matches the registry against the host's sessions by pid: a live
 one is adopted into the manager (`TerminalManager.adopt`) with the host's output as its history,
 so the same process continues with its scrollback; a host session with no registry entry is a
 crashed server's leftover and is killed.

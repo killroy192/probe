@@ -13,7 +13,7 @@ import { connectRpc } from "../rpc.ts";
 import type { Scenario } from "../scenario.ts";
 import { follow, gone, pageFrames, recorder } from "../support.ts";
 import {
-  addFolder,
+  addProject,
   cancelModal,
   check,
   closeFolderList,
@@ -100,22 +100,22 @@ export const plusModal: Scenario = {
       // AC-17: a file, a denied create and a failed git init are refused with their reason.
 
       stage = "AC-17";
-      const fileReason = await addFolder(page, { import: notes });
+      const fileReason = await addProject(page, { import: notes });
       check(fileReason?.includes("not a folder") === true, `File path: ${fileReason} (AC-17).`);
-      const deniedReason = await addFolder(page, { parent: locked, name: "app" });
+      const deniedReason = await addProject(page, { parent: locked, name: "app" });
       check(
         deniedReason?.includes("may not create") === true,
         `Denied create: ${deniedReason} (AC-17).`,
       );
       await cancelModal(page);
-      check((await page.locator("[data-folder]").count()) === 0, "A refused folder was added.");
+      check((await page.locator("[data-project]").count()) === 0, "A refused folder was added.");
 
       // AC-1, AC-8: import an existing git folder; its "+" offers the git choices.
 
       stage = "AC-1, AC-8";
       // The folder is picked by clicking it in the server folder browser, under its typed parent.
       check(
-        (await addFolder(page, { import: `${folders}/`, pick: "repo" })) === null,
+        (await addProject(page, { import: `${folders}/`, pick: "repo" })) === null,
         "Importing the git folder failed.",
       );
       check(shells.current().length === 0, "Adding a folder started a shell.");
@@ -248,7 +248,10 @@ export const plusModal: Scenario = {
 
       stage = "AC-9";
       const fresh = NodePath.join(folders, "fresh");
-      check((await addFolder(page, { parent: folders, name: "fresh" })) === null, "Create failed.");
+      check(
+        (await addProject(page, { parent: folders, name: "fresh" })) === null,
+        "Create failed.",
+      );
       check((await git(fresh, ["rev-parse", "--git-dir"])).ok, "The new folder has no git (AC-9).");
       check(!(await git(fresh, ["rev-parse", "HEAD"])).ok, "The new folder has a commit.");
       await openModal(page, fresh);
@@ -265,7 +268,7 @@ export const plusModal: Scenario = {
 
       stage = "AC-10";
       check(
-        (await addFolder(page, { import: plain })) === null,
+        (await addProject(page, { import: plain })) === null,
         "Importing the plain folder failed.",
       );
       await openModal(page, plain);
@@ -304,7 +307,9 @@ export const plusModal: Scenario = {
       await openModal(page, repo);
       await cancelModal(page);
       await page
-        .locator(`[data-folder="${plain}"] [role="treeitem"][aria-label="${plain}"] [data-missing]`)
+        .locator(
+          `[data-project="${plain}"] [role="treeitem"][aria-label="${plain}"] [data-missing]`,
+        )
         .waitFor();
       check(
         (await createShellButton(page, plain).count()) === 0,
@@ -323,7 +328,7 @@ export const plusModal: Scenario = {
       await openModal(page, fresh);
       check((await mode(page)) === "Existing", "Another folder's last start was applied.");
       await cancelModal(page);
-      await page.locator(`[data-folder="${repo}"]`).waitFor({ state: "detached" });
+      await page.locator(`[data-project="${repo}"]`).waitFor({ state: "detached" });
       await NodeFSP.writeFile(workspaceFile, saved);
 
       // AC-19: start and end lines, the end caused from outside the app.
@@ -387,7 +392,7 @@ export const plusModal: Scenario = {
       // AC-17: git init fails; the half-made folder is gone and not in the workspace.
 
       stage = "AC-17";
-      const initReason = await addFolder(page, { parent: folders, name: "broken" });
+      const initReason = await addProject(page, { parent: folders, name: "broken" });
       check(initReason?.startsWith("git init failed") === true, `git init: ${initReason} (AC-17).`);
       check(
         !(await NodeFSP.stat(NodePath.join(folders, "broken")).catch(() => null)),
@@ -395,7 +400,7 @@ export const plusModal: Scenario = {
       );
       await cancelModal(page);
       check(
-        (await page.locator(`[data-folder="${NodePath.join(folders, "broken")}"]`).count()) === 0,
+        (await page.locator(`[data-project="${NodePath.join(folders, "broken")}"]`).count()) === 0,
         "A folder whose git init failed was added (AC-17).",
       );
       await rpc.close();
@@ -446,7 +451,7 @@ export const plusModal: Scenario = {
           .count()) === 0,
         "A new workspace can start a shell with no folder (AC-25).",
       );
-      check((await addFolder(page, { import: repo })) === null, "Adding to athens failed.");
+      check((await addProject(page, { import: repo })) === null, "Adding to athens failed.");
       await openModal(page, repo);
       check(
         (await mode(page)) === "Existing" && (await selectedKey(page, "Start in")) === repo,

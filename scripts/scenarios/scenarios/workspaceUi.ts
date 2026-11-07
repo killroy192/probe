@@ -31,7 +31,7 @@ export const startButton = (page: PointerPage) =>
   dialog(page).getByRole("button", { name: "Create shell", exact: true });
 /** The "+" on a project's row in the tree. */
 export const createShellButton = (page: PointerPage, folder: string) =>
-  page.locator(`[data-folder="${folder}"]`).getByRole("button", { name: /^Create shell in / });
+  page.locator(`[data-project="${folder}"]`).getByRole("button", { name: /^Create shell in / });
 /** The Existing | Fork switch; absent for a project that is not a git repository. */
 export const modeSwitch = (page: PointerPage) =>
   dialog(page).getByRole("group", { name: "Worktree" });
@@ -43,7 +43,7 @@ export const dropdown = (page: PointerPage, label: "Start in" | "Fork from") =>
 export const shellNodes = (page: PointerPage, folder?: string) =>
   (folder === undefined
     ? page.getByRole("tree")
-    : page.locator(`[data-folder="${folder}"]`)
+    : page.locator(`[data-project="${folder}"]`)
   ).locator("[data-shell-id]");
 export const tabs = (page: PointerPage) =>
   page.getByRole("tablist", { name: "Shells" }).getByRole("tab");
@@ -56,7 +56,7 @@ const folderList = (page: PointerPage) =>
 export async function closeFolderList(page: PointerPage) {
   if (!(await folderList(page).count())) return;
   // While the list is open the page behind it is hidden from role queries, so find it by tag.
-  await page.locator('[role="dialog"]:has([data-testid="add-folder"]) h2').click();
+  await page.locator('[role="dialog"]:has([data-testid="add-project"]) h2').click();
   await folderList(page).waitFor({ state: "detached" });
 }
 
@@ -68,7 +68,7 @@ export async function openAddFolder(page: PointerPage) {
     .getByRole("navigation", { name: "Workspace" })
     .getByRole("button", { name: "Add project" })
     .click();
-  await dialog(page).getByTestId("add-folder").waitFor();
+  await dialog(page).getByTestId("add-project").waitFor();
 }
 
 /** Opens "Create shell" from a project's "+" and waits until a git project's choices loaded. */
@@ -124,13 +124,13 @@ export async function cancelModal(page: PointerPage) {
  * Adds a project with the "Add project to workspace" dialog; returns the refusal, or null once the
  * dialog closes. The dialog stays open after a refusal, so the next call reuses it.
  */
-export async function addFolder(
+export async function addProject(
   page: PointerPage,
   request:
     | { readonly import: string; readonly pick?: string }
     | { readonly parent: string; readonly name: string },
 ): Promise<string | null> {
-  const panel = dialog(page).getByTestId("add-folder");
+  const panel = dialog(page).getByTestId("add-project");
   if (!(await panel.count())) await openAddFolder(page);
   const isImport = "import" in request;
   await panel

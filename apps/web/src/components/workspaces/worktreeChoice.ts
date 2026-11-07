@@ -1,6 +1,6 @@
 import type {
   ShellSummary,
-  WorkspaceFolderGit,
+  WorkspaceProjectGit,
   WorkspaceLastStart,
   WorkspaceStartingPoint,
   WorkspaceWorktree,
@@ -64,7 +64,7 @@ const worktreeOption = (key: string, worktree: WorkspaceWorktree, suffix = ""): 
 });
 
 /** Where an existing-worktree start can run: the primary worktree first, then the linked ones. */
-export function existingWorktrees(git: WorkspaceFolderGit): ReadonlyArray<WorktreeOption> {
+export function existingWorktrees(git: WorkspaceProjectGit): ReadonlyArray<WorktreeOption> {
   return [
     ...git.worktrees.filter((worktree) => worktree.isMain),
     ...git.worktrees.filter((worktree) => !worktree.isMain),
@@ -79,7 +79,7 @@ const startingPointKey = (point: WorkspaceStartingPoint) =>
  * worktree's repository), the primary's checked-out one first and marked "(current)". A
  * detached primary is offered by its commit.
  */
-export function startingPoints(git: WorkspaceFolderGit): ReadonlyArray<StartingPointOption> {
+export function startingPoints(git: WorkspaceProjectGit): ReadonlyArray<StartingPointOption> {
   const linkedWorktrees = git.worktrees.filter((worktree) => !worktree.isMain);
   const checkedOut = new Set(git.worktrees.flatMap((worktree) => worktree.branch ?? []));
   const branchPoint = (name: string, worktree: string | null, current = false) => {
@@ -131,12 +131,12 @@ export function startingPoints(git: WorkspaceFolderGit): ReadonlyArray<StartingP
 }
 
 /**
- * The modal's picks for `folder`: the user's own first, then the last start when it was in this
- * folder and is still possible (EC-3, EC-4, EC-5), else an existing start in the primary worktree.
+ * The modal's picks for `project`: the user's own first, then the last start when it was in this
+ * project and is still possible (EC-3, EC-4, EC-5), else an existing start in the primary worktree.
  */
 export function resolvePlace(input: {
-  readonly folder: string;
-  readonly git: WorkspaceFolderGit;
+  readonly project: string;
+  readonly git: WorkspaceProjectGit;
   readonly lastStart: WorkspaceLastStart | null;
   readonly chosenMode: WorktreeMode | null;
   readonly chosenWorktree: string | null;
@@ -145,7 +145,7 @@ export function resolvePlace(input: {
   const { git } = input;
   const existing = existingWorktrees(git);
   const points = startingPoints(git);
-  const remembered = input.lastStart?.folder === input.folder ? input.lastStart.worktree : null;
+  const remembered = input.lastStart?.project === input.project ? input.lastStart.worktree : null;
   const primary = git.worktrees.find((worktree) => worktree.isMain)?.path ?? null;
 
   const wantsNew =
@@ -183,7 +183,7 @@ export function resolvePlace(input: {
 
 /** What the server is asked for, or null while a new worktree has no origin. */
 export function toChoice(
-  git: WorkspaceFolderGit,
+  git: WorkspaceProjectGit,
   place: ShellPlace,
 ): WorkspaceWorktreeChoice | null {
   if (place.mode === "existing") {

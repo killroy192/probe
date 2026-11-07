@@ -66,20 +66,20 @@ export const ShellSummary = Schema.Struct({
   title: Schema.NullOr(Schema.String),
   /** The short name of the program running in the shell right now, or null when it is idle. */
   process: Schema.NullOr(Schema.String),
-  /** The workspace folder the shell was started for. */
-  folder: Schema.NullOr(Schema.String),
+  /** The workspace project the shell was started for. */
+  project: Schema.NullOr(Schema.String),
   /** The worktree the shell was started in; null outside git. */
   worktree: Schema.NullOr(Schema.String),
   /** That worktree's current branch, or its short commit id when detached. */
   branch: Schema.NullOr(Schema.String),
-  /** The shell's current folder while it is outside its worktree (or folder), else null. */
+  /** The shell's current folder while it is outside its worktree (or project), else null. */
   elsewhere: Schema.NullOr(Schema.String),
   /**
    * Why an ended shell is still listed: a signal ended it, or it was lost with the process that
    * held it (a reboot). Null while it runs. A normal exit or a kill removes a shell instead.
    */
   ended: Schema.NullOr(ShellEndReason),
-  /** True once the folder or worktree the shell was started in is gone from disk. */
+  /** True once the project or worktree the shell was started in is gone from disk. */
   missing: Schema.Boolean,
   /** True once the user restored this shell after it ended; it is a new process in the same place. */
   restored: Schema.Boolean,

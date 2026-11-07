@@ -33,7 +33,7 @@ import {
 import { SidebarContent, SidebarGroup, SidebarInput, SidebarMenuButton } from "../ui/sidebar";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { CreateWorkspaceDialog } from "./CreateWorkspaceDialog";
-import { AddFolderDialog } from "./AddFolderDialog";
+import { AddProjectDialog } from "./AddProjectDialog";
 import { folderName, shellName } from "./shellName";
 import { StartShellDialog } from "./StartShellDialog";
 import { isListedShell, isRunningShell, worktreeLabel } from "./worktreeChoice";
@@ -42,10 +42,10 @@ import { focusShell } from "../ShellView";
 const NEEDS_WORKSPACE = "Open a workspace first";
 
 /** Asks before removing a project; its running shells are killed with it. */
-const confirmRemoveProject = async (folder: string, workspace: string, running: number) =>
+const confirmRemoveProject = async (project: string, workspace: string, running: number) =>
   (await requestConfirmDialog(
     [
-      `Remove ${folderName(folder)} from ${workspace}?`,
+      `Remove ${folderName(project)} from ${workspace}?`,
       ...(running === 0
         ? []
         : [`Its ${running === 1 ? "running shell is" : `${running} running shells are`} killed.`]),
@@ -187,15 +187,15 @@ export function WorkspaceSidebar() {
                 if (view.environmentId !== null) focusShell(view.environmentId, shellId);
               }}
               canStart={view.canStartShell}
-              onCreateShell={(folder) => {
-                setCreatingIn(folder);
+              onCreateShell={(project) => {
+                setCreatingIn(project);
                 // A project deleted on disk since the workspace was opened shows as missing.
                 void act(view.refresh());
               }}
               canRemoveProject={view.canChange}
-              onRemoveProject={(folder, running) =>
-                void confirmRemoveProject(folder, view.shown?.name ?? "", running).then(
-                  (confirmed) => (confirmed ? act(view.removeFolder(folder)) : undefined),
+              onRemoveProject={(project, running) =>
+                void confirmRemoveProject(project, view.shown?.name ?? "", running).then(
+                  (confirmed) => (confirmed ? act(view.removeProject(project)) : undefined),
                 )
               }
               onRestoreShell={(shell) => void act(view.restoreShell(shell.shellId))}
@@ -214,24 +214,25 @@ export function WorkspaceSidebar() {
         <>
           <StartShellDialog
             key={`create:${view.shown.name}:${creatingIn ?? ""}`}
-            folder={
-              view.shown.folders.find((folder) => folder.path === creatingIn && folder.exists) ??
-              null
+            project={
+              view.shown.projects.find(
+                (project) => project.path === creatingIn && project.exists,
+              ) ?? null
             }
             onOpenChange={(open) => {
               if (!open) setCreatingIn(null);
             }}
             workspace={view.shown}
-            loadGit={view.folderGit}
-            onStart={(folder, worktree) => view.startShell(folder, worktree, null)}
+            loadGit={view.projectGit}
+            onStart={(project, worktree) => view.startShell(project, worktree, null)}
           />
-          <AddFolderDialog
+          <AddProjectDialog
             key={`add:${view.shown.name}`}
             open={adding}
             onOpenChange={setAdding}
             environmentId={view.environmentId}
             workspaceName={view.shown.name}
-            onAddFolder={view.addFolder}
+            onAddProject={view.addProject}
           />
         </>
       )}
@@ -256,7 +257,7 @@ export function WorkspaceItems({
 }
 
 /** Shells grouped by the worktree they started in, in first-start order; null holds non-git ones. */
-/** A folder, worktree or shell's folder that is gone from where it was: moved or deleted. */
+/** A project's folder, worktree or shell's folder that is gone from where it was: moved or deleted. */
 function MovedMark({ path }: { readonly path: string }) {
   return (
     <Tooltip>
@@ -303,12 +304,12 @@ function ShellTree({
   readonly activeShellId: string | null;
   readonly onChooseShell: (shellId: ShellSummary["shellId"]) => void;
   readonly canStart: boolean;
-  readonly onCreateShell: (folder: string) => void;
+  readonly onCreateShell: (project: string) => void;
   readonly onKillShell: (shell: ShellSummary) => void;
   readonly onRestoreShell: (shell: ShellSummary) => void;
   readonly canRemoveProject: boolean;
   /** `running` is how many of the workspace's running shells the removal kills. */
-  readonly onRemoveProject: (folder: string, running: number) => void;
+  readonly onRemoveProject: (project: string, running: number) => void;
 }) {
   const shellRows = (inGroup: ReadonlyArray<ShellSummary>, level: number) => (
     <div role="group" className="pl-4">
@@ -349,7 +350,7 @@ function ShellTree({
               </Tooltip>
             )}
             {shell.missing ? (
-              <MovedMark path={shell.worktree ?? shell.folder ?? shell.cwd} />
+              <MovedMark path={shell.worktree ?? shell.project ?? shell.cwd} />
             ) : null}
             {shell.elsewhere === null ? null : (
               <Tooltip>
@@ -405,51 +406,51 @@ function ShellTree({
         {workspace.name}
       </div>
       <div role="group">
-        {workspace.folders.map((folder) => {
-          // Shells from before folders were recorded fall back to their starting folder.
-          const inFolder = shells.filter(
-            (shell) => isListedShell(shell) && (shell.folder ?? shell.cwd) === folder.path,
+        {workspace.projects.map((project) => {
+          // Shells from before projects were recorded fall back to their starting folder.
+          const inProject = shells.filter(
+            (shell) => isListedShell(shell) && (shell.project ?? shell.cwd) === project.path,
           );
-          const running = inFolder.filter(isRunningShell).length;
+          const running = inProject.filter(isRunningShell).length;
           return (
-            <div key={folder.path} data-folder={folder.path}>
+            <div key={project.path} data-project={project.path}>
               <div className="group/project flex items-center gap-1 pr-1">
                 <div
                   role="treeitem"
                   aria-level={2}
                   aria-selected={false}
-                  aria-label={folder.path}
+                  aria-label={project.path}
                   className="flex min-w-0 flex-1 items-center gap-1.5 truncate py-1 pl-4 text-sm text-sidebar-foreground"
                 >
                   <FolderIcon className="size-3.5 shrink-0 text-(--sidebar-icon-color)" />
-                  <span className="truncate">{folderName(folder.path)}</span>
-                  {folder.exists ? null : <MovedMark path={folder.path} />}
+                  <span className="truncate">{folderName(project.path)}</span>
+                  {project.exists ? null : <MovedMark path={project.path} />}
                 </div>
                 {/* Shown on hover, also for a missing project, so it can be taken out. */}
                 <span className="opacity-0 group-hover/project:opacity-100 focus-within:opacity-100">
                   <SidebarHeaderIconButton
-                    label={`Remove ${folderName(folder.path)} from the workspace`}
+                    label={`Remove ${folderName(project.path)} from the workspace`}
                     tooltip="Remove project"
                     disabled={!canRemoveProject}
-                    onClick={() => onRemoveProject(folder.path, running)}
+                    onClick={() => onRemoveProject(project.path, running)}
                   >
                     <FolderMinusIcon />
                   </SidebarHeaderIconButton>
                 </span>
-                {folder.exists ? (
+                {project.exists ? (
                   <SidebarHeaderIconButton
-                    label={`Create shell in ${folderName(folder.path)}`}
+                    label={`Create shell in ${folderName(project.path)}`}
                     tooltip="Create shell"
                     disabled={!canStart}
-                    onClick={() => onCreateShell(folder.path)}
+                    onClick={() => onCreateShell(project.path)}
                   >
                     <PlusIcon />
                   </SidebarHeaderIconButton>
                 ) : null}
               </div>
-              {inFolder.length === 0 ? null : (
+              {inProject.length === 0 ? null : (
                 <div role="group" className="pl-2">
-                  {byWorktree(inFolder).map(([worktree, inWorktree]) =>
+                  {byWorktree(inProject).map(([worktree, inWorktree]) =>
                     worktree === null ? (
                       <div key="no-worktree">{shellRows(inWorktree, 3)}</div>
                     ) : (
@@ -465,13 +466,14 @@ function ShellTree({
                           <span className="truncate">
                             {worktreeLabel({
                               path: worktree,
-                              isMain: worktree === folder.path,
+                              isMain: worktree === project.path,
                               branch:
                                 inWorktree.find((shell) => shell.branch !== null)?.branch ?? null,
                               head: "",
                             })}
                           </span>
-                          {worktree !== folder.path && inWorktree.some((shell) => shell.missing) ? (
+                          {worktree !== project.path &&
+                          inWorktree.some((shell) => shell.missing) ? (
                             <MovedMark path={worktree} />
                           ) : null}
                         </div>

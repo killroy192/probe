@@ -48,9 +48,9 @@ type Manager = TerminalManager["Service"];
 /** What the server knows about a shell beyond its terminal: given at start, or polled. */
 interface ShellRecord {
   readonly title: string | null;
-  readonly folder: string | null;
+  readonly project: string | null;
   readonly worktree: string | null;
-  /** The folder the shell belongs in (its worktree, else its folder), resolved once at start. */
+  /** The folder the shell belongs in (its worktree, else its project), resolved once at start. */
   readonly home: string | null;
   branch: string | null;
   elsewhere: string | null;
@@ -61,7 +61,7 @@ interface ShellRecord {
 
 const NO_RECORD: ShellRecord = {
   title: null,
-  folder: null,
+  project: null,
   worktree: null,
   home: null,
   branch: null,
@@ -77,7 +77,7 @@ const SavedShell = Schema.Struct({
   cwd: Schema.String,
   label: Schema.String,
   title: Schema.NullOr(Schema.String),
-  folder: Schema.NullOr(Schema.String),
+  project: Schema.NullOr(Schema.String),
   worktree: Schema.NullOr(Schema.String),
   home: Schema.NullOr(Schema.String),
   tokenHash: Schema.NullOr(Schema.String),
@@ -100,7 +100,21 @@ const RegistryFile = Schema.Struct({
   shells: Schema.Array(SavedShell),
 });
 const encodeRegistry = Schema.encodeSync(Schema.fromJsonString(RegistryFile));
-const decodeRegistry = Schema.decodeUnknownExit(Schema.fromJsonString(RegistryFile));
+
+// An older server wrote `folder` where this one writes `project`; reading accepts both, so a
+// server upgrade still finds the shells that kept running.
+const { project: _project, ...savedShellFields } = SavedShell.fields;
+const DiskRegistryFile = Schema.Struct({
+  version: Schema.Literal(1),
+  shells: Schema.Array(
+    Schema.Struct({
+      ...savedShellFields,
+      project: Schema.optionalKey(Schema.NullOr(Schema.String)),
+      folder: Schema.optionalKey(Schema.NullOr(Schema.String)),
+    }),
+  ),
+});
+const decodeRegistry = Schema.decodeUnknownExit(Schema.fromJsonString(DiskRegistryFile));
 
 const hashToken = (token: string) =>
   NodeCrypto.createHash("sha256").update(token).digest("base64url");
@@ -125,7 +139,7 @@ const toSummary = (
   // The manager's label is the running program's name while one runs, else a generic default.
   process:
     "hasRunningSubprocess" in terminal && terminal.hasRunningSubprocess ? terminal.label : null,
-  folder: record.folder,
+  project: record.project,
   worktree: record.worktree,
   branch: record.branch,
   elsewhere: record.elsewhere,
@@ -146,7 +160,7 @@ const endedSummary = (saved: SavedShell, record: ShellRecord): ShellSummary => (
   label: saved.label,
   title: saved.title,
   process: null,
-  folder: saved.folder,
+  project: saved.project,
   worktree: saved.worktree,
   branch: record.branch,
   elsewhere: null,
@@ -232,8 +246,8 @@ interface ShellsOptions {
 
 export interface ShellOpenOptions {
   readonly title?: string;
-  /** The workspace folder the shell was started for. */
-  readonly folder?: string;
+  /** The workspace project the shell was started for. */
+  readonly project?: string;
   /** The git worktree it starts in; its branch is shown and kept up to date. */
   readonly worktree?: string;
 }
@@ -743,11 +757,12 @@ export const makeShells = Effect.fn("Shells.make")(function* (
     }
     const hosted = host === null ? [] : yield* host.list;
     const byPid = new Map(hosted.map((entry) => [entry.session.pid, entry]));
-    for (const entry of decoded.value.shells) {
+    for (const { folder, ...disk } of decoded.value.shells) {
+      const entry: SavedShell = { ...disk, project: disk.project ?? folder ?? null };
       const home = entry.home;
       records.set(entry.shellId, {
         title: entry.title,
-        folder: entry.folder,
+        project: entry.project,
         worktree: entry.worktree,
         home,
         branch: entry.worktree === null ? null : yield* readBranch(entry.worktree),
@@ -825,10 +840,10 @@ export const makeShells = Effect.fn("Shells.make")(function* (
       const shellId = yield* newShellId;
       const owner = session(shellId);
       const worktree = options?.worktree ?? null;
-      const home = worktree ?? options?.folder ?? null;
+      const home = worktree ?? options?.project ?? null;
       records.set(shellId, {
         title: options?.title ?? null,
-        folder: options?.folder ?? null,
+        project: options?.project ?? null,
         worktree,
         home: home === null ? null : yield* realPath(home),
         branch: worktree === null ? null : yield* readBranch(worktree),
@@ -862,7 +877,7 @@ export const makeShells = Effect.fn("Shells.make")(function* (
         cwd: snapshot.cwd,
         label: snapshot.label,
         title: record.title,
-        folder: record.folder,
+        project: record.project,
         worktree: record.worktree,
         home: record.home,
         tokenHash,

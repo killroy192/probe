@@ -2105,19 +2105,19 @@ it.layer(
       });
       const events = yield* collectList(shells);
 
-      const first = yield* shells.open({ cwd: main }, { folder: main, worktree: main });
-      const second = yield* shells.open({ cwd: main }, { folder: main, worktree: main });
-      const other = yield* shells.open({ cwd: linked }, { folder: main, worktree: linked });
+      const first = yield* shells.open({ cwd: main }, { project: main, worktree: main });
+      const second = yield* shells.open({ cwd: main }, { project: main, worktree: main });
+      const other = yield* shells.open({ cwd: linked }, { project: main, worktree: linked });
       expect(
-        [first, other].map(({ folder, worktree, branch, elsewhere }) => ({
-          folder,
+        [first, other].map(({ project, worktree, branch, elsewhere }) => ({
+          project,
           worktree,
           branch,
           elsewhere,
         })),
       ).toEqual([
-        { folder: main, worktree: main, branch: "main", elsewhere: null },
-        { folder: main, worktree: linked, branch: "topic", elsewhere: null },
+        { project: main, worktree: main, branch: "main", elsewhere: null },
+        { project: main, worktree: linked, branch: "topic", elsewhere: null },
       ]);
 
       const latest = (shellId: string) =>
@@ -2520,6 +2520,41 @@ it.layer(
       expect(
         (yield* third.list).find((shell) => shell.shellId === signalled.shellId)?.restored,
       ).toBe(true);
+    }),
+  );
+
+  it.effect("adopts the shells an older registry saved with a folder instead of a project", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const registryPath = yield* registryIn();
+      yield* fs.makeDirectory(registryPath.replace(/\/registry\.json$/, ""), { recursive: true });
+      yield* fs.writeFileString(
+        registryPath,
+        JSON.stringify({
+          version: 1,
+          shells: [
+            {
+              shellId: "legacy",
+              pid: 4343,
+              cwd: process.cwd(),
+              label: "Shell",
+              title: null,
+              folder: process.cwd(),
+              worktree: null,
+              home: process.cwd(),
+              tokenHash: null,
+              ended: null,
+            },
+          ],
+        }),
+      );
+      const shells = yield* makeShells((yield* createManager()).manager, {
+        registryPath,
+        host: (yield* fakeHost([{ pid: 4343 }])).host,
+      });
+      expect(
+        (yield* shells.list).map((shell) => [shell.shellId, shell.status, shell.project]),
+      ).toEqual([["legacy", "running", process.cwd()]]);
     }),
   );
 

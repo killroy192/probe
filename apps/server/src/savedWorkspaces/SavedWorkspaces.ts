@@ -2,13 +2,13 @@ import {
   CommandId,
   ProjectId,
   type ShellSummary,
-  type WorkspaceAddFolderInput,
-  type WorkspaceAddFolderResult,
-  type WorkspaceRemoveFolderInput,
+  type WorkspaceAddProjectInput,
+  type WorkspaceAddProjectResult,
+  type WorkspaceRemoveProjectInput,
   type WorkspaceDetail,
-  WorkspaceFolderError,
-  type WorkspaceFolderGit,
-  type WorkspaceFolderGitInput,
+  WorkspaceProjectError,
+  type WorkspaceProjectGit,
+  type WorkspaceProjectGitInput,
   type WorkspaceInput,
   WorkspaceLastStart,
   type WorkspaceSaveTabsInput,
@@ -53,20 +53,50 @@ const FILE_SUFFIX = ".json";
 const NO_TABS: WorkspaceTabs = { shellIds: [], active: null };
 
 // The name lives in the file name; the content is versioned so story 7 can add the layout.
-// Folders arrived after version 1 shipped, so both fields stay optional.
-// `lastFolder` is how files written before worktrees remember the last start.
+// Projects arrived after version 1 shipped, so every field stays optional.
 const SavedWorkspaceFile = Schema.Struct({
   version: Schema.Literal(1),
-  folders: Schema.optional(Schema.Array(Schema.Struct({ path: Schema.String }))),
-  lastFolder: Schema.optional(Schema.NullOr(Schema.String)),
+  projects: Schema.optional(Schema.Array(Schema.Struct({ path: Schema.String }))),
   lastStart: Schema.optional(Schema.NullOr(WorkspaceLastStart)),
   tabs: Schema.optional(WorkspaceTabs),
 });
 type SavedWorkspaceFile = typeof SavedWorkspaceFile.Type;
 const encodeSavedWorkspaceFile = Schema.encodeSync(Schema.fromJsonString(SavedWorkspaceFile));
-const decodeSavedWorkspaceFile = Schema.decodeUnknownExit(
-  Schema.fromJsonString(SavedWorkspaceFile),
-);
+
+// What older servers wrote: `folders` for the projects, `lastStart.folder`, and `lastFolder`, which
+// files written before worktrees use for the last start. Reading maps them; writing never emits them.
+const DiskWorkspaceFile = Schema.Struct({
+  ...SavedWorkspaceFile.fields,
+  folders: Schema.optional(Schema.Array(Schema.Struct({ path: Schema.String }))),
+  lastFolder: Schema.optional(Schema.NullOr(Schema.String)),
+  lastStart: Schema.optional(
+    Schema.NullOr(
+      Schema.Union([
+        WorkspaceLastStart,
+        Schema.Struct({ folder: Schema.String, worktree: WorkspaceLastStart.fields.worktree }),
+      ]),
+    ),
+  ),
+});
+const decodeDiskWorkspaceFile = Schema.decodeUnknownExit(Schema.fromJsonString(DiskWorkspaceFile));
+
+const fromDisk = (disk: typeof DiskWorkspaceFile.Type): SavedWorkspaceFile => {
+  const { folders, lastFolder, lastStart, projects, ...rest } = disk;
+  const start =
+    lastStart != null
+      ? "folder" in lastStart
+        ? { project: lastStart.folder, worktree: lastStart.worktree }
+        : lastStart
+      : lastFolder == null
+        ? null
+        : { project: lastFolder, worktree: { kind: "checkout" as const } };
+  const saved = projects ?? folders;
+  return {
+    ...rest,
+    ...(saved === undefined ? {} : { projects: saved }),
+    ...(start === null ? {} : { lastStart: start }),
+  };
+};
 
 interface PublishedWorkspaces {
   readonly seq: number;
@@ -89,28 +119,28 @@ export class SavedWorkspaces extends Context.Service<
       input: WorkspaceInput,
     ) => Effect.Effect<WorkspaceDetail, WorkspaceNotFoundError | WorkspaceInvalidError>;
     /** Imports an existing folder, or creates one with a new git repository, as a project. */
-    readonly addFolder: (
-      input: WorkspaceAddFolderInput,
+    readonly addProject: (
+      input: WorkspaceAddProjectInput,
     ) => Effect.Effect<
-      WorkspaceAddFolderResult,
-      WorkspaceNotFoundError | WorkspaceInvalidError | WorkspaceFolderError | WorkspaceStorageError
+      WorkspaceAddProjectResult,
+      WorkspaceNotFoundError | WorkspaceInvalidError | WorkspaceProjectError | WorkspaceStorageError
     >;
     /**
      * Removes a project and kills every shell started in it, also one another workspace with the
      * same project started. The folder stays on disk.
      */
-    readonly removeFolder: (
-      input: WorkspaceRemoveFolderInput,
+    readonly removeProject: (
+      input: WorkspaceRemoveProjectInput,
     ) => Effect.Effect<
       WorkspaceDetail,
-      WorkspaceNotFoundError | WorkspaceInvalidError | WorkspaceFolderError | WorkspaceStorageError
+      WorkspaceNotFoundError | WorkspaceInvalidError | WorkspaceProjectError | WorkspaceStorageError
     >;
-    /** What a git folder offers for a start: its worktrees, branches and a new worktree name. */
-    readonly folderGit: (
-      input: WorkspaceFolderGitInput,
+    /** What a git project offers for a start: its worktrees, branches and a new worktree name. */
+    readonly projectGit: (
+      input: WorkspaceProjectGitInput,
     ) => Effect.Effect<
-      WorkspaceFolderGit,
-      WorkspaceNotFoundError | WorkspaceInvalidError | WorkspaceFolderError
+      WorkspaceProjectGit,
+      WorkspaceNotFoundError | WorkspaceInvalidError | WorkspaceProjectError
     >;
     /** Saves which shells the workspace shows as tabs, and the selected one. */
     readonly saveTabs: (
@@ -120,7 +150,7 @@ export class SavedWorkspaces extends Context.Service<
       WorkspaceNotFoundError | WorkspaceInvalidError | WorkspaceStorageError
     >;
     /**
-     * Starts an agent shell in a folder's checkout, a worktree of it, or a new worktree, and
+     * Starts an agent shell in a project's checkout, a worktree of it, or a new worktree, and
      * remembers that choice. A new worktree that fails to be created leaves nothing behind.
      */
     readonly startShell: (
@@ -129,7 +159,7 @@ export class SavedWorkspaces extends Context.Service<
       ShellSummary,
       | WorkspaceNotFoundError
       | WorkspaceInvalidError
-      | WorkspaceFolderError
+      | WorkspaceProjectError
       | Effect.Error<ReturnType<Shells.Shells["Service"]["open"]>>
     >;
     /** Subscribes before reading, so no change made while connecting is lost. */
@@ -258,12 +288,12 @@ const make = Effect.gen(function* () {
   }, lock.withPermits(1));
 
   const removeFile = Effect.fn("SavedWorkspaces.removeFile")(function* (name: string) {
-    // An unreadable file still goes; it just has no folders whose shells could be ended.
-    const folders = yield* readFile(name).pipe(
-      Effect.map((file) => (file.folders ?? []).map((folder) => folder.path)),
+    // An unreadable file still goes; it just has no projects whose shells could be ended.
+    const projects = yield* readFile(name).pipe(
+      Effect.map((file) => (file.projects ?? []).map((project) => project.path)),
       Effect.orElseSucceed((): ReadonlyArray<string> => []),
     );
-    // Only the workspace's own file goes; folders the workspace refers to are never touched.
+    // Only the workspace's own file goes; projects the workspace refers to are never touched.
     yield* fs
       .remove(fileOf(name))
       .pipe(
@@ -274,7 +304,7 @@ const make = Effect.gen(function* () {
         ),
       );
     yield* refreshUnlocked.pipe(Effect.ignore);
-    return folders;
+    return projects;
   }, lock.withPermits(1));
 
   // Starts and removals of one workspace take turns, so a shell started while its workspace is
@@ -295,43 +325,42 @@ const make = Effect.gen(function* () {
    */
   const remove = Effect.fn("SavedWorkspaces.remove")(function* (input: WorkspaceInput) {
     yield* startLockOf(input.name).withPermits(1)(
-      removeFile(input.name).pipe(Effect.flatMap((folders) => killShellsIn(new Set(folders)))),
+      removeFile(input.name).pipe(Effect.flatMap((projects) => killShellsIn(new Set(projects)))),
     );
   });
 
-  const dropFolder = Effect.fn("SavedWorkspaces.dropFolder")(function* (
-    input: WorkspaceRemoveFolderInput,
+  const dropProject = Effect.fn("SavedWorkspaces.dropProject")(function* (
+    input: WorkspaceRemoveProjectInput,
   ) {
-    const { lastFolder, lastStart, ...file } = yield* readFile(input.name);
-    const folders = file.folders ?? [];
-    if (!folders.some((saved) => saved.path === input.folder)) {
-      return yield* folderError(`This folder is not in the workspace: ${input.folder}`);
+    const { lastStart, ...file } = yield* readFile(input.name);
+    const projects = file.projects ?? [];
+    if (!projects.some((saved) => saved.path === input.project)) {
+      return yield* projectError(`This project is not in the workspace: ${input.project}`);
     }
     // A remembered start in the removed project would preselect a project that is gone.
     const next: SavedWorkspaceFile = {
       ...file,
-      folders: folders.filter((saved) => saved.path !== input.folder),
-      ...(lastStart == null || lastStart.folder === input.folder ? {} : { lastStart }),
-      ...(lastFolder == null || lastFolder === input.folder ? {} : { lastFolder }),
+      projects: projects.filter((saved) => saved.path !== input.project),
+      ...(lastStart == null || lastStart.project === input.project ? {} : { lastStart }),
     };
     yield* writeFile(input.name, next);
     return yield* toDetail(input.name, next);
   }, lock.withPermits(1));
 
-  const removeFolder = Effect.fn("SavedWorkspaces.removeFolder")(function* (
-    input: WorkspaceRemoveFolderInput,
+  const removeProject = Effect.fn("SavedWorkspaces.removeProject")(function* (
+    input: WorkspaceRemoveProjectInput,
   ) {
     return yield* startLockOf(input.name).withPermits(1)(
-      dropFolder(input).pipe(Effect.tap(() => killShellsIn(new Set([input.folder])))),
+      dropProject(input).pipe(Effect.tap(() => killShellsIn(new Set([input.project])))),
     );
   });
 
   const killShellsIn = Effect.fn("SavedWorkspaces.killShellsIn")(function* (
-    folders: ReadonlySet<string>,
+    projects: ReadonlySet<string>,
   ) {
     const running = yield* shells.list;
     yield* Effect.forEach(
-      running.filter((shell) => folders.has(shell.folder ?? shell.cwd)),
+      running.filter((shell) => projects.has(shell.project ?? shell.cwd)),
       // The workspace or project is gone either way; a shell that would not die is only logged.
       (shell) =>
         shells.kill(shell.shellId).pipe(
@@ -356,14 +385,14 @@ const make = Effect.gen(function* () {
             : new WorkspaceInvalidError({ name, reason: "its file cannot be read." }),
         ),
       );
-    const decoded = decodeSavedWorkspaceFile(raw);
+    const decoded = decodeDiskWorkspaceFile(raw);
     if (Exit.isFailure(decoded)) {
       return yield* new WorkspaceInvalidError({
         name,
         reason: "its file is not a valid workspace file.",
       });
     }
-    return decoded.value;
+    return fromDisk(decoded.value);
   });
 
   // Rewrites the whole file; the caller holds the lock and has just read it, so it still exists.
@@ -389,31 +418,29 @@ const make = Effect.gen(function* () {
     name: string,
     file: SavedWorkspaceFile,
   ) {
-    const folders = yield* Effect.forEach(
-      file.folders ?? [],
-      Effect.fnUntraced(function* ({ path: folder }) {
-        if (!(yield* isDirectory(folder))) {
-          return { path: folder, isGitRepository: false, exists: false };
+    const projects = yield* Effect.forEach(
+      file.projects ?? [],
+      Effect.fnUntraced(function* ({ path: project }) {
+        if (!(yield* isDirectory(project))) {
+          return { path: project, isGitRepository: false, exists: false };
         }
-        const isGitRepository = yield* vcs.detect({ cwd: folder }).pipe(
+        const isGitRepository = yield* vcs.detect({ cwd: project }).pipe(
           Effect.map((handle) => handle !== null),
           Effect.orElseSucceed(() => false),
         );
-        return { path: folder, isGitRepository, exists: true };
+        return { path: project, isGitRepository, exists: true };
       }),
       { concurrency: "unbounded" },
     );
-    const remembered =
-      file.lastStart ??
-      (file.lastFolder == null
-        ? null
-        : { folder: file.lastFolder, worktree: { kind: "checkout" as const } });
-    // A remembered folder that left the workspace or the disk is not offered again.
-    const lastStart = folders.some((folder) => folder.path === remembered?.folder && folder.exists)
+    const remembered = file.lastStart ?? null;
+    // A remembered project that left the workspace or the disk is not offered again.
+    const lastStart = projects.some(
+      (project) => project.path === remembered?.project && project.exists,
+    )
       ? remembered
       : null;
     const tabs = file.tabs ?? NO_TABS;
-    return { name, folders, lastStart, tabs } satisfies WorkspaceDetail;
+    return { name, projects, lastStart, tabs } satisfies WorkspaceDetail;
   });
 
   /**
@@ -423,25 +450,26 @@ const make = Effect.gen(function* () {
   const open = Effect.fn("SavedWorkspaces.open")(function* (input: WorkspaceInput) {
     const file = yield* readFile(input.name);
     const detail = yield* toDetail(input.name, file);
-    const gone = detail.folders.filter((folder) => !folder.exists).map((folder) => folder.path);
+    const gone = detail.projects
+      .filter((project) => !project.exists)
+      .map((project) => project.path);
     if (gone.length === 0) return detail;
     const listed = yield* shells.list;
     const empty = new Set(
-      gone.filter((folder) => !listed.some((shell) => (shell.folder ?? shell.cwd) === folder)),
+      gone.filter((project) => !listed.some((shell) => (shell.project ?? shell.cwd) === project)),
     );
     if (empty.size === 0) return detail;
-    const { lastFolder, lastStart, ...rest } = file;
+    const { lastStart, ...rest } = file;
     const next: SavedWorkspaceFile = {
       ...rest,
-      folders: (file.folders ?? []).filter((saved) => !empty.has(saved.path)),
-      ...(lastStart == null || empty.has(lastStart.folder) ? {} : { lastStart }),
-      ...(lastFolder == null || empty.has(lastFolder) ? {} : { lastFolder }),
+      projects: (file.projects ?? []).filter((saved) => !empty.has(saved.path)),
+      ...(lastStart == null || empty.has(lastStart.project) ? {} : { lastStart }),
     };
     return yield* writeFile(input.name, next).pipe(
       Effect.tap(() =>
         Effect.logInfo("removed projects whose folders are gone", {
           workspace: input.name,
-          folders: [...empty],
+          projects: [...empty],
         }),
       ),
       Effect.andThen(toDetail(input.name, next)),
@@ -460,12 +488,12 @@ const make = Effect.gen(function* () {
     yield* writeFile(input.name, { ...file, tabs: input.tabs });
   }, lock.withPermits(1));
 
-  const folderError = (reason: string) => new WorkspaceFolderError({ reason });
+  const projectError = (reason: string) => new WorkspaceProjectError({ reason });
 
   const normalizeExisting = (folder: string) =>
     workspacePaths
       .normalizeWorkspaceRoot(folder, { createIfMissing: false })
-      .pipe(Effect.mapError((error) => folderError(pathReason(error, folder))));
+      .pipe(Effect.mapError((error) => projectError(pathReason(error, folder))));
 
   // A linked worktree is one checkout of a repository; the workspace holds the repository itself.
   const repositoryOf = Effect.fnUntraced(function* (folder: string) {
@@ -488,7 +516,7 @@ const make = Effect.gen(function* () {
       .makeDirectory(target)
       .pipe(
         Effect.mapError((error) =>
-          folderError(
+          projectError(
             error.reason._tag === "AlreadyExists"
               ? `Something named "${folderName}" already exists in ${parent}.`
               : error.reason._tag === "PermissionDenied"
@@ -504,78 +532,78 @@ const make = Effect.gen(function* () {
     fs.remove(target, { recursive: true }).pipe(Effect.ignore({ log: true }));
 
   const register = Effect.fn("SavedWorkspaces.register")(
-    function* (folder: string) {
+    function* (project: string) {
       const id = yield* randomId;
       yield* projects.bootstrap({
-        commandId: CommandId.make(`workspace-folder:${id}`),
+        commandId: CommandId.make(`workspace-project:${id}`),
         projectId: ProjectId.make(id),
-        title: path.basename(folder) || folder,
-        workspaceRoot: folder,
+        title: path.basename(project) || project,
+        workspaceRoot: project,
         createWorkspaceRootIfMissing: false,
       });
     },
     Effect.mapError((error) =>
-      folderError(`The folder could not be registered as a project: ${error.message}`),
+      projectError(`The folder could not be registered as a project: ${error.message}`),
     ),
   );
 
-  const addFolder = Effect.fn("SavedWorkspaces.addFolder")(function* (
-    input: WorkspaceAddFolderInput,
+  const addProject = Effect.fn("SavedWorkspaces.addProject")(function* (
+    input: WorkspaceAddProjectInput,
   ) {
     const file = yield* readFile(input.name);
-    let folder: string;
+    let project: string;
     let resolvedFrom: string | null = null;
     if (input.mode === "import") {
       const imported = yield* normalizeExisting(input.path);
-      folder = yield* repositoryOf(imported);
-      if (folder !== imported) resolvedFrom = imported;
-      yield* register(folder);
+      project = yield* repositoryOf(imported);
+      if (project !== imported) resolvedFrom = imported;
+      yield* register(project);
     } else {
       const target = yield* createFolder(input.parentPath, input.folderName);
       // A half-made folder is removed, so a retry with the same name works (ER-3).
       yield* provisioning.initRepository({ cwd: target }).pipe(
-        Effect.mapError((error) => folderError(`git init failed: ${error.message}`)),
+        Effect.mapError((error) => projectError(`git init failed: ${error.message}`)),
         Effect.andThen(register(target)),
         Effect.tapError(() => removeCreated(target)),
       );
-      folder = target;
+      project = target;
     }
-    const folders = file.folders ?? [];
-    const next = folders.some((existing) => existing.path === folder)
+    const projects = file.projects ?? [];
+    const next = projects.some((existing) => existing.path === project)
       ? file
-      : { ...file, folders: [...folders, { path: folder }] };
+      : { ...file, projects: [...projects, { path: project }] };
     if (next !== file) yield* writeFile(input.name, next);
-    return { workspace: yield* toDetail(input.name, next), folder, resolvedFrom };
+    return { workspace: yield* toDetail(input.name, next), project, resolvedFrom };
   }, lock.withPermits(1));
 
   const rememberStart = Effect.fn("SavedWorkspaces.rememberStart")(function* (
     name: string,
     lastStart: WorkspaceLastStart,
   ) {
-    const { lastFolder: _old, ...file } = yield* readFile(name);
+    const file = yield* readFile(name);
     yield* writeFile(name, { ...file, lastStart });
   }, lock.withPermits(1));
 
-  const requireFolder = Effect.fn("SavedWorkspaces.requireFolder")(function* (
+  const requireProject = Effect.fn("SavedWorkspaces.requireProject")(function* (
     name: string,
-    folder: string,
+    project: string,
   ) {
     const file = yield* readFile(name);
-    if (!(file.folders ?? []).some((saved) => saved.path === folder)) {
-      return yield* folderError(`This folder is not in the workspace: ${folder}`);
+    if (!(file.projects ?? []).some((saved) => saved.path === project)) {
+      return yield* projectError(`This project is not in the workspace: ${project}`);
     }
-    if (!(yield* isDirectory(folder))) {
-      return yield* folderError(`The folder no longer exists: ${folder}`);
+    if (!(yield* isDirectory(project))) {
+      return yield* projectError(`The project's folder no longer exists: ${project}`);
     }
   });
 
   const gitReason = (error: { readonly detail: string }) => error.detail;
   const realPath = (folder: string) => fs.realPath(folder).pipe(Effect.orElseSucceed(() => folder));
-  const branchExists = (folder: string, branch: string) =>
+  const branchExists = (project: string, branch: string) =>
     git
       .execute({
         operation: "SavedWorkspaces.branchExists",
-        cwd: folder,
+        cwd: project,
         args: ["show-ref", "--verify", "--quiet", `refs/heads/${branch}`],
         allowNonZeroExit: true,
       })
@@ -583,43 +611,43 @@ const make = Effect.gen(function* () {
         Effect.map((result) => result.exitCode === 0),
         Effect.orElseSucceed(() => true),
       );
-  const worktreeTarget = (folder: string, name: string) =>
-    path.join(worktreesDir, path.basename(path.resolve(folder)), name);
+  const worktreeTarget = (project: string, name: string) =>
+    path.join(worktreesDir, path.basename(path.resolve(project)), name);
 
   // A name in use as a branch or a folder is never reused (EC-1).
-  const isNameFree = Effect.fnUntraced(function* (folder: string, name: string) {
-    if (yield* branchExists(folder, name)) return false;
+  const isNameFree = Effect.fnUntraced(function* (project: string, name: string) {
+    if (yield* branchExists(project, name)) return false;
     return !(yield* fs
-      .exists(worktreeTarget(folder, name))
+      .exists(worktreeTarget(project, name))
       .pipe(Effect.orElseSucceed(() => false)));
   });
 
-  const drawName = Effect.fnUntraced(function* (folder: string) {
+  const drawName = Effect.fnUntraced(function* (project: string) {
     for (let attempt = 0; attempt < 16; attempt++) {
       const name = `probe-worktree-${(yield* randomId).replaceAll("-", "").slice(0, 6)}`;
-      if (yield* isNameFree(folder, name)) return name;
+      if (yield* isNameFree(project, name)) return name;
     }
-    return yield* folderError("No free worktree name was found. Try again.");
+    return yield* projectError("No free worktree name was found. Try again.");
   });
 
   // The folder's own checkout is the worktree at its path; a folder may itself be a linked one.
-  const listWorktrees = Effect.fnUntraced(function* (folder: string) {
-    const own = yield* realPath(folder);
-    const worktrees = yield* git.listWorktrees(folder);
+  const listWorktrees = Effect.fnUntraced(function* (project: string) {
+    const own = yield* realPath(project);
+    const worktrees = yield* git.listWorktrees(project);
     return yield* Effect.forEach(worktrees, (worktree) =>
       realPath(worktree.path).pipe(Effect.map((real) => ({ ...worktree, isMain: real === own }))),
     );
   });
 
-  const folderGit = Effect.fn("SavedWorkspaces.folderGit")(function* (
-    input: WorkspaceFolderGitInput,
+  const projectGit = Effect.fn("SavedWorkspaces.projectGit")(function* (
+    input: WorkspaceProjectGitInput,
   ) {
-    yield* requireFolder(input.name, input.folder);
+    yield* requireProject(input.name, input.project);
     const [worktrees, branches, hasCommit] = yield* Effect.all(
       [
-        Effect.result(listWorktrees(input.folder)),
-        Effect.result(git.listLocalBranchNames(input.folder)),
-        git.hasCommit(input.folder).pipe(Effect.orElseSucceed(() => false)),
+        Effect.result(listWorktrees(input.project)),
+        Effect.result(git.listLocalBranchNames(input.project)),
+        git.hasCommit(input.project).pipe(Effect.orElseSucceed(() => false)),
       ],
       { concurrency: "unbounded" },
     );
@@ -629,7 +657,7 @@ const make = Effect.gen(function* () {
         : yield* git
             .execute({
               operation: "SavedWorkspaces.currentBranch",
-              cwd: input.folder,
+              cwd: input.project,
               args: ["branch", "--show-current"],
             })
             .pipe(
@@ -642,32 +670,32 @@ const make = Effect.gen(function* () {
       worktrees: worktrees._tag === "Success" ? worktrees.success : [],
       branches:
         branches._tag === "Success" ? branches.success.toSorted((a, b) => a.localeCompare(b)) : [],
-      proposedWorktreeName: yield* drawName(input.folder),
+      proposedWorktreeName: yield* drawName(input.project),
       worktreesError: worktrees._tag === "Failure" ? gitReason(worktrees.failure) : null,
       branchesError: branches._tag === "Failure" ? gitReason(branches.failure) : null,
-    } satisfies WorkspaceFolderGit;
+    } satisfies WorkspaceProjectGit;
   });
 
   // Removes only what this attempt made: its registered worktree, its folder and its branch.
   const rollbackFork = Effect.fnUntraced(function* (
-    folder: string,
+    project: string,
     target: string,
     branch: string,
     madeParent: boolean,
   ) {
-    const registered = yield* listWorktrees(folder).pipe(
+    const registered = yield* listWorktrees(project).pipe(
       Effect.map((worktrees) => worktrees.some((worktree) => worktree.path === target)),
       Effect.orElseSucceed(() => false),
     );
     if (registered) {
       yield* git
-        .removeWorktree({ cwd: folder, path: target, force: true })
+        .removeWorktree({ cwd: project, path: target, force: true })
         .pipe(Effect.ignore({ log: true }));
     }
     yield* fs.remove(target, { recursive: true }).pipe(Effect.ignore);
-    if (yield* branchExists(folder, branch)) {
+    if (yield* branchExists(project, branch)) {
       yield* git
-        .deleteLocalBranch({ cwd: folder, refName: branch, force: true })
+        .deleteLocalBranch({ cwd: project, refName: branch, force: true })
         .pipe(Effect.ignore({ log: true }));
     }
     if (madeParent) {
@@ -678,27 +706,27 @@ const make = Effect.gen(function* () {
   });
 
   const startingCommit = Effect.fnUntraced(function* (
-    folder: string,
+    project: string,
     startingPoint: Extract<WorkspaceWorktreeChoice, { kind: "new" }>["startingPoint"],
   ) {
     if (startingPoint.kind === "branch") {
       return yield* git
-        .resolveCommit({ cwd: folder, revision: `refs/heads/${startingPoint.name}` })
+        .resolveCommit({ cwd: project, revision: `refs/heads/${startingPoint.name}` })
         .pipe(
           Effect.map((resolved) => resolved.commitSha),
           Effect.mapError(() =>
-            folderError(`The starting branch "${startingPoint.name}" no longer exists.`),
+            projectError(`The starting branch "${startingPoint.name}" no longer exists.`),
           ),
         );
     }
-    const worktrees = yield* listWorktrees(folder).pipe(
+    const worktrees = yield* listWorktrees(project).pipe(
       Effect.mapError((error) =>
-        folderError(`The worktrees could not be listed: ${gitReason(error)}`),
+        projectError(`The worktrees could not be listed: ${gitReason(error)}`),
       ),
     );
     const source = worktrees.find((worktree) => worktree.path === startingPoint.path);
     if (source === undefined) {
-      return yield* folderError(`The starting worktree no longer exists: ${startingPoint.path}`);
+      return yield* projectError(`The starting worktree no longer exists: ${startingPoint.path}`);
     }
     return source.head;
   });
@@ -707,61 +735,61 @@ const make = Effect.gen(function* () {
   const forkLock = yield* Semaphore.make(1);
 
   const fork = Effect.fn("SavedWorkspaces.fork")(function* (
-    folder: string,
+    project: string,
     choice: Extract<WorkspaceWorktreeChoice, { kind: "new" }>,
   ) {
-    if (!(yield* git.hasCommit(folder).pipe(Effect.orElseSucceed(() => false)))) {
-      return yield* folderError(
-        "This folder has no commit yet, so a new worktree cannot be created.",
+    if (!(yield* git.hasCommit(project).pipe(Effect.orElseSucceed(() => false)))) {
+      return yield* projectError(
+        "This project has no commit yet, so a new worktree cannot be created.",
       );
     }
-    const name = (yield* isNameFree(folder, choice.name)) ? choice.name : yield* drawName(folder);
-    const commit = yield* startingCommit(folder, choice.startingPoint);
-    const target = worktreeTarget(folder, name);
+    const name = (yield* isNameFree(project, choice.name)) ? choice.name : yield* drawName(project);
+    const commit = yield* startingCommit(project, choice.startingPoint);
+    const target = worktreeTarget(project, name);
     const madeParent = !(yield* fs
       .exists(path.dirname(target))
       .pipe(Effect.orElseSucceed(() => true)));
     yield* git
-      .createWorktree({ cwd: folder, path: target, refName: commit, newRefName: name })
+      .createWorktree({ cwd: project, path: target, refName: commit, newRefName: name })
       .pipe(
-        Effect.tapError(() => rollbackFork(folder, target, name, madeParent)),
+        Effect.tapError(() => rollbackFork(project, target, name, madeParent)),
         Effect.mapError((error) =>
-          folderError(`The worktree could not be created: ${gitReason(error)}`),
+          projectError(`The worktree could not be created: ${gitReason(error)}`),
         ),
       );
     return target;
   }, forkLock.withPermits(1));
 
-  // Resolves the choice to the folder the shell runs in and the worktree it belongs to.
+  // Resolves the choice to the project the shell runs in and the worktree it belongs to.
   const placeShell = Effect.fnUntraced(function* (
-    folder: string,
+    project: string,
     choice: WorkspaceWorktreeChoice | undefined,
   ) {
     switch (choice?.kind) {
       case undefined:
       case "checkout": {
-        const isGit = yield* vcs.detect({ cwd: folder }).pipe(
+        const isGit = yield* vcs.detect({ cwd: project }).pipe(
           Effect.map((handle) => handle !== null),
           Effect.orElseSucceed(() => false),
         );
-        return { cwd: folder, worktree: isGit ? folder : null };
+        return { cwd: project, worktree: isGit ? project : null };
       }
       case "existing": {
-        const worktrees = yield* listWorktrees(folder).pipe(
+        const worktrees = yield* listWorktrees(project).pipe(
           Effect.mapError((error) =>
-            folderError(`The worktrees could not be listed: ${gitReason(error)}`),
+            projectError(`The worktrees could not be listed: ${gitReason(error)}`),
           ),
         );
         if (!worktrees.some((worktree) => worktree.path === choice.path)) {
-          return yield* folderError(`This is not a worktree of ${folder}: ${choice.path}`);
+          return yield* projectError(`This is not a worktree of ${project}: ${choice.path}`);
         }
         if (!(yield* isDirectory(choice.path))) {
-          return yield* folderError(`The worktree no longer exists: ${choice.path}`);
+          return yield* projectError(`The worktree no longer exists: ${choice.path}`);
         }
         return { cwd: choice.path, worktree: choice.path };
       }
       case "new": {
-        const created = yield* fork(folder, choice);
+        const created = yield* fork(project, choice);
         return { cwd: created, worktree: created };
       }
     }
@@ -776,8 +804,8 @@ const make = Effect.gen(function* () {
   const startShellUnlocked = Effect.fn("SavedWorkspaces.startShellUnlocked")(function* (
     input: WorkspaceStartShellInput,
   ) {
-    yield* requireFolder(input.name, input.folder);
-    const place = yield* placeShell(input.folder, input.worktree);
+    yield* requireProject(input.name, input.project);
+    const place = yield* placeShell(input.project, input.worktree);
     // Numbered per workspace in start order; a failed start gives its number back.
     const number = (shellNumbers.get(input.name) ?? 0) + 1;
     shellNumbers.set(input.name, number);
@@ -791,7 +819,7 @@ const make = Effect.gen(function* () {
         },
         {
           title: `Shell ${number}`,
-          folder: input.folder,
+          project: input.project,
           ...(place.worktree === null ? {} : { worktree: place.worktree }),
         },
       )
@@ -805,7 +833,7 @@ const make = Effect.gen(function* () {
     // The shell is running either way; failing here would hide it from the caller.
     const worktree = input.worktree ?? { kind: "checkout" as const };
     const lastStart: WorkspaceLastStart = {
-      folder: input.folder,
+      project: input.project,
       worktree:
         worktree.kind === "new" ? { kind: "new", startingPoint: worktree.startingPoint } : worktree,
     };
@@ -825,9 +853,9 @@ const make = Effect.gen(function* () {
     create,
     remove,
     open,
-    addFolder,
-    removeFolder,
-    folderGit,
+    addProject,
+    removeProject,
+    projectGit,
     startShell,
     saveTabs,
     get streamChanges() {

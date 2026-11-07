@@ -10,7 +10,7 @@ import { connectRpc } from "../rpc.ts";
 import type { Scenario } from "../scenario.ts";
 import { alive, gone, pageFrames } from "../support.ts";
 import {
-  addFolder,
+  addProject,
   check,
   closeTab,
   createWorkspace,
@@ -52,7 +52,7 @@ export const manyShells: Scenario = {
     try {
       await createWorkspace(page, "sparta");
       for (const folder of [repo, second, plain]) {
-        check((await addFolder(page, { import: folder })) === null, `Adding ${folder} failed.`);
+        check((await addProject(page, { import: folder })) === null, `Adding ${folder} failed.`);
       }
 
       // AC-1: two git projects, one plain project, an existing and a forked worktree of one

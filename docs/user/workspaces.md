@@ -14,7 +14,7 @@ With no workspace shown, the screen offers two actions:
 - **Open workspace** lists the workspaces saved on the server, by name. Choose
   one to show it.
 
-New workspaces have no folders or shells yet, so the tree shows only the
+New workspaces have no projects or shells yet, so the tree shows only the
 workspace's name.
 
 ## Switch, create and remove

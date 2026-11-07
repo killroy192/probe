@@ -189,9 +189,9 @@ export const RPC_REQUIRED_SCOPES = {
   [WS_METHODS.workspaceCreate]: AuthSettingsWriteScope,
   [WS_METHODS.workspaceRemove]: AuthSettingsWriteScope,
   [WS_METHODS.workspaceOpen]: AuthOrchestrationReadScope,
-  [WS_METHODS.workspaceFolderGit]: AuthOrchestrationReadScope,
-  [WS_METHODS.workspaceAddFolder]: AuthSettingsWriteScope,
-  [WS_METHODS.workspaceRemoveFolder]: AuthSettingsWriteScope,
+  [WS_METHODS.workspaceProjectGit]: AuthOrchestrationReadScope,
+  [WS_METHODS.workspaceAddProject]: AuthSettingsWriteScope,
+  [WS_METHODS.workspaceRemoveProject]: AuthSettingsWriteScope,
   // Starting a shell in a workspace folder spawns a process, like shell.open.
   [WS_METHODS.workspaceStartShell]: AuthTerminalOperateScope,
   [WS_METHODS.workspaceSaveTabs]: AuthTerminalOperateScope,

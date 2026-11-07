@@ -81,15 +81,15 @@ describe("RPC authorization scopes", () => {
     for (const method of [
       WS_METHODS.subscribeWorkspaces,
       WS_METHODS.workspaceOpen,
-      WS_METHODS.workspaceFolderGit,
+      WS_METHODS.workspaceProjectGit,
     ]) {
       expect(requiredScopeForRpcMethod(method)).toBe(AuthOrchestrationReadScope);
     }
     for (const method of [
       WS_METHODS.workspaceCreate,
       WS_METHODS.workspaceRemove,
-      WS_METHODS.workspaceAddFolder,
-      WS_METHODS.workspaceRemoveFolder,
+      WS_METHODS.workspaceAddProject,
+      WS_METHODS.workspaceRemoveProject,
     ]) {
       expect(requiredScopeForRpcMethod(method)).toBe(AuthSettingsWriteScope);
     }

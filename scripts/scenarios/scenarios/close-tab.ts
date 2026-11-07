@@ -9,7 +9,7 @@ import { connectRpc } from "../rpc.ts";
 import type { Scenario } from "../scenario.ts";
 import { alive, follow, pageFrames, recorder } from "../support.ts";
 import {
-  addFolder,
+  addProject,
   check,
   closeTab,
   createWorkspace,
@@ -44,7 +44,7 @@ export const closeTabScenario: Scenario = {
 
     try {
       await createWorkspace(page, "sparta");
-      check((await addFolder(page, { import: plain })) === null, "Adding the folder failed.");
+      check((await addProject(page, { import: plain })) === null, "Adding the folder failed.");
       const first = await startShell(page, shells, plain);
       const second = await startShell(page, shells, plain);
 

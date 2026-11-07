@@ -1,4 +1,4 @@
-import type { WorkspaceFolderGit, WorkspaceLastStart } from "@t3tools/contracts";
+import type { WorkspaceProjectGit, WorkspaceLastStart } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
 import {
@@ -10,7 +10,7 @@ import {
 } from "./worktreeChoice";
 
 const HEAD = "0123456789abcdef";
-const git: WorkspaceFolderGit = {
+const git: WorkspaceProjectGit = {
   hasCommit: true,
   currentBranch: "main",
   worktrees: [
@@ -30,7 +30,7 @@ const resolve = (
   overrides: Partial<Parameters<typeof resolvePlace>[0]> = {},
 ) =>
   resolvePlace({
-    folder: "/repo",
+    project: "/repo",
     git,
     lastStart,
     chosenMode: null,
@@ -40,7 +40,7 @@ const resolve = (
   });
 
 const fromOther: WorkspaceLastStart = {
-  folder: "/repo",
+  project: "/repo",
   worktree: { kind: "new", startingPoint: { kind: "branch", name: "other" } },
 };
 
@@ -111,24 +111,24 @@ describe("worktree choice", () => {
     [
       "a starting point that is gone",
       {
-        folder: "/repo",
+        project: "/repo",
         worktree: { kind: "new", startingPoint: { kind: "branch", name: "gone" } },
       },
       { mode: "new", worktree: "/repo", startingPoint: "branch:main" },
     ],
     [
       "a linked worktree",
-      { folder: "/repo", worktree: { kind: "existing", path: "/wt/topic" } },
+      { project: "/repo", worktree: { kind: "existing", path: "/wt/topic" } },
       { mode: "existing", worktree: "/wt/topic", startingPoint: "branch:main" },
     ],
     [
       "a worktree removed from disk",
-      { folder: "/repo", worktree: { kind: "existing", path: "/wt/removed" } },
+      { project: "/repo", worktree: { kind: "existing", path: "/wt/removed" } },
       { mode: "existing", worktree: "/repo", startingPoint: "branch:main" },
     ],
     [
-      "another folder",
-      { ...fromOther, folder: "/other" },
+      "another project",
+      { ...fromOther, project: "/other" },
       { mode: "existing", worktree: "/repo", startingPoint: "branch:main" },
     ],
   ] as const)("preselects after %s", (_name, lastStart, expected) => {

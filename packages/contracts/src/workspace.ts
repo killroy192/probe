@@ -57,18 +57,18 @@ export const WorkspaceWorktree = Schema.Struct({
   branch: Schema.NullOr(Schema.String),
   /** The full commit id of its HEAD. */
   head: Schema.String,
-  /** The repository's primary worktree: the folder itself. */
+  /** The repository's primary worktree: the project's own checkout. */
   isMain: Schema.Boolean,
 });
 export type WorkspaceWorktree = typeof WorkspaceWorktree.Type;
 
-export const WorkspaceFolder = Schema.Struct({
+export const WorkspaceProject = Schema.Struct({
   path: Schema.String.check(Schema.isNonEmpty()),
   isGitRepository: Schema.Boolean,
-  /** False once the folder is gone from disk; it stays in the workspace but cannot start shells. */
+  /** False once the project's folder is gone from disk; it stays in the workspace but cannot start shells. */
   exists: Schema.Boolean,
 });
-export type WorkspaceFolder = typeof WorkspaceFolder.Type;
+export type WorkspaceProject = typeof WorkspaceProject.Type;
 
 /** The name Probe gives a new worktree and its branch. */
 export const WorkspaceWorktreeName = Schema.String.check(
@@ -88,7 +88,7 @@ const ExistingWorktreeChoice = Schema.Struct({
   path: TrimmedNonEmptyString,
 });
 
-/** Where a shell starts in a git folder: its primary worktree, a linked one, or a new one. */
+/** Where a shell starts in a git project: its primary worktree, a linked one, or a new one. */
 export const WorkspaceWorktreeChoice = Schema.Union([
   CheckoutChoice,
   ExistingWorktreeChoice,
@@ -102,7 +102,7 @@ export type WorkspaceWorktreeChoice = typeof WorkspaceWorktreeChoice.Type;
 
 /** The last successful start; a new worktree is remembered by its starting point, not its name. */
 export const WorkspaceLastStart = Schema.Struct({
-  folder: Schema.String,
+  project: Schema.String,
   worktree: Schema.Union([
     CheckoutChoice,
     ExistingWorktreeChoice,
@@ -120,14 +120,14 @@ export type WorkspaceTabs = typeof WorkspaceTabs.Type;
 
 export const WorkspaceDetail = Schema.Struct({
   name: WorkspaceName,
-  folders: Schema.Array(WorkspaceFolder),
+  projects: Schema.Array(WorkspaceProject),
   lastStart: Schema.NullOr(WorkspaceLastStart),
   /** Saved with the workspace, so the same tabs come back after a reload or a restart. */
   tabs: WorkspaceTabs,
 });
 export type WorkspaceDetail = typeof WorkspaceDetail.Type;
 
-export const WorkspaceAddFolderInput = Schema.Union([
+export const WorkspaceAddProjectInput = Schema.Union([
   Schema.Struct({
     mode: Schema.Literal("import"),
     name: WorkspaceName,
@@ -140,45 +140,45 @@ export const WorkspaceAddFolderInput = Schema.Union([
     folderName: WorkspaceFolderName,
   }),
 ]);
-export type WorkspaceAddFolderInput = typeof WorkspaceAddFolderInput.Type;
+export type WorkspaceAddProjectInput = typeof WorkspaceAddProjectInput.Type;
 
-export const WorkspaceAddFolderResult = Schema.Struct({
+export const WorkspaceAddProjectResult = Schema.Struct({
   workspace: WorkspaceDetail,
-  /** The added folder's path as the server stores it. */
-  folder: Schema.String,
+  /** The added project's path as the server stores it. */
+  project: Schema.String,
   /** The imported path when it was a linked worktree and its repository was added instead. */
   resolvedFrom: Schema.NullOr(Schema.String),
 });
-export type WorkspaceAddFolderResult = typeof WorkspaceAddFolderResult.Type;
+export type WorkspaceAddProjectResult = typeof WorkspaceAddProjectResult.Type;
 
 export const WorkspaceStartShellInput = Schema.Struct({
   name: WorkspaceName,
-  folder: TrimmedNonEmptyString,
-  /** Absent for a folder that is not a git repository, and the same as its own checkout. */
+  project: TrimmedNonEmptyString,
+  /** Absent for a project that is not a git repository, and the same as its own checkout. */
   worktree: Schema.optional(WorkspaceWorktreeChoice),
   cols: TerminalOpenInput.fields.cols,
   rows: TerminalOpenInput.fields.rows,
 });
 export type WorkspaceStartShellInput = typeof WorkspaceStartShellInput.Type;
 
-/** Removes a project from the workspace; its folder stays on disk, its shells are killed. */
 export const WorkspaceSaveTabsInput = Schema.Struct({ name: WorkspaceName, tabs: WorkspaceTabs });
 export type WorkspaceSaveTabsInput = typeof WorkspaceSaveTabsInput.Type;
 
-export const WorkspaceRemoveFolderInput = Schema.Struct({
+/** Removes a project from the workspace; its folder stays on disk, its shells are killed. */
+export const WorkspaceRemoveProjectInput = Schema.Struct({
   name: WorkspaceName,
-  folder: TrimmedNonEmptyString,
+  project: TrimmedNonEmptyString,
 });
-export type WorkspaceRemoveFolderInput = typeof WorkspaceRemoveFolderInput.Type;
+export type WorkspaceRemoveProjectInput = typeof WorkspaceRemoveProjectInput.Type;
 
-export const WorkspaceFolderGitInput = Schema.Struct({
+export const WorkspaceProjectGitInput = Schema.Struct({
   name: WorkspaceName,
-  folder: TrimmedNonEmptyString,
+  project: TrimmedNonEmptyString,
 });
-export type WorkspaceFolderGitInput = typeof WorkspaceFolderGitInput.Type;
+export type WorkspaceProjectGitInput = typeof WorkspaceProjectGitInput.Type;
 
-/** What the worktree and starting-point steps offer for one git folder. */
-export const WorkspaceFolderGit = Schema.Struct({
+/** What the worktree and starting-point steps offer for one git project. */
+export const WorkspaceProjectGit = Schema.Struct({
   hasCommit: Schema.Boolean,
   /** Null on a detached HEAD or when it cannot be read. */
   currentBranch: Schema.NullOr(Schema.String),
@@ -190,7 +190,7 @@ export const WorkspaceFolderGit = Schema.Struct({
   worktreesError: Schema.NullOr(Schema.String),
   branchesError: Schema.NullOr(Schema.String),
 });
-export type WorkspaceFolderGit = typeof WorkspaceFolderGit.Type;
+export type WorkspaceProjectGit = typeof WorkspaceProjectGit.Type;
 
 export const WorkspaceListEvent = Schema.Struct({
   workspaces: Schema.Array(WorkspaceSummary),
@@ -233,9 +233,9 @@ export class WorkspaceStorageError extends Schema.TaggedError<WorkspaceStorageEr
   }
 }
 
-/** A folder could not be added to a workspace, or a shell could not start in it. */
-export class WorkspaceFolderError extends Schema.TaggedError<WorkspaceFolderError>()(
-  "WorkspaceFolderError",
+/** A project could not be added to a workspace, or a shell could not start in it. */
+export class WorkspaceProjectError extends Schema.TaggedError<WorkspaceProjectError>()(
+  "WorkspaceProjectError",
   { reason: Schema.String },
 ) {
   override get message() {

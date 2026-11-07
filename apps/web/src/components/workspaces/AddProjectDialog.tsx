@@ -12,7 +12,7 @@ import { useEnvironments } from "../../state/environments";
 import { filesystemEnvironment, useFilesystemReadAccess } from "../../state/filesystem";
 import { useEnvironmentQuery } from "../../state/query";
 import { readPreparedConnection } from "../../state/session";
-import type { AddFolderRequest } from "../../state/workspaces";
+import type { AddProjectRequest } from "../../state/workspaces";
 import {
   Autocomplete,
   AutocompleteEmpty,
@@ -40,24 +40,24 @@ import { isServerRemote } from "./serverLocation";
 type AddMode = "import" | "create";
 
 /**
- * Adds a folder to the workspace: imports an existing one or creates a new one with git. It
+ * Adds a project to the workspace: imports an existing folder or creates a new one with git. It
  * starts no shell. The dialog stays open with the server's reason when the folder is refused.
  */
-export function AddFolderDialog({
+export function AddProjectDialog({
   open,
   onOpenChange,
   environmentId,
   workspaceName,
-  onAddFolder,
+  onAddProject,
 }: {
   readonly open: boolean;
   readonly onOpenChange: (open: boolean) => void;
   readonly environmentId: EnvironmentId | null;
   readonly workspaceName: string;
-  readonly onAddFolder: (
-    request: AddFolderRequest,
+  readonly onAddProject: (
+    request: AddProjectRequest,
   ) => Promise<
-    { readonly folder: string; readonly resolvedFrom: string | null } | { readonly error: string }
+    { readonly project: string; readonly resolvedFrom: string | null } | { readonly error: string }
   >;
 }) {
   const [mode, setMode] = useState<AddMode>("import");
@@ -85,18 +85,18 @@ export function AddFolderDialog({
 
   const submit = async () => {
     if (!ready) return;
-    const request: AddFolderRequest =
+    const request: AddProjectRequest =
       mode === "import"
         ? { mode, path: path.trim() }
         : { mode, parentPath: path.trim(), folderName: folderName.trim() };
     const added = await action.run(async () => {
-      const result = await onAddFolder(request);
+      const result = await onAddProject(request);
       if ("error" in result) return result.error;
       if (result.resolvedFrom !== null) {
         toastManager.add({
           type: "info",
           title: "Added the project of this worktree",
-          description: `${result.resolvedFrom} is a worktree of ${result.folder}, so that project was added. Its worktrees are offered when you create a shell.`,
+          description: `${result.resolvedFrom} is a worktree of ${result.project}, so that project was added. Its worktrees are offered when you create a shell.`,
         });
       }
       return null;
@@ -125,7 +125,7 @@ export function AddFolderDialog({
             </DialogDescription>
           </DialogHeader>
           <DialogPanel>
-            <div className="grid gap-3" data-testid="add-folder">
+            <div className="grid gap-3" data-testid="add-project">
               <ToggleGroup
                 aria-label="How to add a project"
                 value={[mode]}

@@ -11,7 +11,7 @@ import { connectRpc } from "../rpc.ts";
 import type { Scenario } from "../scenario.ts";
 import { alive, gone, pageFrames } from "../support.ts";
 import {
-  addFolder,
+  addProject,
   allGone,
   answerConfirm,
   askToKill,
@@ -100,7 +100,7 @@ export const killShell: Scenario = {
     try {
       await createWorkspace(page, "sparta");
       for (const folder of [repo, plain, extra]) {
-        check((await addFolder(page, { import: folder })) === null, `Adding ${folder} failed.`);
+        check((await addProject(page, { import: folder })) === null, `Adding ${folder} failed.`);
       }
 
       // AC-18: cancelling the confirmation keeps the shell.
@@ -209,7 +209,7 @@ export const killShell: Scenario = {
         await startShell(page, shells, extra),
       ];
       const extraPids = inExtra.map((shell) => latest(shell)!.pid!);
-      const project = page.locator(`[data-folder="${extra}"]`);
+      const project = page.locator(`[data-project="${extra}"]`);
       await project.getByRole("treeitem", { level: 2 }).hover();
       await project.getByRole("button", { name: /^Remove extra from/ }).click();
       await page.getByRole("alertdialog").getByText("Its 2 running shells are killed.").waitFor();

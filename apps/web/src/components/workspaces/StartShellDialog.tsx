@@ -1,7 +1,7 @@
 import type {
   WorkspaceDetail,
-  WorkspaceFolder,
-  WorkspaceFolderGit,
+  WorkspaceProject,
+  WorkspaceProjectGit,
   WorkspaceWorktreeChoice,
 } from "@t3tools/contracts";
 import { ArrowUpIcon, FolderIcon, GitBranchIcon } from "lucide-react";
@@ -30,7 +30,7 @@ import {
   type WorktreeOption,
 } from "./worktreeChoice";
 
-type GitResult = { readonly git: WorkspaceFolderGit } | { readonly error: string };
+type GitResult = { readonly git: WorkspaceProjectGit } | { readonly error: string };
 
 /** The only starting script until scripts can be chosen. */
 const STARTING_SCRIPT = "mock agent";
@@ -41,19 +41,19 @@ const STARTING_SCRIPT = "mock agent";
  * dialog stays open with the server's reason when the shell cannot start.
  */
 export function StartShellDialog({
-  folder,
+  project,
   onOpenChange,
   workspace,
   loadGit,
   onStart,
 }: {
   /** The project the shell is created in; null keeps the dialog closed. */
-  readonly folder: WorkspaceFolder | null;
+  readonly project: WorkspaceProject | null;
   readonly onOpenChange: (open: boolean) => void;
   readonly workspace: WorkspaceDetail;
-  readonly loadGit: (folder: string) => Promise<GitResult>;
+  readonly loadGit: (project: string) => Promise<GitResult>;
   readonly onStart: (
-    folder: string,
+    project: string,
     worktree: WorkspaceWorktreeChoice | null,
   ) => Promise<string | null>;
 }) {
@@ -61,13 +61,13 @@ export function StartShellDialog({
   const [chosenWorktree, setChosenWorktree] = useState<string | null>(null);
   const [chosenStartingPoint, setChosenStartingPoint] = useState<string | null>(null);
   const [loaded, setLoaded] = useState<{
-    readonly folder: string;
+    readonly project: string;
     readonly result: GitResult;
   } | null>(null);
   const action = useDialogAction();
 
-  const path = folder?.path ?? null;
-  const isGit = folder?.isGitRepository === true;
+  const path = project?.path ?? null;
+  const isGit = project?.isGitRepository === true;
 
   const readGit = useEffectEvent((target: string) => loadGit(target));
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- reads the project's worktrees from the server each time the dialog shows it
@@ -75,20 +75,20 @@ export function StartShellDialog({
     if (path === null || !isGit) return;
     let current = true;
     void readGit(path).then((result) => {
-      if (current) setLoaded({ folder: path, result });
+      if (current) setLoaded({ project: path, result });
     });
     return () => {
       current = false;
     };
   }, [path, isGit]);
 
-  const result = isGit && loaded?.folder === path ? loaded.result : null;
+  const result = isGit && loaded?.project === path ? loaded.result : null;
   const git = result !== null && "git" in result ? result.git : null;
   const place =
     git === null || path === null
       ? null
       : resolvePlace({
-          folder: path,
+          project: path,
           git,
           lastStart: workspace.lastStart,
           chosenMode,
@@ -128,12 +128,12 @@ export function StartShellDialog({
       onOpenChange(false);
     } else if (isGit) {
       // A worktree kept or removed by the failed start shows up on retry.
-      void loadGit(path).then((next) => setLoaded({ folder: path, result: next }));
+      void loadGit(path).then((next) => setLoaded({ project: path, result: next }));
     }
   };
 
   return (
-    <Dialog open={folder !== null} onOpenChange={close}>
+    <Dialog open={project !== null} onOpenChange={close}>
       <DialogPopup className="max-w-lg">
         <form
           className="flex min-h-0 flex-col"

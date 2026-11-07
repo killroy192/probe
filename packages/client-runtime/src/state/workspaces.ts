@@ -28,17 +28,17 @@ export function createWorkspaceEnvironmentAtoms<R, E>(
       label: "environment-data:workspace:open",
       tag: WS_METHODS.workspaceOpen,
     }),
-    addFolder: createEnvironmentRpcCommand(runtime, {
-      label: "environment-data:workspace:add-folder",
-      tag: WS_METHODS.workspaceAddFolder,
+    addProject: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:workspace:add-project",
+      tag: WS_METHODS.workspaceAddProject,
     }),
-    removeFolder: createEnvironmentRpcCommand(runtime, {
-      label: "environment-data:workspace:remove-folder",
-      tag: WS_METHODS.workspaceRemoveFolder,
+    removeProject: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:workspace:remove-project",
+      tag: WS_METHODS.workspaceRemoveProject,
     }),
-    folderGit: createEnvironmentRpcCommand(runtime, {
-      label: "environment-data:workspace:folder-git",
-      tag: WS_METHODS.workspaceFolderGit,
+    projectGit: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:workspace:project-git",
+      tag: WS_METHODS.workspaceProjectGit,
     }),
     startShell: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:workspace:start-shell",

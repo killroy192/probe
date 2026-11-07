@@ -276,14 +276,14 @@ import {
   ShellWriteInput,
 } from "./shell.ts";
 import {
-  WorkspaceAddFolderInput,
-  WorkspaceAddFolderResult,
-  WorkspaceRemoveFolderInput,
+  WorkspaceAddProjectInput,
+  WorkspaceAddProjectResult,
+  WorkspaceRemoveProjectInput,
   WorkspaceSaveTabsInput,
   WorkspaceDetail,
-  WorkspaceFolderError,
-  WorkspaceFolderGit,
-  WorkspaceFolderGitInput,
+  WorkspaceProjectError,
+  WorkspaceProjectGit,
+  WorkspaceProjectGitInput,
   WorkspaceInput,
   WorkspaceInvalidError,
   WorkspaceListEvent,
@@ -503,11 +503,11 @@ export const WS_METHODS = {
   workspaceCreate: "workspace.create",
   workspaceRemove: "workspace.remove",
   workspaceOpen: "workspace.open",
-  workspaceAddFolder: "workspace.addFolder",
-  workspaceRemoveFolder: "workspace.removeFolder",
+  workspaceAddProject: "workspace.addProject",
+  workspaceRemoveProject: "workspace.removeProject",
   workspaceStartShell: "workspace.startShell",
   workspaceSaveTabs: "workspace.saveTabs",
-  workspaceFolderGit: "workspace.folderGit",
+  workspaceProjectGit: "workspace.projectGit",
 
   previewOpen: "preview.open",
   previewResize: "preview.resize",
@@ -1672,25 +1672,25 @@ const WsWorkspaceOpenRpc = Rpc.make(WS_METHODS.workspaceOpen, {
   ]),
 });
 
-const WsWorkspaceAddFolderRpc = Rpc.make(WS_METHODS.workspaceAddFolder, {
-  payload: WorkspaceAddFolderInput,
-  success: WorkspaceAddFolderResult,
+const WsWorkspaceAddProjectRpc = Rpc.make(WS_METHODS.workspaceAddProject, {
+  payload: WorkspaceAddProjectInput,
+  success: WorkspaceAddProjectResult,
   error: Schema.Union([
     WorkspaceNotFoundError,
     WorkspaceInvalidError,
-    WorkspaceFolderError,
+    WorkspaceProjectError,
     WorkspaceStorageError,
     EnvironmentAuthorizationError,
   ]),
 });
 
-const WsWorkspaceRemoveFolderRpc = Rpc.make(WS_METHODS.workspaceRemoveFolder, {
-  payload: WorkspaceRemoveFolderInput,
+const WsWorkspaceRemoveProjectRpc = Rpc.make(WS_METHODS.workspaceRemoveProject, {
+  payload: WorkspaceRemoveProjectInput,
   success: WorkspaceDetail,
   error: Schema.Union([
     WorkspaceNotFoundError,
     WorkspaceInvalidError,
-    WorkspaceFolderError,
+    WorkspaceProjectError,
     WorkspaceStorageError,
     EnvironmentAuthorizationError,
   ]),
@@ -1706,13 +1706,13 @@ const WsWorkspaceSaveTabsRpc = Rpc.make(WS_METHODS.workspaceSaveTabs, {
   ]),
 });
 
-const WsWorkspaceFolderGitRpc = Rpc.make(WS_METHODS.workspaceFolderGit, {
-  payload: WorkspaceFolderGitInput,
-  success: WorkspaceFolderGit,
+const WsWorkspaceProjectGitRpc = Rpc.make(WS_METHODS.workspaceProjectGit, {
+  payload: WorkspaceProjectGitInput,
+  success: WorkspaceProjectGit,
   error: Schema.Union([
     WorkspaceNotFoundError,
     WorkspaceInvalidError,
-    WorkspaceFolderError,
+    WorkspaceProjectError,
     EnvironmentAuthorizationError,
   ]),
 });
@@ -1723,7 +1723,7 @@ const WsWorkspaceStartShellRpc = Rpc.make(WS_METHODS.workspaceStartShell, {
   error: Schema.Union([
     WorkspaceNotFoundError,
     WorkspaceInvalidError,
-    WorkspaceFolderError,
+    WorkspaceProjectError,
     WorkspaceStorageError,
     TerminalError,
     ShellLaunchError,
@@ -2291,11 +2291,11 @@ export const WsRpcGroup = RpcGroup.make(
   WsWorkspaceCreateRpc,
   WsWorkspaceRemoveRpc,
   WsWorkspaceOpenRpc,
-  WsWorkspaceAddFolderRpc,
-  WsWorkspaceRemoveFolderRpc,
+  WsWorkspaceAddProjectRpc,
+  WsWorkspaceRemoveProjectRpc,
   WsWorkspaceSaveTabsRpc,
   WsWorkspaceStartShellRpc,
-  WsWorkspaceFolderGitRpc,
+  WsWorkspaceProjectGitRpc,
   WsSubscribeWorkspacesRpc,
   WsSubscribeTerminalMetadataRpc,
   WsPreviewOpenRpc,

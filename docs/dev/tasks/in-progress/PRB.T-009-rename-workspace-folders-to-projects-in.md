@@ -3,9 +3,9 @@ id: PRB.T-009
 type: story
 parent: PRB.E-001
 phase: 1
-labels: [tech-debt]
+labels: [tech-debt, implement]
 created: 2026-11-06
-updated: 2026-11-06
+updated: 2026-11-07
 ---
 
 # Rename workspace folders to projects in code and storage
@@ -26,3 +26,11 @@ Keep "folder" where it means a directory on disk (the folder browser, worktree f
 - No contract, RPC, saved-file field or UI string calls a workspace's project a "folder".
 - A workspace file written before the rename still opens with its projects and last start.
 - Scenarios S1 to S3 pass.
+
+## Implementation Status and Handoff
+
+- Rule used: "project" wherever a workspace's umbrella (main checkout plus worktrees) is meant; "folder" only for a directory on disk (the folder browser, `folderName`, `createFolder`, `isDirectory`, worktree folders, the state folder). The Add dialog's "Import existing folder" / "Create new folder" labels stay for that reason.
+- Also renamed, beyond the list above: `workspace.removeFolder`, `WorkspaceRemoveFolderInput`, `ShellOpenOptions.folder`, the shell registry's `folder`, the `data-folder` / `add-folder` test selectors, `AddFolderDialog`.
+- Old data: workspace files with `folders`, `lastStart.folder` or `lastFolder`, and shell registries with `folder`, are read and rewritten in the new shape. A file saved by this server is not readable by an older one (no version bump).
+- Wire: no shim; server, web and client-runtime ship together.
+- Glossary: the inherited "Project" row (a thread's project) is kept and qualified; "Workspace project" is the new row.

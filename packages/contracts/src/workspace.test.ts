@@ -3,7 +3,7 @@ import * as Schema from "effect/Schema";
 import { describe, expect, it } from "vite-plus/test";
 
 import {
-  WorkspaceAddFolderInput,
+  WorkspaceAddProjectInput,
   WorkspaceName,
   WorkspaceStartShellInput,
   workspaceNameProblem,
@@ -12,7 +12,7 @@ import {
 const decodeNameExit = Schema.decodeUnknownExit(WorkspaceName);
 const decodeName = Schema.decodeSync(WorkspaceName);
 const decodes = (input: unknown) => Exit.isSuccess(decodeNameExit(input));
-const decodeAddFolderExit = Schema.decodeUnknownExit(WorkspaceAddFolderInput);
+const decodeAddFolderExit = Schema.decodeUnknownExit(WorkspaceAddProjectInput);
 const decodeStartShellExit = Schema.decodeUnknownExit(WorkspaceStartShellInput);
 
 describe("workspace contracts", () => {
@@ -57,7 +57,7 @@ describe("workspace contracts", () => {
     [{ mode: "create", name: "w", parentPath: "/home", folderName: ".." }, false],
     [{ mode: "import", name: "w", path: "   " }, false],
     [{ mode: "create", name: "w", path: "/repo" }, false],
-  ])("decodes add-folder input %j: %s", (input, valid) => {
+  ])("decodes add-project input %j: %s", (input, valid) => {
     expect(Exit.isSuccess(decodeAddFolderExit(input))).toBe(valid);
   });
 
@@ -79,7 +79,7 @@ describe("workspace contracts", () => {
     [{ kind: "new", name: "my-branch", startingPoint: fromMain }, false],
     [{ kind: "new", name: "probe-worktree-3fa2c1" }, false],
   ])("decodes the worktree choice %j: %s", (worktree, valid) => {
-    const input = { name: "w", folder: "/repo", ...(worktree === undefined ? {} : { worktree }) };
+    const input = { name: "w", project: "/repo", ...(worktree === undefined ? {} : { worktree }) };
     expect(Exit.isSuccess(decodeStartShellExit(input))).toBe(valid);
   });
 });

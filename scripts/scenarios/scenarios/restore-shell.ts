@@ -11,7 +11,7 @@ import type { PointerPage } from "../browser.ts";
 import type { Scenario } from "../scenario.ts";
 import { gone, pageFrames } from "../support.ts";
 import {
-  addFolder,
+  addProject,
   check,
   createWorkspace,
   history,
@@ -65,7 +65,7 @@ export const restoreShell: Scenario = {
     try {
       await createWorkspace(page, "troy");
       for (const folder of [plain, moved]) {
-        check((await addFolder(page, { import: folder })) === null, `Adding ${folder} failed.`);
+        check((await addProject(page, { import: folder })) === null, `Adding ${folder} failed.`);
       }
 
       // A signal ends a shell: it stays listed, and only the user's Restore starts it again.

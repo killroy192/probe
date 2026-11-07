@@ -43,7 +43,7 @@ describe("shell contracts", () => {
       label: "zsh",
       title: null,
       process: null,
-      folder: null,
+      project: null,
       worktree: null,
       branch: null,
       elsewhere: null,

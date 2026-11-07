@@ -12,7 +12,7 @@ import { connectRpc } from "../rpc.ts";
 import type { Scenario } from "../scenario.ts";
 import { gone, pageFrames } from "../support.ts";
 import {
-  addFolder,
+  addProject,
   cancelModal,
   check,
   createShellButton,
@@ -126,19 +126,22 @@ export const worktrees: Scenario = {
       // AC-29: importing a linked worktree adds its repository and shows nothing under it.
 
       stage = "AC-29";
-      check((await addFolder(page, { import: linked })) === null, "Importing the worktree failed.");
-      await page.getByText("Added the project of this worktree").waitFor();
-      await page.locator(`[data-folder="${repo}"]`).waitFor();
       check(
-        (await page.locator(`[data-folder="${linked}"]`).count()) === 0 &&
+        (await addProject(page, { import: linked })) === null,
+        "Importing the worktree failed.",
+      );
+      await page.getByText("Added the project of this worktree").waitFor();
+      await page.locator(`[data-project="${repo}"]`).waitFor();
+      check(
+        (await page.locator(`[data-project="${linked}"]`).count()) === 0 &&
           (await page.locator("[data-worktree]").count()) === 0,
         "The worktree was added as its own project, or worktrees show without shells (AC-29).",
       );
       for (const folder of [repo, repo2, empty, plain]) {
-        check((await addFolder(page, { import: folder })) === null, `Adding ${folder} failed.`);
+        check((await addProject(page, { import: folder })) === null, `Adding ${folder} failed.`);
       }
       check(
-        (await page.locator(`[data-folder="${repo}"]`).count()) === 1,
+        (await page.locator(`[data-project="${repo}"]`).count()) === 1,
         "The repository was added twice.",
       );
 
@@ -216,7 +219,7 @@ export const worktrees: Scenario = {
       check((await startFromModal(page)) === null, "The plain start failed (AC-15).");
       await runningIn(shells.lists, plain, 1);
       check(
-        (await page.locator(`[data-folder="${plain}"] [data-worktree]`).count()) === 0,
+        (await page.locator(`[data-project="${plain}"] [data-worktree]`).count()) === 0,
         "A plain project's shell sits under a worktree node.",
       );
       await openModal(page, empty);

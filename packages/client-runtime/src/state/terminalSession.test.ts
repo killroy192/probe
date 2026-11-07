@@ -289,7 +289,7 @@ describe("terminal session reducers", () => {
       label: "Shell",
       title: null,
       process: null,
-      folder: null,
+      project: null,
       worktree: null,
       branch: null,
       elsewhere: null,

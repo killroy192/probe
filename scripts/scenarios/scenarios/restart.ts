@@ -12,7 +12,7 @@ import type { PointerPage } from "../browser.ts";
 import type { Scenario } from "../scenario.ts";
 import { alive, gone, pageFrames } from "../support.ts";
 import {
-  addFolder,
+  addProject,
   agentReady,
   allGone,
   answerConfirm,
@@ -114,7 +114,7 @@ export const restartSurvival: Scenario = {
     try {
       await createWorkspace(page, "sparta");
       for (const folder of [repo, plain, removed, moved, live]) {
-        check((await addFolder(page, { import: folder })) === null, `Adding ${folder} failed.`);
+        check((await addProject(page, { import: folder })) === null, `Adding ${folder} failed.`);
       }
 
       // Shells that must survive: an agent shell, a plain shell, a shell with a closed tab, and
@@ -182,7 +182,10 @@ export const restartSurvival: Scenario = {
 
       stage = "AC-9";
       await createWorkspace(page, "athens");
-      check((await addFolder(page, { import: other })) === null, "Adding the other folder failed.");
+      check(
+        (await addProject(page, { import: other })) === null,
+        "Adding the other folder failed.",
+      );
       const elsewhere = await startShell(page, shells, other);
       await openWorkspace(page, "sparta");
       await shown(page, "sparta");
@@ -231,7 +234,7 @@ export const restartSurvival: Scenario = {
         "The plain shell lost its output (AC-8).",
       );
       check(
-        latest(agent)?.folder === agent.folder && latest(agent)?.worktree === agent.worktree,
+        latest(agent)?.project === agent.project && latest(agent)?.worktree === agent.worktree,
         "The agent shell is not in its folder and worktree (AC-7).",
       );
       check(latest(agent)?.branch === "main", "The agent shell lost its branch (AC-7).");
@@ -295,7 +298,7 @@ export const restartSurvival: Scenario = {
         [removed, inRemoved],
         [moved, inMoved],
       ] as const) {
-        const project = page.locator(`[data-folder="${folder}"]`);
+        const project = page.locator(`[data-project="${folder}"]`);
         await project.locator(`[role="treeitem"][aria-label="${folder}"] [data-missing]`).waitFor();
         check(
           (await createShellButton(page, folder).count()) === 0,
@@ -338,7 +341,7 @@ export const restartSurvival: Scenario = {
       await removeFromTree(page, inRemoved.shellId);
       // With their last shells removed, the projects whose folders are gone leave the workspace.
       for (const folder of [removed, moved]) {
-        await page.locator(`[data-folder="${folder}"]`).waitFor({ state: "detached" });
+        await page.locator(`[data-project="${folder}"]`).waitFor({ state: "detached" });
       }
 
       // AC-21: a layout that cannot be saved says so; shells keep running.

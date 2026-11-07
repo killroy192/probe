@@ -11,7 +11,7 @@ import {
   type EnvironmentId,
   type ShellId,
   type WorkspaceDetail,
-  type WorkspaceFolderGit,
+  type WorkspaceProjectGit,
   type WorkspaceSummary,
   type WorkspaceTabs as SavedWorkspaceTabs,
   type WorkspaceWorktreeChoice,
@@ -128,7 +128,7 @@ const startFailure = (cause: Cause.Cause<unknown>) => {
 /** Null on success, else the reason to show the user. */
 type WorkspaceActionResult = Promise<string | null>;
 
-export type AddFolderRequest =
+export type AddProjectRequest =
   | { readonly mode: "import"; readonly path: string }
   | { readonly mode: "create"; readonly parentPath: string; readonly folderName: string };
 
@@ -137,7 +137,7 @@ export interface WorkspacesView {
   /** Null until the first list arrives. */
   readonly workspaces: ReadonlyArray<WorkspaceSummary> | null;
   readonly listError: string | null;
-  /** Whether this client may create and remove workspaces and add folders (settings write). */
+  /** Whether this client may create and remove workspaces and add projects (settings write). */
   readonly canChange: boolean;
   /** Whether this client may start shells (terminal operate). */
   readonly canStartShell: boolean;
@@ -148,24 +148,24 @@ export interface WorkspacesView {
   readonly layoutError: string | null;
   readonly create: (name: string) => WorkspaceActionResult;
   readonly open: (name: string) => WorkspaceActionResult;
-  /** Reads the shown workspace again, so a folder deleted on disk is no longer preselected. */
+  /** Reads the shown workspace again, so a project whose folder was deleted on disk is no longer preselected. */
   readonly refresh: () => WorkspaceActionResult;
   readonly remove: (name: string) => WorkspaceActionResult;
-  /** The added folder's path, or the reason it was not added. */
-  readonly addFolder: (
-    request: AddFolderRequest,
+  /** The added project's path, or the reason it was not added. */
+  readonly addProject: (
+    request: AddProjectRequest,
   ) => Promise<
-    { readonly folder: string; readonly resolvedFrom: string | null } | { readonly error: string }
+    { readonly project: string; readonly resolvedFrom: string | null } | { readonly error: string }
   >;
-  /** Removes a project from the shown workspace and kills its shells; the folder stays on disk. */
-  readonly removeFolder: (folder: string) => WorkspaceActionResult;
-  /** A git folder's worktrees, branches and a fresh worktree name, read anew on each call. */
-  readonly folderGit: (
-    folder: string,
-  ) => Promise<{ readonly git: WorkspaceFolderGit } | { readonly error: string }>;
+  /** Removes a project from the shown workspace and kills its shells; its folder stays on disk. */
+  readonly removeProject: (project: string) => WorkspaceActionResult;
+  /** A git project's worktrees, branches and a fresh worktree name, read anew on each call. */
+  readonly projectGit: (
+    project: string,
+  ) => Promise<{ readonly git: WorkspaceProjectGit } | { readonly error: string }>;
   /** Adds and shows a tab only once the server has a running shell. */
   readonly startShell: (
-    folder: string,
+    project: string,
     worktree: WorkspaceWorktreeChoice | null,
     size: { readonly cols: number; readonly rows: number } | null,
   ) => WorkspaceActionResult;
@@ -200,13 +200,13 @@ export function useWorkspaces(): WorkspacesView {
   const createCommand = useAtomCommand(workspaceEnvironment.create, { reportFailure: false });
   const openCommand = useAtomCommand(workspaceEnvironment.open, { reportFailure: false });
   const removeCommand = useAtomCommand(workspaceEnvironment.remove, { reportFailure: false });
-  const addFolderCommand = useAtomCommand(workspaceEnvironment.addFolder, {
+  const addProjectCommand = useAtomCommand(workspaceEnvironment.addProject, {
     reportFailure: false,
   });
-  const removeFolderCommand = useAtomCommand(workspaceEnvironment.removeFolder, {
+  const removeProjectCommand = useAtomCommand(workspaceEnvironment.removeProject, {
     reportFailure: false,
   });
-  const folderGitCommand = useAtomCommand(workspaceEnvironment.folderGit, {
+  const projectGitCommand = useAtomCommand(workspaceEnvironment.projectGit, {
     reportFailure: false,
   });
   const startShellCommand = useAtomCommand(workspaceEnvironment.startShell, {
@@ -326,7 +326,7 @@ export function useWorkspaces(): WorkspacesView {
         (created, id) =>
           showDetail(id, {
             name: created.name,
-            folders: [],
+            projects: [],
             lastStart: null,
             tabs: { shellIds: [], active: null },
           }),
@@ -342,42 +342,42 @@ export function useWorkspaces(): WorkspacesView {
           rememberShown(id, null);
         },
       ),
-    addFolder: async (request) => {
+    addProject: async (request) => {
       if (shown === null) return { error: "Open a workspace first." };
-      let folder = "";
+      let project = "";
       let resolvedFrom: string | null = null;
       const error = await run(
-        (id) => addFolderCommand({ environmentId: id, input: { ...request, name: shown.name } }),
+        (id) => addProjectCommand({ environmentId: id, input: { ...request, name: shown.name } }),
         (added, id) => {
-          folder = added.folder;
+          project = added.project;
           resolvedFrom = added.resolvedFrom;
           setShown({ environmentId: id, detail: added.workspace });
         },
       );
-      return error === null ? { folder, resolvedFrom } : { error };
+      return error === null ? { project, resolvedFrom } : { error };
     },
-    removeFolder: (folder) => {
+    removeProject: (project) => {
       if (shown === null) return Promise.resolve("Open a workspace first.");
       const name = shown.name;
       return run(
-        (id) => removeFolderCommand({ environmentId: id, input: { name, folder } }),
+        (id) => removeProjectCommand({ environmentId: id, input: { name, project } }),
         (detail, id) => setShown({ environmentId: id, detail }),
       );
     },
-    folderGit: async (folder) => {
+    projectGit: async (project) => {
       if (shown === null) return { error: "Open a workspace first." };
-      let git: WorkspaceFolderGit | null = null;
+      let git: WorkspaceProjectGit | null = null;
       const error = await run(
-        (id) => folderGitCommand({ environmentId: id, input: { name: shown.name, folder } }),
+        (id) => projectGitCommand({ environmentId: id, input: { name: shown.name, project } }),
         (value) => {
           git = value;
         },
       );
       return git === null
-        ? { error: error ?? "The folder's worktrees could not be read." }
+        ? { error: error ?? "The project's worktrees could not be read." }
         : { git };
     },
-    startShell: (folder, worktree, size) => {
+    startShell: (project, worktree, size) => {
       if (shown === null) return Promise.resolve("Open a workspace first.");
       const name = shown.name;
       return run(
@@ -386,7 +386,7 @@ export function useWorkspaces(): WorkspacesView {
             environmentId: id,
             input: {
               name,
-              folder,
+              project,
               ...(worktree === null ? {} : { worktree }),
               ...(size === null ? {} : size),
             },
@@ -404,7 +404,7 @@ export function useWorkspaces(): WorkspacesView {
                   detail: {
                     ...current.detail,
                     lastStart: {
-                      folder,
+                      project,
                       worktree:
                         worktree === null
                           ? { kind: "checkout" }

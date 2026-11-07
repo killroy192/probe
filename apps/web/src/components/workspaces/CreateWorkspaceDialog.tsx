@@ -66,7 +66,7 @@ export function CreateWorkspaceDialog({
           <DialogHeader>
             <DialogTitle>Create workspace</DialogTitle>
             <DialogDescription>
-              A workspace holds the folders and shells you work on.
+              A workspace holds the projects and shells you work on.
             </DialogDescription>
           </DialogHeader>
           <DialogPanel>

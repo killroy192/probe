@@ -109,7 +109,7 @@ const layerDependencies = (fakes: Fakes) =>
                 label: "shell",
                 title: options?.title ?? null,
                 process: null,
-                folder: options?.folder ?? null,
+                project: options?.project ?? null,
                 worktree: options?.worktree ?? null,
                 branch: null,
                 elsewhere: null,
@@ -195,7 +195,7 @@ it.layer(NodeServices.layer)("saved workspaces", (it) => {
         assert.strictEqual(yield* fs.readFileString(`${dir}/sparta.json`), '{"version":1}');
         assert.deepStrictEqual(yield* workspaces.open({ name: "sparta" }), {
           name: "sparta",
-          folders: [],
+          projects: [],
           lastStart: null,
           tabs: { shellIds: [], active: null },
         });
@@ -256,16 +256,16 @@ it.layer(NodeServices.layer)("saved workspaces", (it) => {
           const [shared, own, elsewhere] = [`${dir}/shared`, `${dir}/own`, `${dir}/elsewhere`];
           for (const folder of [shared, own, elsewhere]) yield* fs.makeDirectory(folder);
           for (const folder of [shared, own]) {
-            yield* workspaces.addFolder({ mode: "import", name: "sparta", path: folder });
+            yield* workspaces.addProject({ mode: "import", name: "sparta", path: folder });
           }
           for (const folder of [shared, elsewhere]) {
-            yield* workspaces.addFolder({ mode: "import", name: "athens", path: folder });
+            yield* workspaces.addProject({ mode: "import", name: "athens", path: folder });
           }
-          const inOwn = yield* workspaces.startShell({ name: "sparta", folder: own });
-          const athensShared = yield* workspaces.startShell({ name: "athens", folder: shared });
+          const inOwn = yield* workspaces.startShell({ name: "sparta", project: own });
+          const athensShared = yield* workspaces.startShell({ name: "athens", project: shared });
           const athensElsewhere = yield* workspaces.startShell({
             name: "athens",
-            folder: elsewhere,
+            project: elsewhere,
           });
 
           yield* workspaces.remove({ name: "sparta" });
@@ -291,16 +291,16 @@ it.layer(NodeServices.layer)("saved workspaces", (it) => {
           const [gone, kept] = [`${dir}/gone`, `${dir}/kept`];
           for (const folder of [gone, kept]) {
             yield* fs.makeDirectory(folder);
-            yield* workspaces.addFolder({ mode: "import", name: "sparta", path: folder });
+            yield* workspaces.addProject({ mode: "import", name: "sparta", path: folder });
           }
-          yield* workspaces.addFolder({ mode: "import", name: "athens", path: gone });
-          const inKept = yield* workspaces.startShell({ name: "sparta", folder: kept });
-          const inGone = yield* workspaces.startShell({ name: "sparta", folder: gone });
-          const athensInGone = yield* workspaces.startShell({ name: "athens", folder: gone });
+          yield* workspaces.addProject({ mode: "import", name: "athens", path: gone });
+          const inKept = yield* workspaces.startShell({ name: "sparta", project: kept });
+          const inGone = yield* workspaces.startShell({ name: "sparta", project: gone });
+          const athensInGone = yield* workspaces.startShell({ name: "athens", project: gone });
 
-          const detail = yield* workspaces.removeFolder({ name: "sparta", folder: gone });
+          const detail = yield* workspaces.removeProject({ name: "sparta", project: gone });
 
-          expect(detail.folders.map((folder) => folder.path)).toEqual([kept]);
+          expect(detail.projects.map((project) => project.path)).toEqual([kept]);
           // The last start was in the removed project, so nothing is preselected any more.
           assert.isNull(detail.lastStart);
           assert.deepStrictEqual(yield* workspaces.open({ name: "sparta" }), detail);
@@ -310,7 +310,7 @@ it.layer(NodeServices.layer)("saved workspaces", (it) => {
           expect(fakes.running?.map((shell) => shell.shellId)).toEqual([inKept.shellId]);
           assert.isTrue(yield* fs.exists(gone));
           const again = yield* Effect.flip(
-            workspaces.removeFolder({ name: "sparta", folder: gone }),
+            workspaces.removeProject({ name: "sparta", project: gone }),
           );
           expect(again.message).toContain("not in the workspace");
         }),
@@ -328,23 +328,23 @@ it.layer(NodeServices.layer)("saved workspaces", (it) => {
           const [empty, busy, kept] = [`${dir}/empty`, `${dir}/busy`, `${dir}/kept`];
           for (const folder of [empty, busy, kept]) {
             yield* fs.makeDirectory(folder);
-            yield* workspaces.addFolder({ mode: "import", name: "sparta", path: folder });
+            yield* workspaces.addProject({ mode: "import", name: "sparta", path: folder });
           }
-          const inBusy = yield* workspaces.startShell({ name: "sparta", folder: busy });
+          const inBusy = yield* workspaces.startShell({ name: "sparta", project: busy });
           yield* fs.remove(empty, { recursive: true });
           yield* fs.remove(busy, { recursive: true });
 
           const opened = yield* workspaces.open({ name: "sparta" });
-          expect(opened.folders.map(({ path, exists }) => [path, exists])).toEqual([
+          expect(opened.projects.map(({ path, exists }) => [path, exists])).toEqual([
             [busy, false],
             [kept, true],
           ]);
 
           // Its last shell gone, the other moved project leaves as well.
           fakes.running?.splice(0);
-          expect(inBusy.folder).toBe(busy);
+          expect(inBusy.project).toBe(busy);
           const after = yield* workspaces.open({ name: "sparta" });
-          expect(after.folders.map((folder) => folder.path)).toEqual([kept]);
+          expect(after.projects.map((project) => project.path)).toEqual([kept]);
           assert.isNull(after.lastStart);
         }),
       { registered: [], opened: [], titles: [], running: [], killed: [] },
@@ -443,20 +443,20 @@ it.layer(NodeServices.layer)("saved workspaces", (it) => {
         const plain = `${dir}/plain`;
         yield* fs.makeDirectory(plain);
 
-        yield* workspaces.addFolder({ mode: "import", name: "sparta", path: plain });
-        yield* workspaces.addFolder({ mode: "import", name: "sparta", path: `${plain}/` });
-        const added = yield* workspaces.addFolder({
+        yield* workspaces.addProject({ mode: "import", name: "sparta", path: plain });
+        yield* workspaces.addProject({ mode: "import", name: "sparta", path: `${plain}/` });
+        const added = yield* workspaces.addProject({
           mode: "create",
           name: "sparta",
           parentPath: dir,
           folderName: "fresh",
         });
 
-        assert.strictEqual(added.folder, `${dir}/fresh`);
+        assert.strictEqual(added.project, `${dir}/fresh`);
         const detail = added.workspace;
         expect(detail).toEqual({
           name: "sparta",
-          folders: [
+          projects: [
             { path: plain, isGitRepository: false, exists: true },
             { path: `${dir}/fresh`, isGitRepository: true, exists: true },
           ],
@@ -480,8 +480,8 @@ it.layer(NodeServices.layer)("saved workspaces", (it) => {
         yield* fs.makeDirectory(locked);
         yield* fs.chmod(locked, 0o555);
         yield* Effect.addFinalizer(() => fs.chmod(locked, 0o755).pipe(Effect.ignore));
-        const reason = (input: Parameters<typeof workspaces.addFolder>[0]) =>
-          Effect.flip(workspaces.addFolder(input)).pipe(Effect.map((error) => error.message));
+        const reason = (input: Parameters<typeof workspaces.addProject>[0]) =>
+          Effect.flip(workspaces.addProject(input)).pipe(Effect.map((error) => error.message));
 
         const reasons = [
           yield* reason({ mode: "import", name: "sparta", path: `${dir}/gone` }),
@@ -502,7 +502,7 @@ it.layer(NodeServices.layer)("saved workspaces", (it) => {
           `The server may not create a folder in ${locked}.`,
         ]);
         assert.deepStrictEqual(fakes.registered, []);
-        assert.deepStrictEqual((yield* workspaces.open({ name: "sparta" })).folders, []);
+        assert.deepStrictEqual((yield* workspaces.open({ name: "sparta" })).projects, []);
       }),
     ),
   );
@@ -515,24 +515,24 @@ it.layer(NodeServices.layer)("saved workspaces", (it) => {
           const workspaces = yield* service;
           const fs = yield* FileSystem.FileSystem;
           const error = yield* Effect.flip(
-            workspaces.addFolder({
+            workspaces.addProject({
               mode: "create",
               name: "sparta",
               parentPath: dir,
               folderName: "app",
             }),
           );
-          assert.strictEqual(error._tag, "WorkspaceFolderError");
+          assert.strictEqual(error._tag, "WorkspaceProjectError");
           expect(error.message).toMatch(/^git init failed: /);
           assert.isFalse(yield* fs.exists(`${dir}/app`));
           assert.deepStrictEqual(fakes.registered, []);
-          assert.deepStrictEqual((yield* workspaces.open({ name: "sparta" })).folders, []);
+          assert.deepStrictEqual((yield* workspaces.open({ name: "sparta" })).projects, []);
         }),
       { registered: [], opened: [], titles: [], initFails: true },
     ),
   );
 
-  it.effect("starts an agent shell in a workspace folder and remembers it while it exists", () =>
+  it.effect("starts an agent shell in a workspace project and remembers it while it exists", () =>
     withWorkspaces(
       { "sparta.json": '{"version":1}' },
       (dir, fakes) =>
@@ -541,36 +541,36 @@ it.layer(NodeServices.layer)("saved workspaces", (it) => {
           const fs = yield* FileSystem.FileSystem;
           const app = `${dir}/app`;
           yield* fs.makeDirectory(app);
-          yield* workspaces.addFolder({ mode: "import", name: "sparta", path: app });
+          yield* workspaces.addProject({ mode: "import", name: "sparta", path: app });
 
-          const shell = yield* workspaces.startShell({ name: "sparta", folder: app, cols: 90 });
+          const shell = yield* workspaces.startShell({ name: "sparta", project: app, cols: 90 });
           assert.strictEqual(shell.cwd, app);
           assert.strictEqual(shell.title, "Shell 1");
           assert.deepStrictEqual(fakes.opened, [{ cwd: app, agent: true, cols: 90 }]);
           assert.deepStrictEqual((yield* workspaces.open({ name: "sparta" })).lastStart, {
-            folder: app,
+            project: app,
             worktree: { kind: "checkout" },
           });
 
           const outside = yield* Effect.flip(
-            workspaces.startShell({ name: "sparta", folder: dir }),
+            workspaces.startShell({ name: "sparta", project: dir }),
           );
           expect(outside.message).toContain("not in the workspace");
           yield* fs.remove(app, { recursive: true });
           assert.deepStrictEqual(yield* workspaces.open({ name: "sparta" }), {
             name: "sparta",
-            folders: [{ path: app, isGitRepository: false, exists: false }],
+            projects: [{ path: app, isGitRepository: false, exists: false }],
             lastStart: null,
             tabs: { shellIds: [], active: null },
           });
-          const gone = yield* Effect.flip(workspaces.startShell({ name: "sparta", folder: app }));
-          assert.strictEqual(gone.message, `The folder no longer exists: ${app}`);
+          const gone = yield* Effect.flip(workspaces.startShell({ name: "sparta", project: app }));
+          assert.strictEqual(gone.message, `The project's folder no longer exists: ${app}`);
           assert.strictEqual(fakes.opened.length, 1);
           yield* workspaces.create({ name: "athens" });
           yield* fs.makeDirectory(app);
-          yield* workspaces.addFolder({ mode: "import", name: "athens", path: app });
-          yield* workspaces.startShell({ name: "athens", folder: app });
-          yield* workspaces.startShell({ name: "sparta", folder: app });
+          yield* workspaces.addProject({ mode: "import", name: "athens", path: app });
+          yield* workspaces.startShell({ name: "athens", project: app });
+          yield* workspaces.startShell({ name: "sparta", project: app });
           // Each workspace numbers its own shells in start order.
           assert.deepStrictEqual(fakes.titles, ["Shell 1", "Shell 1", "Shell 2"]);
         }),
@@ -579,7 +579,7 @@ it.layer(NodeServices.layer)("saved workspaces", (it) => {
     ),
   );
 
-  it.effect("does not remember a folder whose shell failed to start", () =>
+  it.effect("does not remember a project whose shell failed to start", () =>
     withWorkspaces(
       { "sparta.json": '{"version":1}' },
       (dir, fakes) =>
@@ -587,15 +587,15 @@ it.layer(NodeServices.layer)("saved workspaces", (it) => {
           const workspaces = yield* service;
           const fs = yield* FileSystem.FileSystem;
           yield* fs.makeDirectory(`${dir}/app`);
-          yield* workspaces.addFolder({ mode: "import", name: "sparta", path: `${dir}/app` });
+          yield* workspaces.addProject({ mode: "import", name: "sparta", path: `${dir}/app` });
           const error = yield* Effect.flip(
-            workspaces.startShell({ name: "sparta", folder: `${dir}/app` }),
+            workspaces.startShell({ name: "sparta", project: `${dir}/app` }),
           );
           assert.strictEqual(error._tag, "ShellLaunchError");
           assert.strictEqual((yield* workspaces.open({ name: "sparta" })).lastStart, null);
           // The failed start gives its number back.
           fakes.launchFails = false;
-          const shell = yield* workspaces.startShell({ name: "sparta", folder: `${dir}/app` });
+          const shell = yield* workspaces.startShell({ name: "sparta", project: `${dir}/app` });
           assert.strictEqual(shell.title, "Shell 1");
         }),
       { registered: [], opened: [], titles: [], launchFails: true },
@@ -628,7 +628,7 @@ it.layer(NodeServices.layer)("saved workspaces", (it) => {
       git(repo, "commit", "-q", "--allow-empty", "-m", "two");
       git(repo, "worktree", "add", "-q", "-b", "linked", `${dir}/linked`, "other");
       git(repo, "worktree", "add", "-q", "--detach", `${dir}/detached`, "other");
-      if (options.add) yield* workspaces.addFolder({ mode: "import", name: "sparta", path: repo });
+      if (options.add) yield* workspaces.addProject({ mode: "import", name: "sparta", path: repo });
       const { worktreesDir } = yield* ServerConfig.ServerConfig;
       return { repo, worktrees: `${worktreesDir}/repo` };
     });
@@ -636,17 +636,17 @@ it.layer(NodeServices.layer)("saved workspaces", (it) => {
   const gitState = (repo: string, worktrees: string) => ({
     branches: git(repo, "branch", "--format=%(refname:short)"),
     worktrees: git(repo, "worktree", "list", "--porcelain"),
-    folders: NodeFS.existsSync(worktrees) ? NodeFS.readdirSync(worktrees) : [],
+    projects: NodeFS.existsSync(worktrees) ? NodeFS.readdirSync(worktrees) : [],
   });
 
-  it.effect("offers a git folder's worktrees, local branches and a free worktree name", () =>
+  it.effect("offers a git project's worktrees, local branches and a free worktree name", () =>
     withWorkspaces({ "sparta.json": '{"version":1}' }, (dir) =>
       Effect.gen(function* () {
         const workspaces = yield* service;
         const { repo } = yield* makeRepo(dir);
         const other = git(repo, "rev-parse", "other");
 
-        const offered = yield* workspaces.folderGit({ name: "sparta", folder: repo });
+        const offered = yield* workspaces.projectGit({ name: "sparta", project: repo });
 
         expect(offered).toEqual({
           hasCommit: true,
@@ -661,7 +661,7 @@ it.layer(NodeServices.layer)("saved workspaces", (it) => {
           worktreesError: null,
           branchesError: null,
         });
-        const outside = yield* Effect.flip(workspaces.folderGit({ name: "sparta", folder: dir }));
+        const outside = yield* Effect.flip(workspaces.projectGit({ name: "sparta", project: dir }));
         expect(outside.message).toContain("not in the workspace");
       }),
     ),
@@ -674,9 +674,9 @@ it.layer(NodeServices.layer)("saved workspaces", (it) => {
         const { repo } = yield* makeRepo(dir);
 
         fakes.listingFails = "worktrees";
-        const noWorktrees = yield* workspaces.folderGit({ name: "sparta", folder: repo });
+        const noWorktrees = yield* workspaces.projectGit({ name: "sparta", project: repo });
         fakes.listingFails = "branches";
-        const noBranches = yield* workspaces.folderGit({ name: "sparta", folder: repo });
+        const noBranches = yield* workspaces.projectGit({ name: "sparta", project: repo });
 
         expect(noWorktrees).toMatchObject({
           worktrees: [],
@@ -699,18 +699,18 @@ it.layer(NodeServices.layer)("saved workspaces", (it) => {
     withWorkspaces({ "sparta.json": '{"version":1}' }, (dir, fakes) =>
       Effect.gen(function* () {
         const workspaces = yield* service;
-        const created = yield* workspaces.addFolder({
+        const created = yield* workspaces.addProject({
           mode: "create",
           name: "sparta",
           parentPath: dir,
           folderName: "empty",
         });
 
-        const offered = yield* workspaces.folderGit({ name: "sparta", folder: created.folder });
+        const offered = yield* workspaces.projectGit({ name: "sparta", project: created.project });
         const refused = yield* Effect.flip(
           workspaces.startShell({
             name: "sparta",
-            folder: created.folder,
+            project: created.project,
             worktree: {
               kind: "new",
               name: offered.proposedWorktreeName,
@@ -718,13 +718,13 @@ it.layer(NodeServices.layer)("saved workspaces", (it) => {
             },
           }),
         );
-        yield* workspaces.startShell({ name: "sparta", folder: created.folder });
+        yield* workspaces.startShell({ name: "sparta", project: created.project });
 
         assert.isFalse(offered.hasCommit);
         expect(refused.message).toContain("no commit");
         assert.deepStrictEqual(
           fakes.opened.map((input) => input.cwd),
-          [created.folder],
+          [created.project],
         );
       }),
     ),
@@ -737,19 +737,19 @@ it.layer(NodeServices.layer)("saved workspaces", (it) => {
         Effect.gen(function* () {
           const workspaces = yield* service;
           const { repo, worktrees } = yield* makeRepo(dir);
-          const name = (yield* workspaces.folderGit({ name: "sparta", folder: repo }))
+          const name = (yield* workspaces.projectGit({ name: "sparta", project: repo }))
             .proposedWorktreeName;
           const fromBranch = { kind: "branch" as const, name: "other" };
 
           const first = yield* workspaces.startShell({
             name: "sparta",
-            folder: repo,
+            project: repo,
             worktree: { kind: "new", name, startingPoint: fromBranch },
           });
           // A name taken since the dialog opened is replaced instead of reused (EC-1).
           const second = yield* workspaces.startShell({
             name: "sparta",
-            folder: repo,
+            project: repo,
             worktree: {
               kind: "new",
               name,
@@ -769,7 +769,7 @@ it.layer(NodeServices.layer)("saved workspaces", (it) => {
           );
           assert.deepStrictEqual(fakes.worktrees, [first.cwd, second.cwd]);
           assert.deepStrictEqual((yield* workspaces.open({ name: "sparta" })).lastStart, {
-            folder: repo,
+            project: repo,
             worktree: {
               kind: "new",
               startingPoint: { kind: "worktree", path: `${dir}/detached` },
@@ -780,7 +780,7 @@ it.layer(NodeServices.layer)("saved workspaces", (it) => {
     ),
   );
 
-  it.effect("starts shells in the folder's checkout or an existing worktree of it", () =>
+  it.effect("starts shells in the project's checkout or an existing worktree of it", () =>
     withWorkspaces(
       { "sparta.json": '{"version":1}' },
       (dir, fakes) =>
@@ -789,19 +789,19 @@ it.layer(NodeServices.layer)("saved workspaces", (it) => {
           const { repo } = yield* makeRepo(dir);
           const plain = `${dir}/plain`;
           yield* FileSystem.FileSystem.pipe(Effect.flatMap((fs) => fs.makeDirectory(plain)));
-          yield* workspaces.addFolder({ mode: "import", name: "sparta", path: plain });
+          yield* workspaces.addProject({ mode: "import", name: "sparta", path: plain });
 
-          yield* workspaces.startShell({ name: "sparta", folder: repo });
+          yield* workspaces.startShell({ name: "sparta", project: repo });
           yield* workspaces.startShell({
             name: "sparta",
-            folder: repo,
+            project: repo,
             worktree: { kind: "existing", path: `${dir}/linked` },
           });
-          yield* workspaces.startShell({ name: "sparta", folder: plain });
+          yield* workspaces.startShell({ name: "sparta", project: plain });
           const notOurs = yield* Effect.flip(
             workspaces.startShell({
               name: "sparta",
-              folder: repo,
+              project: repo,
               worktree: { kind: "existing", path: dir },
             }),
           );
@@ -813,7 +813,7 @@ it.layer(NodeServices.layer)("saved workspaces", (it) => {
           assert.deepStrictEqual(fakes.worktrees, [repo, `${dir}/linked`, undefined]);
           expect(notOurs.message).toContain("not a worktree of");
           assert.deepStrictEqual((yield* workspaces.open({ name: "sparta" })).lastStart, {
-            folder: plain,
+            project: plain,
             worktree: { kind: "checkout" },
           });
         }),
@@ -827,11 +827,11 @@ it.layer(NodeServices.layer)("saved workspaces", (it) => {
         const workspaces = yield* service;
         const { repo, worktrees } = yield* makeRepo(dir);
         const start = (startingPoint: { kind: "branch"; name: string }) =>
-          workspaces.folderGit({ name: "sparta", folder: repo }).pipe(
+          workspaces.projectGit({ name: "sparta", project: repo }).pipe(
             Effect.flatMap((offered) =>
               workspaces.startShell({
                 name: "sparta",
-                folder: repo,
+                project: repo,
                 worktree: { kind: "new", name: offered.proposedWorktreeName, startingPoint },
               }),
             ),
@@ -849,7 +849,7 @@ it.layer(NodeServices.layer)("saved workspaces", (it) => {
         NodeFS.rmSync(worktrees);
 
         expect(missing.message).toContain("gone");
-        assert.strictEqual(blocked._tag, "WorkspaceFolderError");
+        assert.strictEqual(blocked._tag, "WorkspaceProjectError");
         expect(blocked.message).toMatch(/^The worktree could not be created/);
         assert.deepStrictEqual(gitState(repo, worktrees), before);
         assert.deepStrictEqual(fakes.opened, []);
@@ -865,13 +865,13 @@ it.layer(NodeServices.layer)("saved workspaces", (it) => {
         Effect.gen(function* () {
           const workspaces = yield* service;
           const { repo, worktrees } = yield* makeRepo(dir);
-          const name = (yield* workspaces.folderGit({ name: "sparta", folder: repo }))
+          const name = (yield* workspaces.projectGit({ name: "sparta", project: repo }))
             .proposedWorktreeName;
 
           const error = yield* Effect.flip(
             workspaces.startShell({
               name: "sparta",
-              folder: repo,
+              project: repo,
               worktree: { kind: "new", name, startingPoint: { kind: "branch", name: "main" } },
             }),
           );
@@ -879,7 +879,7 @@ it.layer(NodeServices.layer)("saved workspaces", (it) => {
           assert.strictEqual(error._tag, "ShellLaunchError");
           assert.isTrue(NodeFS.existsSync(`${worktrees}/${name}`));
           assert.strictEqual(git(repo, "rev-parse", name), git(repo, "rev-parse", "main"));
-          const offered = yield* workspaces.folderGit({ name: "sparta", folder: repo });
+          const offered = yield* workspaces.projectGit({ name: "sparta", project: repo });
           expect(offered.worktrees.map((worktree) => worktree.path)).toContain(
             `${worktrees}/${name}`,
           );
@@ -889,7 +889,7 @@ it.layer(NodeServices.layer)("saved workspaces", (it) => {
     ),
   );
 
-  it.effect("reads a folder remembered before worktrees as a start in its checkout", () =>
+  it.effect("reads a project remembered before worktrees as a start in its checkout", () =>
     withWorkspaces({}, (dir) =>
       Effect.gen(function* () {
         const workspaces = yield* service;
@@ -904,9 +904,46 @@ it.layer(NodeServices.layer)("saved workspaces", (it) => {
           }),
         );
         assert.deepStrictEqual((yield* workspaces.open({ name: "old" })).lastStart, {
-          folder: `${dir}/app`,
+          project: `${dir}/app`,
           worktree: { kind: "checkout" },
         });
+      }),
+    ),
+  );
+
+  it.effect("reads the folders and last start an older server saved as projects", () =>
+    withWorkspaces({}, (dir) =>
+      Effect.gen(function* () {
+        const workspaces = yield* service;
+        const fs = yield* FileSystem.FileSystem;
+        yield* fs.makeDirectory(`${dir}/app`);
+        yield* fs.writeFileString(
+          `${dir}/old.json`,
+          JSON.stringify({
+            version: 1,
+            folders: [{ path: `${dir}/app` }],
+            lastStart: { folder: `${dir}/app`, worktree: { kind: "checkout" } },
+          }),
+        );
+        const opened = yield* workspaces.open({ name: "old" });
+        assert.deepStrictEqual(
+          opened.projects.map((project) => project.path),
+          [`${dir}/app`],
+        );
+        assert.deepStrictEqual(opened.lastStart, {
+          project: `${dir}/app`,
+          worktree: { kind: "checkout" },
+        });
+        // The next save writes only the new keys.
+        yield* workspaces.saveTabs({ name: "old", tabs: { shellIds: [], active: null } });
+        const saved = JSON.parse(yield* fs.readFileString(`${dir}/old.json`));
+        assert.deepStrictEqual(Object.keys(saved).toSorted(), [
+          "lastStart",
+          "projects",
+          "tabs",
+          "version",
+        ]);
+        assert.deepStrictEqual(Object.keys(saved.lastStart).toSorted(), ["project", "worktree"]);
       }),
     ),
   );
@@ -918,26 +955,30 @@ it.layer(NodeServices.layer)("saved workspaces", (it) => {
         const { repo } = yield* makeRepo(dir, { add: false });
         NodeFS.mkdirSync(`${repo}/packages`);
 
-        const linked = yield* workspaces.addFolder({
+        const linked = yield* workspaces.addProject({
           mode: "import",
           name: "sparta",
           path: `${dir}/linked`,
         });
-        const primary = yield* workspaces.addFolder({ mode: "import", name: "sparta", path: repo });
-        const subfolder = yield* workspaces.addFolder({
+        const primary = yield* workspaces.addProject({
+          mode: "import",
+          name: "sparta",
+          path: repo,
+        });
+        const subfolder = yield* workspaces.addProject({
           mode: "import",
           name: "sparta",
           path: `${repo}/packages`,
         });
 
         expect(
-          [linked, primary, subfolder].map((added) => [added.folder, added.resolvedFrom]),
+          [linked, primary, subfolder].map((added) => [added.project, added.resolvedFrom]),
         ).toEqual([
           [repo, `${dir}/linked`],
           [repo, null],
           [`${repo}/packages`, null],
         ]);
-        expect((yield* workspaces.open({ name: "sparta" })).folders.map((f) => f.path)).toEqual([
+        expect((yield* workspaces.open({ name: "sparta" })).projects.map((f) => f.path)).toEqual([
           repo,
           `${repo}/packages`,
         ]);
