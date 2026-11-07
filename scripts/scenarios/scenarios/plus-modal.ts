@@ -243,6 +243,17 @@ export const plusModal: Scenario = {
           !(await history(rpc.client, second.shellId)).includes("hello-probe"),
         "The two shells share output (AC-12).",
       );
+      // PRB.T-011: the agent command is typed once the prompt is ready, so it shows once, after it.
+      // The prompt scrolls a long line sideways, so only the start of the command is counted.
+      const shown = (await history(rpc.client, first.shellId)).replace(
+        /\u001b\][^\u0007\u001b]*(\u0007|\u001b\\)/g,
+        "",
+      );
+      check(
+        (shown.match(/scripts\/mock-agent\/mock-agent/g) ?? []).length === 1 &&
+          !shown.startsWith("node "),
+        `The agent command is not shown once, after the prompt (PRB.T-011): ${JSON.stringify(shown.slice(0, 400))}`,
+      );
 
       // AC-9: a new folder gets git with no commit, and a shell starts in its own checkout.
 
