@@ -3,9 +3,9 @@ id: PRB.T-007
 type: story
 parent: PRB.E-001
 phase: 1
-labels: [terminal-first, plan, implement]
+labels: [terminal-first, plan, implement, verify]
 created: 2026-11-02
-updated: 2026-11-06
+updated: 2026-11-07
 ---
 
 # Reload, restart survival and saved workspace layout
@@ -197,7 +197,7 @@ SU-2, SU-6 and SU-7 are decided (user, 2026-11-02); no AC is blocked on them.
 
 ## Implementation Status and Handoff
 
-Built 2026-11-06 on `feat/restart-survival-prb-t-007` (stacked on `feat/shell-kill-prb-t-006`). Durable decisions are in `docs/dev/roadmap.md` ("PRB.E-001 restart survival"), usage in `docs/user/workspaces.md` ("Reloads and restarts"), the shell host in `docs/internals/terminal-runtime.md`, and stopping a dev checkout's host in `docs/operations/development.md`.
+Done 2026-11-07 on `feat/restart-survival-prb-t-007` (stacked on `feat/shell-kill-prb-t-006`). Durable decisions are in `docs/dev/roadmap.md` ("PRB.E-001 restart survival"), usage in `docs/user/workspaces.md` ("Reloads and restarts"), the shell host in `docs/internals/terminal-runtime.md`, and stopping a dev checkout's host in `docs/operations/development.md`.
 
 **Decisions** (see Current Behavior, Decisions)
 - User: a shell host per state folder; tabs saved in the workspace file.
@@ -215,4 +215,16 @@ Built 2026-11-06 on `feat/restart-survival-prb-t-007` (stacked on `feat/shell-ki
 - AC-6 to AC-10, AC-12 to AC-14, AC-16 to AC-23, AC-29 to AC-31, AC-33, AC-34: S7, each stage named after its ACs. AC-20 ends the shell host while the server is down; AC-18 and AC-21 make the shell registry and workspaces folders read-only; AC-19 makes the workspace file unreadable.
 - Service level: `shellHost.test.ts` (reconnect, ends while disconnected, version, idle), `Manager.test.ts` (detach at shutdown, takeover, end classification, ER-5, token after restart), `SavedWorkspaces.test.ts` (tabs).
 - AC-24, AC-25: S4 and S7 drive the UI by pointer and run on a throwaway home. AC-26: docs updated. AC-27: the marks are static text, no animation.
+- The end mechanism PRB.T-008 builds on: `Shells` classifies each exit at the exit event (a Probe kill, or no signal, removes; a signal keeps it as `ended: "signal"`), and at startup a registry entry the shell host no longer has becomes `ended: "lost"` (`docs/internals/terminal-runtime.md`, "Shell host").
+
+**Manual pass (user, 2026-11-06 to 2026-11-07, `vp run dev`): accepted.** All checks passed: A1 to A4, B1 to B4, C1 to C5, D1 to D3, E1 to E4, F1. G1 and G2 cannot fail on the dev container's Mac-mounted folder, which ignores permission bits; S7 covers them on a normal disk. Found and fixed on the way:
+- The shell host died at start on that mount (`chmod` on a socket fails with EINVAL), and every shell start waited 5 s for it. It now uses a umask, logs a failed start to `shell-host-v1.log`, and the server stops waiting when the host exits.
+- Tab saves could land out of order, so a reload could reopen a closed tab. Saves now go one at a time per workspace.
+- Web terminals kept about one page of scrollback: libghostty-vt reads `max_scrollback` as bytes, not rows. It is now 20 MB. Android's `t3_terminal_jni.cpp` passes the same 10,000 and likely has the same bug (not changed; no native build here).
+- The tree reordered shells and worktrees on reload (the manager lists by last update); shells now list in start order.
+- After a reload: a focus ring flashed around the tab panel while the terminal loaded, and the start screen showed for a moment before the workspace came back. Both fixed.
+- Selecting a shell from a tab or the tree now focuses its terminal. The dark terminal's scrollbar thumb is visible.
+- Moved folders (decision above): a deleted project now shows "moved" without opening "+" (the page reads the workspace again on window focus and when the set of moved shells changes), a deleted linked worktree is marked, and a live shell in a deleted folder is no longer also "elsewhere".
+
+**Left for later** (`docs/dev/ideas/`): `terminal-repeated-prompt.md` (prompts repeated on one line in some shells; the agent command is typed before the shell is ready, which leaves it echoed twice), `event-driven-shell-tracking.md` (replace the 2 s poll with shell reports and file watches where a platform allows).
 

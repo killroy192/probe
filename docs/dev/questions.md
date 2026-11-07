@@ -14,8 +14,6 @@ it is verified or decided; settled decisions go to `roadmap.md`.
 - Agent CLIs' handling of staged input: bracketed paste, multi-line, kitty keyboard protocol.
 - Claude Code's current support for MCP prompts as slash commands and for server-pushed messages.
 - PRB.E-001: the 5 s resume limit is provisional (PRB.T-008).
-- How Probe tells an unexpected end from a normal exit or a Probe kill at the moment of death. The
-  rule is decided; the mechanism comes from PRB.T-007, and PRB.T-008 depends on it.
 - Mock CLI gaps left by PRB.T-001: behavior for an unknown session id, and a switch that makes
   resume always fail. PRB.T-008 owns both (by 2026-11-16).
 - Whether CI type-checks desktop and mobile after contract changes (PRB.T-008 SA-4). Locally,
