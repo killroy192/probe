@@ -48,6 +48,7 @@ const encodeUnknownJson = Schema.encodeUnknownSync(Schema.fromJsonString(Schema.
 
 class FakePtyProcess implements PtyAdapter.PtyProcess {
   readonly writes: string[] = [];
+  onWrite: (() => void) | undefined;
   readonly resizeCalls: Array<{ cols: number; rows: number }> = [];
   readonly killSignals: Array<string | undefined> = [];
   readonly pid: number;
@@ -68,6 +69,7 @@ class FakePtyProcess implements PtyAdapter.PtyProcess {
       throw this.writeFailure;
     }
     this.writes.push(data);
+    this.onWrite?.();
   }
 
   resize(cols: number, rows: number): void {
@@ -126,6 +128,8 @@ class DetachablePtyProcess extends FakePtyProcess {
 class FakePtyAdapter {
   readonly spawnInputs: PtyAdapter.PtySpawnInput[] = [];
   readonly processes: FakePtyProcess[] = [];
+  /** Given to every process spawned from now on. */
+  onWrite: (() => void) | undefined;
   readonly spawnFailures: Error[] = [];
   private readonly mode: "sync" | "async";
   private nextPid = 9000;
@@ -155,6 +159,7 @@ class FakePtyAdapter {
       ? new DetachablePtyProcess(this.nextPid++)
       : new FakePtyProcess(this.nextPid++);
     process.exitOnSubscribe = this.exitOnSubscribe;
+    process.onWrite = this.onWrite;
     this.processes.push(process);
     if (this.mode === "async") {
       return Effect.tryPromise({
@@ -246,6 +251,7 @@ interface CreateManagerOptions {
   historyByteLimit?: number;
   ptyAdapter?: FakePtyAdapter;
   shellPtyAdapter?: FakePtyAdapter;
+  shellReadyDir?: string;
   /** A folder that outlives the manager, for what it saves at shutdown. */
   baseDir?: string;
   resolveProviderInstanceEnvironment?: Parameters<
@@ -286,6 +292,7 @@ const createManager = (
         ...(options.shellPtyAdapter !== undefined
           ? { shellPtyAdapter: options.shellPtyAdapter }
           : {}),
+        ...(options.shellReadyDir !== undefined ? { shellReadyDir: options.shellReadyDir } : {}),
         ...(options.historyByteLimit !== undefined
           ? { historyByteLimit: options.historyByteLimit }
           : {}),
@@ -2162,6 +2169,141 @@ it.layer(
       expect(yield* latest(first.shellId)).toMatchObject({ status: "exited" });
     }).pipe(Effect.provide(logs.layer));
   });
+
+  it.effect("says which shells print the prompt mark", () =>
+    Effect.gen(function* () {
+      const printsMark = (shell: string, owner: string) =>
+        Effect.gen(function* () {
+          const { manager } = yield* createManager(5, {
+            shellResolver: () => shell,
+            shellReadyDir: "/ready",
+          });
+          yield* manager.open(openInput({ threadId: owner }));
+          return yield* manager.printsPromptMark(owner, DEFAULT_TERMINAL_ID);
+        }).pipe(Effect.scoped);
+
+      assert.isTrue(yield* printsMark("/bin/zsh", "shell:one"));
+      assert.isFalse(yield* printsMark("/bin/sh", "shell:one"));
+      assert.isFalse(yield* printsMark("/bin/zsh", "thread-1"));
+    }),
+  );
+
+  it.effect("starts zsh and bash shells through the ready wrapper, and nothing else", () =>
+    Effect.gen(function* () {
+      const spawnedBy = (shell: string, owner: "shell" | "thread") =>
+        Effect.gen(function* () {
+          const { manager, ptyAdapter } = yield* createManager(5, {
+            shellResolver: () => shell,
+            shellReadyDir: "/ready",
+            env: { ZDOTDIR: "/home/me/zsh" },
+          });
+          if (owner === "shell") {
+            yield* (yield* makeShells(manager)).open({ cwd: process.cwd() });
+          } else {
+            yield* manager.open(openInput());
+          }
+          return ptyAdapter.spawnInputs[0]!;
+        }).pipe(Effect.scoped);
+
+      const zsh = yield* spawnedBy("/bin/zsh", "shell");
+      assert.equal(zsh.env?.ZDOTDIR, "/ready/zsh");
+      assert.equal(zsh.env?.PROBE_ORIG_ZDOTDIR, "/home/me/zsh");
+      // Probe's own zsh option stays.
+      assert.deepEqual(zsh.args, ["-o", "nopromptsp"]);
+
+      assert.deepEqual((yield* spawnedBy("/bin/bash", "shell")).args, [
+        "--rcfile",
+        "/ready/bashrc",
+      ]);
+
+      // A shell the wrapper cannot serve, and a chat thread's terminal, start as they were.
+      const sh = yield* spawnedBy("/bin/sh", "shell");
+      assert.equal(sh.env?.ZDOTDIR, "/home/me/zsh");
+      assert.notProperty(sh.env ?? {}, "PROBE_ORIG_ZDOTDIR");
+      const thread = yield* spawnedBy("/bin/zsh", "thread");
+      assert.equal(thread.env?.ZDOTDIR, "/home/me/zsh");
+      assert.deepEqual(thread.args, ["-o", "nopromptsp"]);
+    }),
+  );
+
+  // The agent command is typed in the background, once the shell is ready; these wait for the write.
+  {
+    const MARK = "\u001b]133;A\u0007";
+
+    const openAgent = (shell: string, options?: { readonly promptTimeout?: "1 millis" }) =>
+      Effect.gen(function* () {
+        const { manager, ptyAdapter } = yield* createManager(5, {
+          shellResolver: () => shell,
+          shellReadyDir: "/ready",
+        });
+        const wrote = yield* Deferred.make<void>();
+        ptyAdapter.onWrite = () => Deferred.doneUnsafe(wrote, Effect.void);
+        const shells = yield* makeShells(manager, {
+          agentCommand: "node agent.ts",
+          searchPath: nodeDir,
+          ...options,
+        });
+        yield* shells.open({ cwd: process.cwd(), agent: true });
+        return { wrote, pty: ptyAdapter.processes[0]! };
+      });
+
+    it.effect("starts at once and types the agent command when the prompt mark comes", () =>
+      Effect.gen(function* () {
+        const { wrote, pty } = yield* openAgent("/bin/zsh");
+        // Opening did not wait for the prompt; the mark arrives in pieces, like real output.
+        pty.emitData("startup noise\r\n\u001b]13");
+        pty.emitData("3;A\u0007$ ");
+        yield* Deferred.await(wrote);
+        pty.emitData(MARK);
+        assert.deepEqual(pty.writes, ["node agent.ts\r"]);
+      }).pipe(Effect.scoped),
+    );
+
+    it.effect("holds input for the shell until the agent command has been typed", () =>
+      Effect.gen(function* () {
+        const { manager, ptyAdapter } = yield* createManager(5, {
+          shellResolver: () => "/bin/zsh",
+          shellReadyDir: "/ready",
+        });
+        const wrote = yield* Deferred.make<void>();
+        ptyAdapter.onWrite = () => Deferred.doneUnsafe(wrote, Effect.void);
+        const shells = yield* makeShells(manager, {
+          agentCommand: "node agent.ts",
+          searchPath: nodeDir,
+        });
+        const opened = yield* shells.open({ cwd: process.cwd(), agent: true });
+        const pty = ptyAdapter.processes[0]!;
+        // A line typed before the prompt would reach the bare shell ahead of the agent.
+        const typing = yield* shells
+          .write({ shellId: opened.shellId, data: "exit\r" })
+          .pipe(Effect.forkChild({ startImmediately: true }));
+        assert.deepEqual(pty.writes, []);
+        pty.emitData(MARK);
+        yield* Deferred.await(wrote);
+        yield* Fiber.join(typing);
+        assert.deepEqual(pty.writes, ["node agent.ts\r", "exit\r"]);
+        // Once the agent is typed, input goes straight through.
+        yield* shells.write({ shellId: opened.shellId, data: "more\r" });
+        assert.deepEqual(pty.writes, ["node agent.ts\r", "exit\r", "more\r"]);
+      }).pipe(Effect.scoped),
+    );
+
+    it.effect("types anyway when the mark never comes", () =>
+      Effect.gen(function* () {
+        const { wrote, pty } = yield* openAgent("/bin/bash", { promptTimeout: "1 millis" });
+        yield* Deferred.await(wrote);
+        assert.deepEqual(pty.writes, ["node agent.ts\r"]);
+      }).pipe(Effect.scoped),
+    );
+
+    it.effect("types at once in a shell that cannot print the mark", () =>
+      Effect.gen(function* () {
+        const { wrote, pty } = yield* openAgent("/bin/sh");
+        yield* Deferred.await(wrote);
+        assert.deepEqual(pty.writes, ["node agent.ts\r"]);
+      }).pipe(Effect.scoped),
+    );
+  }
 
   it.effect("types the agent command into an agent shell and logs its start and end", () => {
     const logs = captureLogs();

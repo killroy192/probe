@@ -25,12 +25,16 @@ import { resolveSelfInvocation, selfInvocationArgs } from "@t3tools/shared/nodeR
 import * as Context from "effect/Context";
 import * as Crypto from "effect/Crypto";
 import * as DateTime from "effect/DateTime";
+import * as Deferred from "effect/Deferred";
+import type * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
+import * as Queue from "effect/Queue";
 import * as Schedule from "effect/Schedule";
 import * as Schema from "effect/Schema";
+import * as Stream from "effect/Stream";
 import { HttpServer } from "effect/http";
 import * as NetAddress from "effect/net/NetAddress";
 
@@ -41,6 +45,7 @@ import * as ProcessRunner from "../processRunner.ts";
 import { ShellHost } from "./shellHost/client.ts";
 import { TerminalManager } from "./Manager.ts";
 import { killProcessTree, makeReadProcessTable } from "./processTree.ts";
+import { type ShellOutputEvent, waitForPromptMark } from "./shellReady.ts";
 import { PROBE_COMMAND, SELF_KILL_PATH, SHELL_ENV, type ShellSelfKill } from "./shellEnv.ts";
 
 type Manager = TerminalManager["Service"];
@@ -225,10 +230,14 @@ export const withoutShells = (
   }
 };
 
+const DEFAULT_PROMPT_TIMEOUT = "15 seconds";
+
 interface ShellsOptions {
   /** Typed into a shell opened with `agent: true`; null when none is configured. */
   readonly agentCommand?: string | null;
   readonly searchPath?: string | undefined;
+  /** How long the agent command waits for the shell's prompt; slow startup files need a long wait. */
+  readonly promptTimeout?: Duration.Input;
   readonly platform?: NodeJS.Platform;
   /** The current folder of each process; a pid it cannot read is left out. */
   readonly readCwds?: (pids: ReadonlyArray<number>) => Effect.Effect<ReadonlyMap<number, string>>;
@@ -324,6 +333,7 @@ export const makeShells = Effect.fn("Shells.make")(function* (
   const scope = yield* Effect.scope;
   const platform = options.platform ?? (yield* HostProcess.Platform);
   const agentCommand = options.agentCommand ?? null;
+  const promptTimeout = options.promptTimeout ?? DEFAULT_PROMPT_TIMEOUT;
   const host = options.host ?? null;
   const registryPath = options.registryPath ?? null;
   const session = (shellId: string) => ({
@@ -682,6 +692,8 @@ export const makeShells = Effect.fn("Shells.make")(function* (
 
   // Shells being restored, so a second request while the first runs is refused.
   const restoring = new Set<string>();
+  // Shells whose agent command is not typed yet; input for them waits, so it cannot run ahead of it.
+  const agentPending = new Map<string, Deferred.Deferred<void>>();
 
   /**
    * Starts an ended shell again as a new process in the same place, under the same id. Only the
@@ -861,10 +873,29 @@ export const makeShells = Effect.fn("Shells.make")(function* (
       const tokenHash = token === null ? null : hashToken(token);
       if (tokenHash !== null) tokens.set(tokenHash, shellId);
       const env = envOf(shellId, token, terminal.env);
+      // Listens from before the shell starts, so its first prompt cannot slip past.
+      const typesAgent = agent === true && agentCommand !== null;
+      const output = typesAgent ? yield* Queue.unbounded<ShellOutputEvent>() : null;
+      const stopOutput =
+        output === null
+          ? () => {}
+          : yield* manager.subscribe((event) =>
+              event.threadId !== owner.threadId
+                ? Effect.void
+                : event.type === "output"
+                  ? Queue.offer(output, { type: "output", data: event.data })
+                  : event.type === "exited"
+                    ? Queue.offer(output, { type: "exited" })
+                    : Effect.void,
+            );
       const snapshot = yield* manager
         .open({ ...owner, ...terminal, ...(env === undefined ? {} : { env }) })
-        .pipe(Effect.ensuring(Effect.sync(stop)));
+        .pipe(
+          Effect.ensuring(Effect.sync(stop)),
+          Effect.onError(() => Effect.sync(stopOutput)),
+        );
       if (snapshot.status === "error") {
+        stopOutput();
         records.delete(shellId);
         forgetToken(shellId);
         yield* manager.close({ ...owner, deleteHistory: true });
@@ -890,9 +921,39 @@ export const makeShells = Effect.fn("Shells.make")(function* (
           ? { shellId, cwd: snapshot.cwd }
           : { shellId, cwd: snapshot.cwd, worktree: record.worktree, branch: record.branch },
       );
-      if (agent === true && agentCommand !== null) {
-        // The pty buffers this until the shell has read its startup files.
-        yield* manager.write({ ...owner, data: `${agentCommand}\r` });
+      if (output !== null && agentCommand !== null) {
+        // Typed before the shell is ready, the line is echoed once at once and again after the
+        // prompt. Waiting for the prompt must not hold up the start, so it happens in the background.
+        const typed = yield* Deferred.make<void>();
+        agentPending.set(shellId, typed);
+        yield* Effect.gen(function* () {
+          const outcome = (yield* manager.printsPromptMark(owner.threadId, owner.terminalId))
+            ? yield* waitForPromptMark(Stream.fromQueue(output), promptTimeout)
+            : "unwrapped";
+          if (outcome === "timeout") {
+            yield* Effect.logWarning("shell printed no prompt mark; typing the agent command", {
+              shellId,
+            });
+          }
+          if (outcome !== "exited") {
+            yield* manager.write({ ...owner, data: `${agentCommand}\r` });
+          }
+        }).pipe(
+          Effect.catch((error) =>
+            Effect.logWarning("the agent command was not typed", {
+              shellId,
+              reason: error.message,
+            }),
+          ),
+          Effect.ensuring(
+            Effect.sync(() => {
+              stopOutput();
+              agentPending.delete(shellId);
+              Deferred.doneUnsafe(typed, Effect.void);
+            }),
+          ),
+          Effect.forkIn(scope),
+        );
       }
       return toSummary(shellId, snapshot, record);
     }),
@@ -901,8 +962,11 @@ export const makeShells = Effect.fn("Shells.make")(function* (
         { ...session(input.shellId), cols: input.cols, rows: input.rows },
         viewerId,
       ),
-    write: (input: ShellWriteInput) =>
-      manager.write({ ...session(input.shellId), data: input.data }),
+    write: Effect.fn("Shells.write")(function* (input: ShellWriteInput) {
+      const pending = agentPending.get(input.shellId);
+      if (pending !== undefined) yield* Deferred.await(pending);
+      yield* manager.write({ ...session(input.shellId), data: input.data });
+    }),
     // The manager ignores a resize for a terminal it does not know; a shell id the client holds must exist.
     resize: Effect.fn("Shells.resize")(function* (input: ShellResizeInput, viewerId?: string) {
       const { threadId, terminalId } = session(input.shellId);
