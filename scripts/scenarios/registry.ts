@@ -4,6 +4,7 @@ import { killShell } from "./scenarios/kill-shell.ts";
 import { manyShells } from "./scenarios/many-shells.ts";
 import { plusModal } from "./scenarios/plus-modal.ts";
 import { restartSurvival } from "./scenarios/restart.ts";
+import { restoreShell } from "./scenarios/restore-shell.ts";
 import { standaloneShell } from "./scenarios/standalone-shell.ts";
 import { worktrees } from "./scenarios/worktrees.ts";
 import { deliberateFailure } from "./selftest/deliberate-failure.ts";
@@ -19,7 +20,7 @@ export const scenarios: ReadonlyArray<Scenario> = [
   closeTabScenario,
   killShell,
   restartSurvival,
-  { id: "S8", title: "pending (story 8)" },
+  restoreShell,
 ];
 
 /** Checks a story owns that are not epic scenarios; they run after S1..S8 and do not count toward 8. */

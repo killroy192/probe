@@ -499,6 +499,7 @@ export const WS_METHODS = {
   shellWrite: "shell.write",
   shellResize: "shell.resize",
   shellKill: "shell.kill",
+  shellRestore: "shell.restore",
   workspaceCreate: "workspace.create",
   workspaceRemove: "workspace.remove",
   workspaceOpen: "workspace.open",
@@ -1629,6 +1630,12 @@ const WsShellKillRpc = Rpc.make(WS_METHODS.shellKill, {
   error: ShellRpcError,
 });
 
+const WsShellRestoreRpc = Rpc.make(WS_METHODS.shellRestore, {
+  payload: ShellInput,
+  success: ShellSummary,
+  error: ShellRpcError,
+});
+
 const WsSubscribeShellsRpc = Rpc.make(WS_METHODS.subscribeShells, {
   payload: Schema.Struct({}),
   success: ShellListStreamEvent,
@@ -2279,6 +2286,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsShellWriteRpc,
   WsShellResizeRpc,
   WsShellKillRpc,
+  WsShellRestoreRpc,
   WsSubscribeShellsRpc,
   WsWorkspaceCreateRpc,
   WsWorkspaceRemoveRpc,

@@ -2469,6 +2469,60 @@ it.layer(
     }),
   );
 
+  it.effect("restores an ended shell in place on request, and only an ended one", () =>
+    Effect.gen(function* () {
+      const registryPath = yield* registryIn();
+      const first = yield* createManager();
+      const earlier = yield* makeShells(first.manager, { registryPath });
+      const signalled = yield* earlier.open({ cwd: process.cwd() });
+      const lost = yield* earlier.open({ cwd: process.cwd() });
+      const running = yield* earlier.open({ cwd: process.cwd() });
+      first.ptyAdapter.processes[0]!.emitData("before the signal\r\n");
+      first.ptyAdapter.processes[0]!.emitExit({ exitCode: 0, signal: 9 });
+
+      const refused = yield* Effect.exit(earlier.restore(running.shellId));
+      expect(refused._tag).toBe("Failure");
+
+      // The second server finds `lost` without its process, and `signalled` ended by a signal.
+      const second = yield* createManager();
+      const shells = yield* makeShells(second.manager, {
+        registryPath,
+        host: (yield* fakeHost([{ pid: signalled.pid!, exit: { exitCode: 0, signal: 9 } }])).host,
+      });
+      const events = yield* collectList(shells);
+      expect(
+        (yield* shells.list).map((shell) => [shell.shellId, shell.ended, shell.restored]),
+      ).toEqual([
+        [signalled.shellId, "signal", false],
+        [lost.shellId, "lost", false],
+        [running.shellId, "lost", false],
+      ]);
+
+      for (const ended of [signalled, lost]) {
+        const restored = yield* shells.restore(ended.shellId);
+        expect(restored).toMatchObject({ shellId: ended.shellId, status: "running", ended: null });
+        expect(restored.restored).toBe(true);
+        expect(yield* historyOf(shells, ended.shellId)).not.toContain("before the signal");
+      }
+      expect(second.ptyAdapter.spawnInputs).toHaveLength(2);
+      expect(yield* events).toContainEqual({
+        type: "upsert",
+        shell: expect.objectContaining({ shellId: lost.shellId, restored: true, ended: null }),
+      });
+      expect((yield* Effect.exit(shells.restore(lost.shellId)))._tag).toBe("Failure");
+
+      // A restored shell is an ordinary running shell: it survives a restart as one, and the
+      // next end of it can be restored again.
+      const third = yield* makeShells((yield* createManager()).manager, {
+        registryPath,
+        host: (yield* fakeHost([{ pid: signalled.pid! }])).host,
+      });
+      expect(
+        (yield* third.list).find((shell) => shell.shellId === signalled.shellId)?.restored,
+      ).toBe(true);
+    }),
+  );
+
   it.effect("keeps an ended shell listed when its removal cannot be saved", () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;

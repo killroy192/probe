@@ -13,9 +13,6 @@ it is verified or decided; settled decisions go to `roadmap.md`.
   submitting (the "stage text, no Enter" primitive).
 - Agent CLIs' handling of staged input: bracketed paste, multi-line, kitty keyboard protocol.
 - Claude Code's current support for MCP prompts as slash commands and for server-pushed messages.
-- PRB.E-001: the 5 s resume limit is provisional (PRB.T-008).
-- Mock CLI gaps left by PRB.T-001: behavior for an unknown session id, and a switch that makes
-  resume always fail. PRB.T-008 owns both (by 2026-11-16).
 - Whether CI type-checks desktop and mobile after contract changes (PRB.T-008 SA-4). Locally,
   `vp run check:changed` type-checks both as dependents of `packages/contracts`.
 - Which story brings back the right panel (folders and file preview) next to shells. It lived in the

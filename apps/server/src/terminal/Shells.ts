@@ -56,6 +56,7 @@ interface ShellRecord {
   elsewhere: string | null;
   /** The home folder is gone from disk. */
   missing: boolean;
+  restored: boolean;
 }
 
 const NO_RECORD: ShellRecord = {
@@ -66,6 +67,7 @@ const NO_RECORD: ShellRecord = {
   branch: null,
   elsewhere: null,
   missing: false,
+  restored: false,
 };
 
 /** A shell as the registry keeps it across server restarts. */
@@ -79,6 +81,8 @@ const SavedShell = Schema.Struct({
   worktree: Schema.NullOr(Schema.String),
   home: Schema.NullOr(Schema.String),
   tokenHash: Schema.NullOr(Schema.String),
+  /** Set once the user restored the shell after it ended. */
+  restored: Schema.optionalKey(Schema.Boolean),
   /** Set once the shell ended in a way that keeps it listed until it is removed. */
   ended: Schema.NullOr(
     Schema.Struct({
@@ -127,6 +131,7 @@ const toSummary = (
   elsewhere: record.elsewhere,
   ended: terminal.status === "exited" && signalOf(terminal.exitSignal) !== null ? "signal" : null,
   missing: record.missing,
+  restored: record.restored,
   updatedAt: terminal.updatedAt,
 });
 
@@ -147,6 +152,7 @@ const endedSummary = (saved: SavedShell, record: ShellRecord): ShellSummary => (
   elsewhere: null,
   ended: saved.ended?.reason ?? "lost",
   missing: record.missing,
+  restored: record.restored,
   updatedAt: saved.ended?.at ?? "",
 });
 
@@ -231,6 +237,8 @@ export interface ShellOpenOptions {
   /** The git worktree it starts in; its branch is shown and kept up to date. */
   readonly worktree?: string;
 }
+
+const optionalEnv = (env: Record<string, string> | undefined) => (env === undefined ? {} : { env });
 
 const SHORT_HASH_LENGTH = 7;
 
@@ -636,10 +644,91 @@ export const makeShells = Effect.fn("Shells.make")(function* (
     );
   });
 
+  /** The environment of a shell, with what lets `probe kill` end that shell and no other. */
+  const envOf = (
+    shellId: string,
+    token: string | null,
+    base: Record<string, string> | undefined,
+  ): Record<string, string> | undefined =>
+    selfKill === null || token === null
+      ? base
+      : {
+          ...base,
+          [SHELL_ENV.id]: shellId,
+          [SHELL_ENV.token]: token,
+          [SHELL_ENV.endpointFile]: selfKill.endpointFile,
+          [SHELL_ENV.bin]: selfKill.bin,
+          PATH: selfKill.path,
+        };
+
   const failToStart = (cwd: string, reason: string) =>
     Effect.logWarning("shell failed to start", { cwd, reason }).pipe(
       Effect.andThen(Effect.fail(new ShellLaunchError({ reason }))),
     );
+
+  // Shells being restored, so a second request while the first runs is refused.
+  const restoring = new Set<string>();
+
+  /**
+   * Starts an ended shell again as a new process in the same place, under the same id. Only the
+   * user asks for this: nothing restores a shell by itself, and a kill or a normal exit never
+   * leaves a shell to restore. The earlier output is dropped.
+   */
+  const restore = Effect.fn("Shells.restore")(function* (shellId: string) {
+    const entry = saved.get(shellId);
+    if (entry === undefined || entry.ended === null || killing.has(shellId)) {
+      return yield* failToStart(entry?.cwd ?? "", "The shell has not ended.");
+    }
+    if (recordOf(shellId).missing) {
+      return yield* failToStart(entry.cwd, "The folder it ran in is gone.");
+    }
+    if (restoring.has(shellId)) {
+      return yield* failToStart(entry.cwd, "The shell is already being restored.");
+    }
+    restoring.add(shellId);
+    return yield* Effect.gen(function* () {
+      const owner = session(shellId);
+      // A shell lost with its server has no terminal here, but its output file is still on disk.
+      if (!terminals.has(shellId)) yield* manager.close({ ...owner, deleteHistory: true });
+      let reason = "The shell program could not be launched.";
+      const stop = yield* manager.subscribe((event) =>
+        Effect.sync(() => {
+          if (event.type === "error" && event.threadId === owner.threadId) reason = event.message;
+        }),
+      );
+      const token = yield* newToken;
+      const snapshot = yield* manager
+        .open({ ...owner, cwd: entry.cwd, ...optionalEnv(envOf(shellId, token, undefined)) })
+        .pipe(Effect.ensuring(Effect.sync(stop)));
+      if (snapshot.status === "error") {
+        // The shell stays listed as ended, so the user can try again or remove it.
+        yield* manager.close({ ...owner, deleteHistory: false });
+        return yield* failToStart(entry.cwd, reason);
+      }
+      forgetToken(shellId);
+      const tokenHash = token === null ? null : hashToken(token);
+      if (tokenHash !== null) tokens.set(tokenHash, shellId);
+      const record = recordOf(shellId);
+      record.restored = true;
+      saved.set(shellId, {
+        ...entry,
+        pid: snapshot.pid,
+        label: snapshot.label,
+        tokenHash,
+        ended: null,
+        restored: true,
+      });
+      yield* persistOrWarn;
+      yield* Effect.logInfo("shell restored", {
+        shellId,
+        cwd: snapshot.cwd,
+        previous: entry.ended?.reason,
+      });
+      const summary = toSummary(shellId, snapshot, record);
+      yield* emit({ type: "upsert", shell: summary });
+      return summary;
+    }).pipe(Effect.ensuring(Effect.sync(() => restoring.delete(shellId))));
+  });
 
   /** Takes over the shells an earlier server left in the host, and lists the ones that ended. */
   const takeOver = Effect.gen(function* () {
@@ -664,6 +753,7 @@ export const makeShells = Effect.fn("Shells.make")(function* (
         branch: entry.worktree === null ? null : yield* readBranch(entry.worktree),
         elsewhere: null,
         missing: home !== null && !(yield* exists(home)),
+        restored: entry.restored === true,
       });
       if (entry.tokenHash !== null) tokens.set(entry.tokenHash, entry.shellId);
       const found = entry.pid === null ? undefined : byPid.get(entry.pid);
@@ -744,6 +834,7 @@ export const makeShells = Effect.fn("Shells.make")(function* (
         branch: worktree === null ? null : yield* readBranch(worktree),
         elsewhere: null,
         missing: false,
+        restored: false,
       });
       let reason = "The shell program could not be launched.";
       const stop = yield* manager.subscribe((event) =>
@@ -754,17 +845,7 @@ export const makeShells = Effect.fn("Shells.make")(function* (
       const token = yield* newToken;
       const tokenHash = token === null ? null : hashToken(token);
       if (tokenHash !== null) tokens.set(tokenHash, shellId);
-      const env =
-        selfKill === null || token === null
-          ? terminal.env
-          : {
-              ...terminal.env,
-              [SHELL_ENV.id]: shellId,
-              [SHELL_ENV.token]: token,
-              [SHELL_ENV.endpointFile]: selfKill.endpointFile,
-              [SHELL_ENV.bin]: selfKill.bin,
-              PATH: selfKill.path,
-            };
+      const env = envOf(shellId, token, terminal.env);
       const snapshot = yield* manager
         .open({ ...owner, ...terminal, ...(env === undefined ? {} : { env }) })
         .pipe(Effect.ensuring(Effect.sync(stop)));
@@ -816,6 +897,7 @@ export const makeShells = Effect.fn("Shells.make")(function* (
       yield* manager.resize({ threadId, terminalId, cols: input.cols, rows: input.rows }, viewerId);
     }),
     kill,
+    restore,
     /** Kills the shell the token was given to; false when no live shell has it. */
     killByToken: Effect.fn("Shells.killByToken")(function* (token: string) {
       const shellId = tokens.get(hashToken(token));

@@ -169,6 +169,10 @@ export function createShellEnvironmentAtoms<R, E>(
       label: "environment-data:shell:kill",
       tag: WS_METHODS.shellKill,
     }),
+    restore: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:shell:restore",
+      tag: WS_METHODS.shellRestore,
+    }),
   };
 }
 

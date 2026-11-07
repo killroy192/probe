@@ -295,6 +295,7 @@ describe("terminal session reducers", () => {
       elsewhere: null,
       ended: null,
       missing: false,
+      restored: false,
       updatedAt: "2026-04-01T00:00:00.000Z",
     });
     let list = applyShellListStreamEvent([], {

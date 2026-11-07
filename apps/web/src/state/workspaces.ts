@@ -175,6 +175,8 @@ export interface WorkspacesView {
   readonly closeTab: (shellId: ShellId) => void;
   /** Ends the shell and everything it started, and closes its tab. */
   readonly killShell: (shellId: ShellId) => WorkspaceActionResult;
+  /** Starts an ended shell again in the same place; a tab that was open comes back, a closed one stays closed. */
+  readonly restoreShell: (shellId: ShellId) => WorkspaceActionResult;
   /** Shows the workspace this page showed before a reload, once per page. */
   readonly restoreShown: () => void;
   /** True while the page may still bring back the workspace it showed before a reload. */
@@ -211,6 +213,7 @@ export function useWorkspaces(): WorkspacesView {
     reportFailure: false,
   });
   const killCommand = useAtomCommand(shellEnvironment.kill, { reportFailure: false });
+  const restoreCommand = useAtomCommand(shellEnvironment.restore, { reportFailure: false });
   const saveTabsCommand = useAtomCommand(workspaceEnvironment.saveTabs, { reportFailure: false });
   const layoutError = useAtomValue(layoutErrorAtom);
   const setLayoutError = useAtomSet(layoutErrorAtom);
@@ -432,6 +435,11 @@ export function useWorkspaces(): WorkspacesView {
         },
       );
     },
+    restoreShell: (shellId) =>
+      run(
+        (id) => restoreCommand({ environmentId: id, input: { shellId } }),
+        () => undefined,
+      ),
     restoreShown: () => {
       if (restored !== "no" || environmentId === null || workspaces === null) return;
       if (shownState !== null) return setRestored("done");

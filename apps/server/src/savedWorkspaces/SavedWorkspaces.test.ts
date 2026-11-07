@@ -115,6 +115,7 @@ const layerDependencies = (fakes: Fakes) =>
                 elsewhere: null,
                 ended: null,
                 missing: false,
+                restored: false,
                 updatedAt: "now",
               };
               fakes.running?.push(shell);

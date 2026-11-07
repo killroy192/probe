@@ -7,6 +7,7 @@ import {
   FolderPlusIcon,
   LayersIcon,
   PlusIcon,
+  RotateCcwIcon,
   SearchIcon,
   SquareTerminalIcon,
   TrashIcon,
@@ -62,7 +63,7 @@ const confirmKill = async (shell: ShellSummary) =>
         : `Remove ${shellName(shell, { folder: false })}?`,
       shell.ended === null
         ? "Its process and everything it started end now."
-        : "It has ended; it leaves the tree for good.",
+        : "It has ended; it leaves the tree for good. Restore it instead to start it again.",
       ...(shell.worktree === null ? [] : ["Its worktree stays on disk."]),
     ].join("\n"),
     { variant: "destructive" },
@@ -197,6 +198,7 @@ export function WorkspaceSidebar() {
                   (confirmed) => (confirmed ? act(view.removeFolder(folder)) : undefined),
                 )
               }
+              onRestoreShell={(shell) => void act(view.restoreShell(shell.shellId))}
               onKillShell={(shell) =>
                 void confirmKill(shell).then((confirmed) =>
                   confirmed ? act(view.killShell(shell.shellId)) : undefined,
@@ -292,6 +294,7 @@ function ShellTree({
   canStart,
   onCreateShell,
   onKillShell,
+  onRestoreShell,
   canRemoveProject,
   onRemoveProject,
 }: {
@@ -302,6 +305,7 @@ function ShellTree({
   readonly canStart: boolean;
   readonly onCreateShell: (folder: string) => void;
   readonly onKillShell: (shell: ShellSummary) => void;
+  readonly onRestoreShell: (shell: ShellSummary) => void;
   readonly canRemoveProject: boolean;
   /** `running` is how many of the workspace's running shells the removal kills. */
   readonly onRemoveProject: (folder: string, running: number) => void;
@@ -322,13 +326,18 @@ function ShellTree({
             isActive={shell.shellId === activeShellId}
             data-shell-id={shell.shellId}
             data-ended={shell.ended ?? undefined}
-            // An ended shell has no terminal to show; it can only be removed.
+            // An ended shell has no terminal to show; it can be restored or removed.
             onClick={() => (shell.ended === null ? onChooseShell(shell.shellId) : undefined)}
           >
             <SquareTerminalIcon />
             <span className={shell.ended === null ? "truncate" : "truncate text-muted-foreground"}>
               {shellName(shell, { folder: false })}
             </span>
+            {shell.restored && shell.ended === null ? (
+              <span data-restored className="ml-auto shrink-0 text-xs text-muted-foreground">
+                restored
+              </span>
+            ) : null}
             {shell.ended === null ? null : (
               <Tooltip>
                 <TooltipTrigger
@@ -359,7 +368,17 @@ function ShellTree({
             )}
           </SidebarMenuButton>
           {/* Shown on hover; a pointer reaches it by hovering the row first. */}
-          <span className="opacity-0 group-hover/shell:opacity-100 focus-within:opacity-100">
+          <span className="flex opacity-0 group-hover/shell:opacity-100 focus-within:opacity-100">
+            {shell.ended === null || shell.missing ? null : (
+              <SidebarHeaderIconButton
+                label={`Restore ${shellName(shell, { folder: false })}`}
+                tooltip="Restore shell"
+                disabled={!canStart}
+                onClick={() => onRestoreShell(shell)}
+              >
+                <RotateCcwIcon />
+              </SidebarHeaderIconButton>
+            )}
             <SidebarHeaderIconButton
               label={`${shell.ended === null ? "Kill" : "Remove"} ${shellName(shell, { folder: false })}`}
               tooltip={shell.ended === null ? "Kill shell" : "Remove shell"}

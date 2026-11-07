@@ -73,7 +73,10 @@ crashed server's leftover and is killed.
 How a shell ended decides whether it stays: a Probe kill or an exit without a signal (any status)
 removes it and its history; a signal exit, or a registry entry the host no longer has (the host
 died, for example in a reboot), keeps it listed with `ended: "signal" | "lost"` until it is
-killed. The host remembers an exit that happens while no server is connected until a server
+killed. Only the user brings an ended shell back: `Shells.restore` (`shell.restore`) reopens the
+same terminal under the same id and folder, drops the old output, issues a new kill token and
+sets `restored`. It refuses a shell that has not ended or whose folder is gone, and nothing calls
+it automatically. The host remembers an exit that happens while no server is connected until a server
 forgets it. The socket name carries the protocol version, so a server of another version starts
 its own host and shows the old host's shells as lost.
 

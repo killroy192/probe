@@ -184,6 +184,7 @@ export const RPC_REQUIRED_SCOPES = {
   [WS_METHODS.shellWrite]: AuthTerminalOperateScope,
   [WS_METHODS.shellResize]: AuthTerminalOperateScope,
   [WS_METHODS.shellKill]: AuthTerminalOperateScope,
+  [WS_METHODS.shellRestore]: AuthTerminalOperateScope,
   [WS_METHODS.subscribeShells]: AuthTerminalReadScope,
   [WS_METHODS.workspaceCreate]: AuthSettingsWriteScope,
   [WS_METHODS.workspaceRemove]: AuthSettingsWriteScope,

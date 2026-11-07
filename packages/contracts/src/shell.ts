@@ -81,6 +81,8 @@ export const ShellSummary = Schema.Struct({
   ended: Schema.NullOr(ShellEndReason),
   /** True once the folder or worktree the shell was started in is gone from disk. */
   missing: Schema.Boolean,
+  /** True once the user restored this shell after it ended; it is a new process in the same place. */
+  restored: Schema.Boolean,
   updatedAt: Schema.String,
 });
 export type ShellSummary = typeof ShellSummary.Type;

@@ -130,11 +130,14 @@ by itself once no shells are left.
 A shell that ends on its own, whatever its exit status, leaves the tree for
 good, as a killed shell does. A shell that a signal ended, or that was lost
 because its helper ended (for example in a reboot), stays in the tree marked
-"ended"; hover the mark to see why, and click **×** to remove it. An ended shell
-has no tab.
+"ended"; hover the mark to see why. An ended shell has no running process and
+nothing restores it by itself: hover its row and click **Restore** to start it
+again in the same folder, worktree and branch, or **×** to remove it. A restored
+shell is a new shell with empty output, marked "restored", and no agent is
+started in it; if its tab was open when it ended, the tab comes back.
 
 When a shell's folder or worktree is gone from disk, its row is marked "moved".
-A shell still running there keeps working; an ended one can only be removed.
+A shell still running there keeps working; an ended one can only be removed, not restored.
 
 ## Agent command
 

@@ -49,6 +49,7 @@ describe("shell contracts", () => {
       elsewhere: null,
       ended: null,
       missing: false,
+      restored: false,
       updatedAt: "2026-11-03T00:00:00.000Z",
     };
     expect(decodes(ShellSummary, summary)).toBe(true);
@@ -76,6 +77,7 @@ describe("shell contracts", () => {
       WS_METHODS.shellWrite,
       WS_METHODS.shellResize,
       WS_METHODS.shellKill,
+      WS_METHODS.shellRestore,
       WS_METHODS.subscribeShells,
     ]) {
       expect(WsRpcGroup.requests.has(method)).toBe(true);
