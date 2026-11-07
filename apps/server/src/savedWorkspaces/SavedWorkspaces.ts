@@ -416,9 +416,44 @@ const make = Effect.gen(function* () {
     return { name, folders, lastStart, tabs } satisfies WorkspaceDetail;
   });
 
+  /**
+   * Reads the workspace's file. A project whose folder is gone and that no listed shell belongs to
+   * leaves the workspace; one with shells stays, marked, until they are removed.
+   */
   const open = Effect.fn("SavedWorkspaces.open")(function* (input: WorkspaceInput) {
-    return yield* toDetail(input.name, yield* readFile(input.name));
-  });
+    const file = yield* readFile(input.name);
+    const detail = yield* toDetail(input.name, file);
+    const gone = detail.folders.filter((folder) => !folder.exists).map((folder) => folder.path);
+    if (gone.length === 0) return detail;
+    const listed = yield* shells.list;
+    const empty = new Set(
+      gone.filter((folder) => !listed.some((shell) => (shell.folder ?? shell.cwd) === folder)),
+    );
+    if (empty.size === 0) return detail;
+    const { lastFolder, lastStart, ...rest } = file;
+    const next: SavedWorkspaceFile = {
+      ...rest,
+      folders: (file.folders ?? []).filter((saved) => !empty.has(saved.path)),
+      ...(lastStart == null || empty.has(lastStart.folder) ? {} : { lastStart }),
+      ...(lastFolder == null || empty.has(lastFolder) ? {} : { lastFolder }),
+    };
+    return yield* writeFile(input.name, next).pipe(
+      Effect.tap(() =>
+        Effect.logInfo("removed projects whose folders are gone", {
+          workspace: input.name,
+          folders: [...empty],
+        }),
+      ),
+      Effect.andThen(toDetail(input.name, next)),
+      // Unsaved, the projects stay listed as moved; the next open tries again.
+      Effect.catch((error) =>
+        Effect.logWarning("could not remove projects whose folders are gone", {
+          workspace: input.name,
+          reason: error.message,
+        }).pipe(Effect.as(detail)),
+      ),
+    );
+  }, lock.withPermits(1));
 
   const saveTabs = Effect.fn("SavedWorkspaces.saveTabs")(function* (input: WorkspaceSaveTabsInput) {
     const file = yield* readFile(input.name);

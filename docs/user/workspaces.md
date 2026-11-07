@@ -91,13 +91,15 @@ worktree stays there, marked "elsewhere"; hover the mark to see where it is.
 Shells in projects that are not git repositories sit directly under the
 project.
 
-A project deleted from disk stays in the tree, marked "missing", and can't start
-shells.
+A project whose folder was deleted or moved on disk is marked "moved" and can't
+start shells. It stays while it still has shells, so they can be seen and
+removed, and leaves the workspace once its last shell is gone. A worktree folder
+that is gone is marked the same way.
 
 To take a project out of the workspace, hover its row and click the remove
 icon, then confirm. Every running shell in the project is killed, including
 shells another workspace started there; the folder and its worktrees stay on
-disk. A missing project can be removed the same way.
+disk. A moved project can be removed the same way.
 
 ## Tabs, close and kill
 
@@ -131,9 +133,8 @@ because its helper ended (for example in a reboot), stays in the tree marked
 "ended"; hover the mark to see why, and click **×** to remove it. An ended shell
 has no tab.
 
-When a shell's folder or worktree is gone from disk, its row is marked "not
-found". A shell still running there keeps working; an ended one can only be
-removed.
+When a shell's folder or worktree is gone from disk, its row is marked "moved".
+A shell still running there keeps working; an ended one can only be removed.
 
 ## Agent command
 

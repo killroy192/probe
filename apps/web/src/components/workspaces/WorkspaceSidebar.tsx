@@ -254,6 +254,22 @@ export function WorkspaceItems({
 }
 
 /** Shells grouped by the worktree they started in, in first-start order; null holds non-git ones. */
+/** A folder, worktree or shell's folder that is gone from where it was: moved or deleted. */
+function MovedMark({ path }: { readonly path: string }) {
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <span data-missing className="ml-auto shrink-0 text-xs text-destructive-foreground" />
+        }
+      >
+        moved
+      </TooltipTrigger>
+      <TooltipPopup side="right">Not found at {path}; it was moved or deleted.</TooltipPopup>
+    </Tooltip>
+  );
+}
+
 function byWorktree(shells: ReadonlyArray<ShellSummary>) {
   const groups = new Map<string | null, ShellSummary[]>();
   for (const shell of shells) {
@@ -324,21 +340,7 @@ function ShellTree({
               </Tooltip>
             )}
             {shell.missing ? (
-              <Tooltip>
-                <TooltipTrigger
-                  render={
-                    <span
-                      data-missing
-                      className="ml-auto shrink-0 text-xs text-destructive-foreground"
-                    />
-                  }
-                >
-                  not found
-                </TooltipTrigger>
-                <TooltipPopup side="right">
-                  Its folder was not found: {shell.worktree ?? shell.folder ?? shell.cwd}
-                </TooltipPopup>
-              </Tooltip>
+              <MovedMark path={shell.worktree ?? shell.folder ?? shell.cwd} />
             ) : null}
             {shell.elsewhere === null ? null : (
               <Tooltip>
@@ -402,9 +404,7 @@ function ShellTree({
                 >
                   <FolderIcon className="size-3.5 shrink-0 text-(--sidebar-icon-color)" />
                   <span className="truncate">{folderName(folder.path)}</span>
-                  {folder.exists ? null : (
-                    <span className="shrink-0 text-xs text-muted-foreground">missing</span>
-                  )}
+                  {folder.exists ? null : <MovedMark path={folder.path} />}
                 </div>
                 {/* Shown on hover, also for a missing project, so it can be taken out. */}
                 <span className="opacity-0 group-hover/project:opacity-100 focus-within:opacity-100">
@@ -452,6 +452,9 @@ function ShellTree({
                               head: "",
                             })}
                           </span>
+                          {worktree !== folder.path && inWorktree.some((shell) => shell.missing) ? (
+                            <MovedMark path={worktree} />
+                          ) : null}
                         </div>
                         {shellRows(inWorktree, 4)}
                       </div>

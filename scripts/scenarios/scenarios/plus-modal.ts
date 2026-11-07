@@ -303,7 +303,9 @@ export const plusModal: Scenario = {
       // Opening the modal reads the workspace again; the deleted folder is marked and has no "+".
       await openModal(page, repo);
       await cancelModal(page);
-      await page.locator(`[data-folder="${plain}"]`).getByText("missing").waitFor();
+      await page
+        .locator(`[data-folder="${plain}"] [role="treeitem"][aria-label="${plain}"] [data-missing]`)
+        .waitFor();
       check(
         (await createShellButton(page, plain).count()) === 0,
         "A deleted folder can start (AC-14).",

@@ -25,15 +25,16 @@ export function WorkspaceScreen() {
   const { restoreShown } = view;
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Reads browser storage once the workspace list arrives, to show the workspace a reload left.
   useEffect(() => restoreShown(), [restoreShown]);
-  const refresh = useEffectEvent(() => void view.refresh());
+  // `_changed` names what prompted the read, so an effect can depend on it.
+  const refresh = useEffectEvent((_changed?: string) => void view.refresh());
   const { shells } = useShells(view.environmentId);
   const notFound = (shells ?? [])
     .filter((shell) => shell.missing)
     .map((shell) => shell.shellId)
     .join(",");
-  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- A shell's folder gone from disk may be a project's; the server's project state is read again to mark it missing.
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- A shell's folder gone from disk, or its last shell there gone, changes the project's state on the server; read it again.
   useEffect(() => {
-    if (notFound !== "") refresh();
+    refresh(notFound);
   }, [notFound]);
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Folders change on disk outside the app; coming back to the window reads the projects again.
   useEffect(() => {

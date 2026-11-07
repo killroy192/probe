@@ -9,6 +9,25 @@ vscode ➜ ~/probe-demo/repo (main) $vscode ➜ ~/probe-demo/repo (main) $vscode
 
 where one `vscode ➜ ~/probe-demo/repo (main) $` was expected.
 
+It happens often in some shells (seen across workspace switches, PRB.T-007 E1 check). A related
+symptom shows on every new shell: the agent command appears twice, once before the prompt and once
+after it:
+
+```
+node /workspaces/probe/scripts/mock-agent/mock-agent.ts
+vscode ➜ /workspaces/…/worktrees/repo/probe-worktree-de435b (linked) $ node /workspaces/probe/scripts/mock-agent/mock-agent.ts
+```
+
+`Shells.open` writes `<agent command>\r` into the PTY right after spawning, before the shell has read
+its startup files (`Shells.ts`, "The pty buffers this until the shell has read its startup files").
+The terminal driver echoes the typed-ahead line at once, then zsh prints its prompt, reads the
+buffered input and its line editor draws the line again. So the command is typed before the shell
+is ready, and the first echo is left on screen. The same early input, or a prompt redraw racing it,
+may be what leaves repeated prompts. A fix would wait for the shell to be ready before typing: the
+first prompt (OSC 133 prompt marks, or the OSC 7 report from
+[event-driven tracking](event-driven-shell-tracking.md)), or run the agent as the shell's command
+instead of typing it.
+
 ## What to look at first
 
 - **Size mismatch.** zsh redraws its prompt on every `SIGWINCH`. If the shell's idea of the width

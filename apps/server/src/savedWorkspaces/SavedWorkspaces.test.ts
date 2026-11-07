@@ -317,6 +317,39 @@ it.layer(NodeServices.layer)("saved workspaces", (it) => {
     ),
   );
 
+  it.effect("drops a project whose folder is gone once no shell is in it", () =>
+    withWorkspaces(
+      { "sparta.json": '{"version":1}' },
+      (dir, fakes) =>
+        Effect.gen(function* () {
+          const workspaces = yield* service;
+          const fs = yield* FileSystem.FileSystem;
+          const [empty, busy, kept] = [`${dir}/empty`, `${dir}/busy`, `${dir}/kept`];
+          for (const folder of [empty, busy, kept]) {
+            yield* fs.makeDirectory(folder);
+            yield* workspaces.addFolder({ mode: "import", name: "sparta", path: folder });
+          }
+          const inBusy = yield* workspaces.startShell({ name: "sparta", folder: busy });
+          yield* fs.remove(empty, { recursive: true });
+          yield* fs.remove(busy, { recursive: true });
+
+          const opened = yield* workspaces.open({ name: "sparta" });
+          expect(opened.folders.map(({ path, exists }) => [path, exists])).toEqual([
+            [busy, false],
+            [kept, true],
+          ]);
+
+          // Its last shell gone, the other moved project leaves as well.
+          fakes.running?.splice(0);
+          expect(inBusy.folder).toBe(busy);
+          const after = yield* workspaces.open({ name: "sparta" });
+          expect(after.folders.map((folder) => folder.path)).toEqual([kept]);
+          assert.isNull(after.lastStart);
+        }),
+      { registered: [], opened: [], titles: [], running: [], killed: [] },
+    ),
+  );
+
   it.effect("keeps an unreadable or invalid workspace listed and fails to open it", () =>
     withWorkspaces(
       {
@@ -499,43 +532,49 @@ it.layer(NodeServices.layer)("saved workspaces", (it) => {
   );
 
   it.effect("starts an agent shell in a workspace folder and remembers it while it exists", () =>
-    withWorkspaces({ "sparta.json": '{"version":1}' }, (dir, fakes) =>
-      Effect.gen(function* () {
-        const workspaces = yield* service;
-        const fs = yield* FileSystem.FileSystem;
-        const app = `${dir}/app`;
-        yield* fs.makeDirectory(app);
-        yield* workspaces.addFolder({ mode: "import", name: "sparta", path: app });
+    withWorkspaces(
+      { "sparta.json": '{"version":1}' },
+      (dir, fakes) =>
+        Effect.gen(function* () {
+          const workspaces = yield* service;
+          const fs = yield* FileSystem.FileSystem;
+          const app = `${dir}/app`;
+          yield* fs.makeDirectory(app);
+          yield* workspaces.addFolder({ mode: "import", name: "sparta", path: app });
 
-        const shell = yield* workspaces.startShell({ name: "sparta", folder: app, cols: 90 });
-        assert.strictEqual(shell.cwd, app);
-        assert.strictEqual(shell.title, "Shell 1");
-        assert.deepStrictEqual(fakes.opened, [{ cwd: app, agent: true, cols: 90 }]);
-        assert.deepStrictEqual((yield* workspaces.open({ name: "sparta" })).lastStart, {
-          folder: app,
-          worktree: { kind: "checkout" },
-        });
+          const shell = yield* workspaces.startShell({ name: "sparta", folder: app, cols: 90 });
+          assert.strictEqual(shell.cwd, app);
+          assert.strictEqual(shell.title, "Shell 1");
+          assert.deepStrictEqual(fakes.opened, [{ cwd: app, agent: true, cols: 90 }]);
+          assert.deepStrictEqual((yield* workspaces.open({ name: "sparta" })).lastStart, {
+            folder: app,
+            worktree: { kind: "checkout" },
+          });
 
-        const outside = yield* Effect.flip(workspaces.startShell({ name: "sparta", folder: dir }));
-        expect(outside.message).toContain("not in the workspace");
-        yield* fs.remove(app, { recursive: true });
-        assert.deepStrictEqual(yield* workspaces.open({ name: "sparta" }), {
-          name: "sparta",
-          folders: [{ path: app, isGitRepository: false, exists: false }],
-          lastStart: null,
-          tabs: { shellIds: [], active: null },
-        });
-        const gone = yield* Effect.flip(workspaces.startShell({ name: "sparta", folder: app }));
-        assert.strictEqual(gone.message, `The folder no longer exists: ${app}`);
-        assert.strictEqual(fakes.opened.length, 1);
-        yield* workspaces.create({ name: "athens" });
-        yield* fs.makeDirectory(app);
-        yield* workspaces.addFolder({ mode: "import", name: "athens", path: app });
-        yield* workspaces.startShell({ name: "athens", folder: app });
-        yield* workspaces.startShell({ name: "sparta", folder: app });
-        // Each workspace numbers its own shells in start order.
-        assert.deepStrictEqual(fakes.titles, ["Shell 1", "Shell 1", "Shell 2"]);
-      }),
+          const outside = yield* Effect.flip(
+            workspaces.startShell({ name: "sparta", folder: dir }),
+          );
+          expect(outside.message).toContain("not in the workspace");
+          yield* fs.remove(app, { recursive: true });
+          assert.deepStrictEqual(yield* workspaces.open({ name: "sparta" }), {
+            name: "sparta",
+            folders: [{ path: app, isGitRepository: false, exists: false }],
+            lastStart: null,
+            tabs: { shellIds: [], active: null },
+          });
+          const gone = yield* Effect.flip(workspaces.startShell({ name: "sparta", folder: app }));
+          assert.strictEqual(gone.message, `The folder no longer exists: ${app}`);
+          assert.strictEqual(fakes.opened.length, 1);
+          yield* workspaces.create({ name: "athens" });
+          yield* fs.makeDirectory(app);
+          yield* workspaces.addFolder({ mode: "import", name: "athens", path: app });
+          yield* workspaces.startShell({ name: "athens", folder: app });
+          yield* workspaces.startShell({ name: "sparta", folder: app });
+          // Each workspace numbers its own shells in start order.
+          assert.deepStrictEqual(fakes.titles, ["Shell 1", "Shell 1", "Shell 2"]);
+        }),
+      // The started shell is listed, so its project stays while its folder is gone.
+      { registered: [], opened: [], titles: [], running: [] },
     ),
   );
 

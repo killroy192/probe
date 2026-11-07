@@ -251,7 +251,7 @@ const makeReadCwds = Effect.fnUntraced(function* (platform: NodeJS.Platform) {
     if (platform === "linux") {
       return Effect.forEach(pids, (pid) =>
         fs.readLink(`/proc/${pid}/cwd`).pipe(
-          Effect.map((cwd) => [[pid, cwd] as const]),
+          Effect.map((cwd) => [[pid, withoutDeletedMark(cwd)] as const]),
           Effect.orElseSucceed(() => []),
         ),
       ).pipe(Effect.map((entries) => new Map(entries.flat())));
@@ -278,6 +278,12 @@ const makeReadCwds = Effect.fnUntraced(function* (platform: NodeJS.Platform) {
       );
   };
 });
+
+/**
+ * Linux shows a process's folder that was deleted as "<path> (deleted)"; the shell is still in
+ * that path, which its "not found" mark already says, not somewhere else.
+ */
+export const withoutDeletedMark = (cwd: string) => cwd.replace(/ \(deleted\)$/, "");
 
 // The program is the command's first word; the shell itself parses the rest when it runs the line.
 const programOf = (command: string) =>

@@ -51,6 +51,7 @@ Read from the code after PRB.T-002 to PRB.T-006 (2026-11-06).
 - **Tabs (user):** the open tabs and the selected tab are saved in the workspace file. The shown workspace is remembered per browser.
 - **Shell records:** shells stay server-level, as PRB.T-006 decided (they record no workspace). Their records are saved in `<state dir>/shells/registry.json`, not in workspace files.
 - **Where shells run:** the host belongs to the server's state folder, never to a project or worktree. A shell in a project folder, a Probe-made worktree or a worktree made by hand anywhere on disk behaves the same, and "not found" checks only whether the saved path exists.
+- **Moved folders (user, 2026-11-07, manual pass):** the "not found" warning of ER-1, AC-16, AC-22 and AC-29 reads "moved" on the project, the linked worktree and the shell. A shell still running there keeps running (AC-29 as written). A project whose folder is gone leaves the workspace once no shell is in it, so AC-17's removal of the last shell also removes the project.
 - **End classification (SU-2):** a Probe kill or an exit without a signal (any status) removes the shell and its history, so its tab closes. A signal exit, or a shell the host no longer has after a restart ("lost"), stays listed as ended until it is removed with the "x".
 
 ## Expected Behavior

@@ -296,7 +296,7 @@ export const restartSurvival: Scenario = {
         [moved, inMoved],
       ] as const) {
         const project = page.locator(`[data-folder="${folder}"]`);
-        await project.getByText("missing").waitFor();
+        await project.locator(`[role="treeitem"][aria-label="${folder}"] [data-missing]`).waitFor();
         check(
           (await createShellButton(page, folder).count()) === 0,
           `A shell can be started in the missing folder ${folder} (AC-16, AC-22).`,
@@ -309,6 +309,10 @@ export const restartSurvival: Scenario = {
 
       stage = "AC-29";
       await missingMark(page, inLive.shellId).waitFor();
+      check(
+        (await page.locator(`[data-shell-row="${inLive.shellId}"] [data-elsewhere]`).count()) === 0,
+        "A shell in a deleted folder is marked elsewhere (AC-29).",
+      );
       await openFromTree(page, inLive.shellId);
       await typeLine(page, "still-here-s7");
       await frames.until("the live shell's line", (frame) => frame.includes("echo: still-here-s7"));
@@ -332,6 +336,10 @@ export const restartSurvival: Scenario = {
       stage = "AC-17";
       await removeFromTree(page, inMoved.shellId);
       await removeFromTree(page, inRemoved.shellId);
+      // With their last shells removed, the projects whose folders are gone leave the workspace.
+      for (const folder of [removed, moved]) {
+        await page.locator(`[data-folder="${folder}"]`).waitFor({ state: "detached" });
+      }
 
       // AC-21: a layout that cannot be saved says so; shells keep running.
 

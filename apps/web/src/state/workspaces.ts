@@ -425,7 +425,11 @@ export function useWorkspaces(): WorkspacesView {
       const name = shown.name;
       return run(
         (id) => killCommand({ environmentId: id, input: { shellId } }),
-        (_, id) => updateTabs(id, name, (current) => withoutTab(current, shellId)),
+        (_, id) => {
+          updateTabs(id, name, (current) => withoutTab(current, shellId));
+          // A project whose folder is gone leaves the workspace with its last shell.
+          void show(name);
+        },
       );
     },
     restoreShown: () => {

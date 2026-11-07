@@ -2350,6 +2350,11 @@ it.layer(
     }),
   );
 
+  it("reads a shell in a deleted folder as still in that folder, not elsewhere", () => {
+    expect(Shells.withoutDeletedMark("/home/u/repo (deleted)")).toBe("/home/u/repo");
+    expect(Shells.withoutDeletedMark("/home/u/repo (deleted) x")).toBe("/home/u/repo (deleted) x");
+  });
+
   it.effect("lists shells in the order they started, whichever updated last", () =>
     Effect.gen(function* () {
       const { manager, ptyAdapter } = yield* createManager();
