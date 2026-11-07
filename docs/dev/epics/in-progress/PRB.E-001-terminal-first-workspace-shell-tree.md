@@ -5,7 +5,7 @@ parent:
 phase: 1
 labels: [terminal-first, testing]
 created: 2026-11-02
-updated: 2026-11-02
+updated: 2026-11-07
 ---
 
 # Terminal-first workspace: shell tree with mock-agent shells

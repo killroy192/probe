@@ -226,5 +226,5 @@ Done 2026-11-07 on `feat/restart-survival-prb-t-007` (stacked on `feat/shell-kil
 - Selecting a shell from a tab or the tree now focuses its terminal. The dark terminal's scrollbar thumb is visible.
 - Moved folders (decision above): a deleted project now shows "moved" without opening "+" (the page reads the workspace again on window focus and when the set of moved shells changes), a deleted linked worktree is marked, and a live shell in a deleted folder is no longer also "elsewhere".
 
-**Left for later** (`docs/dev/ideas/`): `terminal-repeated-prompt.md` (prompts repeated on one line in some shells; the agent command is typed before the shell is ready, which leaves it echoed twice), `event-driven-shell-tracking.md` (replace the 2 s poll with shell reports and file watches where a platform allows).
+**Left for later**: PRB.T-010 (terminal text duplicated in some shells) and PRB.T-011 (agent command echoed twice); `docs/dev/ideas/`: `event-driven-shell-tracking.md` (replace the 2 s poll with shell reports and file watches where a platform allows).
 
