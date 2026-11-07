@@ -35,7 +35,7 @@ No guardrail metric (decided with the user: chat visibility is a requirement, FR
 
 User: the author first, then a small team of peers who run CLI agents.
 
-Vocabulary: a **workspace** is a named collection of **projects** plus the layout of its shells, for example "sparta"; Probe creates it, or opens one it saved earlier. Probe keeps one file per workspace in its own internal folder (its folders and the layout of its shells); the user never picks a file, and the workspace name is the file's name. The tracked process of a shell is the shell itself; the mock agent CLI is a program run inside it. If the agent alone exits while its shell stays, nothing is removed or restored. A project is any directory. A git project has one or more **worktrees**: its own checkout is the **primary** worktree, and the others are linked worktrees. A project that is not a git repository has none, and git features (worktrees, branches) are unavailable for it, but it can still hold shells and tabs. A worktree has one current **branch** at a time, shared by all of its shells. A **shell** runs in a worktree, or directly in a non-git project. The "+" on a project's row starts a brand-new one. Shells that are agents will later have **subagents** under them.
+Vocabulary: a **workspace** is a named collection of **projects** plus the layout of its shells, for example "sparta"; Probe creates it, or opens one it saved earlier. Probe keeps one file per workspace in its own internal folder (its folders and the layout of its shells); the user never picks a file, and the workspace name is the file's name. The tracked process of a shell is the shell itself; the mock agent CLI is a program run inside it. If the agent alone exits while its shell stays, nothing is removed or restored. A project is any directory. A git project has one or more **worktrees**: its own checkout is the **primary** worktree, and the others are linked worktrees. A project that is not a git repository has none, and git features (worktrees, branches) are unavailable for it, but it can still hold shells and tabs. A worktree has one current **branch** at a time, shared by all of its shells. A **shell** runs in a worktree, or directly in a non-git project. The "+" on a project's row starts a brand-new one.
 
 1. **S1, boot and workspaces.** As a user, I open the app with no workspace and see a screen with two buttons, "Open workspace" (a scrollable dropdown of the workspaces Probe has saved, listed by name) and "Create workspace" (starts a new one). I create a workspace named "sparta" and see an empty shell tree. No control and no address reaches a chat; a link or bookmark of the former chat screens (for example a thread link) lands on the shown workspace, or on the start screen when none is shown. From the "Workspaces" button in the top left I create a second workspace, switch back to "sparta", and remove the second one (the shown workspace is unaffected).
 2. **S2, local shell.** As a user, I add a project with the sidebar's "Add project" dialog (importing an existing folder, or creating a new one, which creates the directory and initializes git). I click "+" on the project's row (the only way for a user to start a brand-new shell; automatic restore relaunches in place and skips the modal). The "Create shell" modal opens with the project's primary worktree selected, and I click the up-arrow button. A tab opens with a shell running the mock agent CLI, and the shell appears in the tree under its project and worktree within 1 second. I type a line and see it echoed; no chat thread exists for it; I resize the pane and the terminal's size matches it. The next time I click "+" on that project, the modal already has the same worktree selected, and a single click on the up-arrow button starts another shell. I do all of it with the mouse; Enter is only a shortcut.
@@ -63,7 +63,7 @@ Vocabulary: a **workspace** is a named collection of **projects** plus the layou
 
 **Out (non-goals, with a reason):**
 
-- Subagent level of the tree (level under a shell): needs agent status from hooks, a later epic; the tree must leave room for it.
+- Subagent level of the tree: dropped from the roadmap (2026-11-07, user).
 - Configurable launch command or script: next epic; here every shell starts the mock CLI.
 - Agent status and notifications: later.
 - A per-workspace prefix or naming pattern for generated worktree and branch names: later (here the name is generated with a fixed scheme).
@@ -183,8 +183,8 @@ Alternatives considered: keep chat hidden behind a flag (rejected: user wants no
 
 ## Dependencies and sequencing
 
-- Phase 1 of `roadmap.md`. Depends on the running app (A-5). Follow-up epic, not yet created: configurable launch command and script shells. Later epics add the subagent level of the tree and agent status. The tree wording differs from the roadmap's "workspace > agent (worktree) > subagent" on purpose: this epic's tree is workspace > folder > worktree > branch > shell, and `roadmap.md` is updated to match.
-- Blocks all later epics (agent state, subagent tree level, review, context, remove chat).
+- Phase 1 of `roadmap.md`. Depends on the running app (A-5). Follow-up epic, not yet created: configurable launch command and script shells. A later epic adds agent status.
+- Blocks all later epics (agent state, review, context, remove chat).
 - U-1 (how a shell is identified without a thread) is answered by a spike at the start of story 2; the story's plan follows from it.
 
 ## Risks
@@ -233,7 +233,6 @@ Alternatives considered: keep chat hidden behind a flag (rejected: user wants no
 
 ## Notes for stories
 
-- Claude Code subagents: per the hook docs recorded in `questions.md`, hook events inside a subagent carry `agent_id` and `agent_type` on the same session, so a subagent is not a separate shell. The subagent level of the tree is therefore built from hook events in a later epic, not from process or shell tracking. Still unverified for nested runs.
 - Later, restoring a Claude Code (or other agent) conversation after a kill through Probe is done by starting a new shell and choosing the session to recover in the "+" modal (see Out of scope).
 - Restore behavior reference: Paradev's public docs (terminal-integration, agent-sessions): sessions survive restarts with scrollback; interrupted agents are relaunched with e.g. `claude --resume <session-id>` taken from a per-agent "Resume Args" setting; deliberate kills disappear and clean exits stay down (Probe differs: any normal exit is removed too, FR-19); a failed resume is handled differently in Probe (FR-20). Behavioral reference only, no code copied (license).
 - The scenario command is `vp run test:scenarios` (a scenario that does not exist yet is listed as pending and does not fail the run; the KPI counts passing scenarios out of 8; scenarios run locally only, the harness tests run in CI); the harness uses a temporary `--home-dir`, never `~/.t3`, and sets no `VITE_HTTP_URL` / `VITE_WS_URL`; docs go in `probe/docs/`.

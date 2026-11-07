@@ -21,7 +21,7 @@ T3 Code (this vault is the source of truth until there is implementation; `probe
 
 ## Hero flow: many agents, one view
 
-- An agents sidebar tree (like an IDE file tree): workspace > agent (worktree) > subagent.
+- An agents sidebar tree (like an IDE file tree): workspace > project > worktree > shell.
 - Single click previews a session; double click pins it as a tab. Not every agent is a tab.
 - A small status indicator per node and per tab: working, needs permission, failed, done-unseen.
 - Notifications when an agent finishes or needs input: sound, OS notification, dock badge,

@@ -8,7 +8,6 @@ it is verified or decided; settled decisions go to `roadmap.md`.
 
 - How agents started in a T3 terminal receive MCP configuration, and whether the existing
   `apps/server/src/mcp` server can serve review-batch tools to them.
-- Whether `delegatedTaskModes` indicates real subagent support usable for visualization.
 - Whether the Ghostty terminal surface and the server's PTY layer accept programmatic input without
   submitting (the "stage text, no Enter" primitive).
 - Agent CLIs' handling of staged input: bracketed paste, multi-line, kitty keyboard protocol.

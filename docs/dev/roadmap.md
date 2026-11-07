@@ -12,7 +12,7 @@ Principle: **add the terminal path first, delete chat later**, keeping the app r
 | 4 | Tabs can be a terminal or a terminal + script, user-configurable (name, kind, command, cwd, env). |
 | 5 | Context from files and the browser flows back into the active terminal. |
 | 6 | Agent status comes from hooks, starting with Claude Code; other CLIs run as plain terminals. |
-| 7 | Agents sidebar tree: PRB.E-001 builds workspace > project > worktree (labelled with its current branch) > shell; the subagent level is added in phase 2/3 (replaces the earlier workspace > agent (worktree) > subagent wording), built from live PTY sessions. No enforcement of how worktrees or agents are created. |
+| 7 | Agents sidebar tree: workspace > project > worktree (labelled with its current branch) > shell, built from live PTY sessions (PRB.E-001). There is no subagent level and no subagent visualization (dropped 2026-11-07, user). No enforcement of how worktrees or agents are created. |
 | 8 | The UI is mouse-first: every action works with a mouse or touchpad; hotkeys are optional extras, never the only path (user, 2026-11-02). |
 
 ## Phases
@@ -22,15 +22,14 @@ the agents sidebar come before review.
 
 0. **Run it**: toolchain installed, app runs in the browser with a working terminal (PRB.T-001).
 1. **Terminal-first workspace** (first feature, PRB.E-001): workspaces, a shell tree (project > worktree > shell), standalone shells started in an existing worktree or a new forked one, running a mock agent CLI, with the scenario harness. Next: configurable launch command and script tabs.
-2. **Agent state and agents sidebar**: Claude Code hooks, status model, notifications, tree of workspace > project > worktree > shell > subagent (shell tree from PRB.E-001, extended), probe CLI for worktrees and agents.
-3. **Subagent visualization** (builds on the hook roster from phase 2).
-4. **Review**: CodeMirror pane, comments on any file, batches, MCP tools, expand window.
-5. **Context to terminal**: stage a reference into the active PTY without Enter.
-6. **Remove chat** in slices: UI, then providers, then orchestration.
-7. **Trim**: web mode, marketing, unused providers and source-control packages.
-8. **Desktop app**: build, launch and verify Electron, only after the browser functionality is done.
-9. **Mobile port** (frozen until desktop settles).
-10. **Hygiene**: full local checks baseline and recording it (PRB.T-002), after features land.
+2. **Agent state and agents sidebar**: Claude Code hooks, status model, notifications, status on the shell tree from PRB.E-001, probe CLI for worktrees and agents.
+3. **Review**: CodeMirror pane, comments on any file, batches, MCP tools, expand window.
+4. **Context to terminal**: stage a reference into the active PTY without Enter.
+5. **Remove chat** in slices: UI, then providers, then orchestration.
+6. **Trim**: web mode, marketing, unused providers and source-control packages.
+7. **Desktop app**: build, launch and verify Electron, only after the browser functionality is done.
+8. **Mobile port** (frozen until desktop settles).
+9. **Hygiene**: full local checks baseline and recording it (PRB.T-002), after features land.
 
 Chat is removed late, but agent state must not depend on it: hooks are the source from phase 2.
 
@@ -49,8 +48,7 @@ Recorded from 2026-11-01; each entry carries its own date where it has one.
 - PRB.E-001 close and kill (2026-11-06, user, PRB.T-006 planning): closing a tab only hides the shell's terminal; the shell keeps running and reopens from the tree. A kill (the tree's "x" after a confirmation, or `probe kill` run inside the shell) force-ends the shell and everything it started, and never deletes a worktree. Removing a workspace kills every running shell in its projects' folders, also when another workspace shares a folder; removing one project from a workspace (a hover action on its row, after a confirmation) does the same for that project and keeps the folder on disk (user, after the PRB.T-006 manual pass).
 - PRB.E-001 restart survival (2026-11-06, user, PRB.T-007 planning): one shell host per Probe server (per state folder), a detached helper that owns every shell's terminal wherever the shell's folder or worktree is, keeps shells running while the server is stopped, and lets the next server reattach to the same processes with their output. A workspace file saves its open tabs and selected tab; the shown workspace is remembered per browser. A Probe kill or an exit without a signal (any status) removes the shell for good; a signal exit, or a shell lost with its host, stays listed as ended until removed (the user restores or removes those, PRB.T-008). A project, worktree or shell whose folder is gone is marked "moved"; a shell still running there keeps running, and a project whose folder is gone leaves the workspace once no shell is in it (user, 2026-11-07, PRB.T-007 manual pass).
 - UI is mouse-first (2026-11-02, user): epics, stories and scenarios never require keyboard-only paths or hotkeys; shortcuts such as Enter in a modal are optional extras.
-- Agent tree hierarchy was workspace > agent (worktree) > subagent; superseded 2026-11-02 by workspace > folder > worktree > branch > shell > subagent (PRB.E-001). Several agents may share a
-  worktree. Probe creates worktrees and agents through its own CLI; how this is enforced is open.
+- Several agents may share a worktree. Probe creates worktrees and agents through its own CLI; how this is enforced is open.
 - First agent integration: Claude Code. Other CLIs run as plain terminals.
 - No enforcement of worktree/agent creation. The tree is derived from live sessions tracked through
   server-owned PTYs: a worktree node appears only while a session runs there. An agent that spawns
