@@ -3,7 +3,7 @@ id: PRB.T-011
 type: bug
 parent: PRB.E-001
 phase: 1
-labels: [terminal-first, debug]
+labels: [terminal-first, debug, implement, verify]
 created: 2026-11-07
 updated: 2026-11-07
 ---
@@ -80,7 +80,7 @@ Things a later session should know:
 - fish is not wrapped (not installed in the dev container, so it could not be checked); it types at
   once as before.
 - A shell whose startup never prints the mark holds user input for up to 15 s.
-- The real-shell tests in `shellReady.test.ts` return early when zsh or bash is not installed.
+- The real-shell tests in `shellReady.test.ts` show as skipped when zsh or bash is not installed.
 - The start-to-banner time is tracked in [the idea](../../ideas/start-to-banner-time.md).
 
 ## Done when

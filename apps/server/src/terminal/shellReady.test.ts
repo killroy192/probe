@@ -1,3 +1,6 @@
+// @effect-diagnostics nodeBuiltinImport:off - Asks whether a shell program is installed.
+import * as NodeChildProcess from "node:child_process";
+
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, describe, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
@@ -175,18 +178,16 @@ const runUnderWrapper = (shell: "zsh" | "bash", home: string, extraEnv: Record<s
     );
   }).pipe(Effect.scoped, Effect.provide(NodeServices.layer));
 
-const installed = (shell: string) =>
-  Effect.promise(async () => {
-    const { spawnSync } = await import("node:child_process");
-    return spawnSync(shell, ["--version"]).status === 0;
-  });
+// These run the real shell; where it is not installed they show as skipped, not as passed.
+const installed = (shell: string) => NodeChildProcess.spawnSync(shell, ["--version"]).status === 0;
+const zsh = it.live.skipIf(!installed("zsh"));
+const bash = it.live.skipIf(!installed("bash"));
 
 describe("shell ready wrapper in a real shell", () => {
-  it.live(
+  zsh(
     "zsh runs the user's files, restores ZDOTDIR and prints the mark before the first prompt line is read",
     () =>
       Effect.gen(function* () {
-        if (!(yield* installed("zsh"))) return;
         const fs = yield* FileSystem.FileSystem;
         const home = yield* fs.makeTempDirectoryScoped({ prefix: "probe-home-" });
         const custom = `${home}/custom-zsh`;
@@ -203,9 +204,8 @@ describe("shell ready wrapper in a real shell", () => {
       }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
   );
 
-  it.live("zsh without a ZDOTDIR leaves it unset", () =>
+  zsh("zsh without a ZDOTDIR leaves it unset", () =>
     Effect.gen(function* () {
-      if (!(yield* installed("zsh"))) return;
       const fs = yield* FileSystem.FileSystem;
       const home = yield* fs.makeTempDirectoryScoped({ prefix: "probe-home-" });
       yield* fs.writeFileString(`${home}/.zshrc`, "export PROBE_TEST_USER_RC=rc\n");
@@ -214,9 +214,8 @@ describe("shell ready wrapper in a real shell", () => {
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
   );
 
-  it.live("bash runs the user's .bashrc and prints the mark", () =>
+  bash("bash runs the user's .bashrc and prints the mark", () =>
     Effect.gen(function* () {
-      if (!(yield* installed("bash"))) return;
       const fs = yield* FileSystem.FileSystem;
       const home = yield* fs.makeTempDirectoryScoped({ prefix: "probe-home-" });
       yield* fs.writeFileString(`${home}/.bashrc`, "export PROBE_TEST_USER_RC=rc\n");
