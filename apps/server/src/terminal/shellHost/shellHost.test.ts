@@ -5,6 +5,7 @@ import * as NodeNet from "node:net";
 import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
 
+import { it as effectIt } from "@effect/vitest";
 import { afterEach, describe, expect, it } from "vite-plus/test";
 
 import * as Effect from "effect/Effect";
@@ -164,31 +165,35 @@ describe("shell host", () => {
 });
 
 describe("shell host client", () => {
-  it("stops waiting as soon as a host that cannot serve exits, and says where it wrote why", async () => {
-    const dir = stateDir();
-    let starts = 0;
-    const exit = await Effect.runPromiseExit(
-      Effect.scoped(
-        Effect.gen(function* () {
-          const host = yield* make({
-            socketPath: shellHostSocketPath(dir),
-            logPath: `${dir}/shell-host-v1.log`,
-            start: Effect.sync(() => {
-              starts++;
-              return { exited: () => true };
-            }),
-          });
-          return yield* host.adapter.spawn({
-            shell: "/bin/sh",
-            cwd: dir,
-            cols: 80,
-            rows: 24,
-            env: {},
-          });
-        }),
-      ),
-    );
-    expect(starts).toBe(1);
-    expect(String(exit)).toContain(`The shell host did not start; see ${dir}/shell-host-v1.log.`);
-  });
+  effectIt.effect(
+    "stops waiting as soon as a host that cannot serve exits, and says where it wrote why",
+    () =>
+      Effect.gen(function* () {
+        const dir = stateDir();
+        let starts = 0;
+        const exit = yield* Effect.exit(
+          Effect.gen(function* () {
+            const host = yield* make({
+              socketPath: shellHostSocketPath(dir),
+              logPath: `${dir}/shell-host-v1.log`,
+              start: Effect.sync(() => {
+                starts++;
+                return { exited: () => true };
+              }),
+            });
+            return yield* host.adapter.spawn({
+              shell: "/bin/sh",
+              cwd: dir,
+              cols: 80,
+              rows: 24,
+              env: {},
+            });
+          }),
+        );
+        expect(starts).toBe(1);
+        expect(String(exit)).toContain(
+          `The shell host did not start; see ${dir}/shell-host-v1.log.`,
+        );
+      }).pipe(Effect.scoped),
+  );
 });
