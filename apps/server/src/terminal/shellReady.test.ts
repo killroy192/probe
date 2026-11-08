@@ -20,6 +20,8 @@ import {
 } from "./shellReady.ts";
 
 const MARK = "\u001b]133;B\u0007";
+/** Prompt start with Kitty's `redraw=1`: the terminal may clear the prompt on resize. */
+const PROMPT_MARK = "\u001b]133;A;redraw=1\u0007";
 
 /** Feeds `chunks` to a fresh scanner and returns the chunk indexes that completed a mark. */
 const hits = (chunks: ReadonlyArray<string>) => {
@@ -232,7 +234,7 @@ describe("shell ready wrapper in a real shell", () => {
       }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
   );
 
-  zsh("zsh signals input start after the prompt, with no prompt-start mark after it", () =>
+  zsh("zsh marks prompt start before its prompt and input start after it", () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
       const home = yield* fs.makeTempDirectoryScoped({ prefix: "probe-home-" });
@@ -248,6 +250,11 @@ describe("shell ready wrapper in a real shell", () => {
       // Ghostty starts a fresh line at a prompt-start mark, so one after the prompt splits the line.
       assert.notInclude(first.slice(promptAt), "\u001b]133;A");
       assert.include(first.slice(promptAt), MARK, "input starts after the prompt");
+      // The prompt-start mark leads the prompt, and the redraw after the resize prints it again.
+      assert.isTrue(first.slice(0, promptAt).endsWith(PROMPT_MARK), "mark right before the prompt");
+      const redraw = result.output.slice(result.resizedAt);
+      assert.isAbove(redraw.indexOf("zp> "), redraw.indexOf(PROMPT_MARK));
+      assert.isAtLeast(redraw.indexOf(PROMPT_MARK), 0);
       assert.include(result.output, "RESULT[rc][unset]");
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
   );
@@ -262,7 +269,7 @@ describe("shell ready wrapper in a real shell", () => {
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
   );
 
-  bash("bash signals input start after the prompt, with no prompt-start mark after it", () =>
+  bash("bash marks prompt start before its prompt and input start after it", () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
       const home = yield* fs.makeTempDirectoryScoped({ prefix: "probe-home-" });
@@ -273,6 +280,11 @@ describe("shell ready wrapper in a real shell", () => {
       assert.isAbove(promptAt, 0);
       assert.notInclude(first.slice(promptAt), "\u001b]133;A");
       assert.include(first.slice(promptAt), MARK, "input starts after the prompt");
+      // The prompt-start mark leads the prompt, and the redraw after the resize prints it again.
+      assert.isTrue(first.slice(0, promptAt).endsWith(PROMPT_MARK), "mark right before the prompt");
+      const redraw = result.output.slice(result.resizedAt);
+      assert.isAbove(redraw.indexOf("bp> "), redraw.indexOf(PROMPT_MARK));
+      assert.isAtLeast(redraw.indexOf(PROMPT_MARK), 0);
       assert.include(result.output, "RESULT[rc][unset]");
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
   );

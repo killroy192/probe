@@ -86,6 +86,9 @@ ZDOTDIR="$__probe_dir"
 `,
   ".zshrc": `ZDOTDIR="\${PROBE_ORIG_ZDOTDIR:-$HOME}"
 [[ -r "$ZDOTDIR/.zshrc" ]] && source "$ZDOTDIR/.zshrc"
+__probe_prompt_mark=$'%{\\e]133;A;redraw=1\\a%}'
+__probe_mark_prompt() { [[ "$PS1" == "$__probe_prompt_mark"* ]] || PS1="$__probe_prompt_mark$PS1" }
+precmd_functions+=(__probe_mark_prompt)
 __probe_ready() { printf '\\033]133;B\\a' }
 if autoload -Uz add-zle-hook-widget 2>/dev/null; then
   add-zle-hook-widget line-init __probe_ready
@@ -103,7 +106,10 @@ unset __probe_dir
 // PS1. A PROMPT_COMMAND runs before that point and would let typed input be echoed twice. The
 // user's PROMPT_COMMAND may change PS1 later, so the hook adds the mark again when it is gone.
 const BASHRC = `[ -r "$HOME/.bashrc" ] && . "$HOME/.bashrc"
-__probe_ready() { case "$PS1" in *'133;B'*) ;; *) PS1="\${PS1}\\[\\033]133;B\\a\\]" ;; esac; }
+__probe_ready() {
+  case "$PS1" in *'133;A'*) ;; *) PS1="\\[\\033]133;A;redraw=1\\a\\]\${PS1}" ;; esac
+  case "$PS1" in *'133;B'*) ;; *) PS1="\${PS1}\\[\\033]133;B\\a\\]" ;; esac
+}
 if [[ "$(declare -p PROMPT_COMMAND 2>/dev/null)" == "declare -a"* ]]; then
   PROMPT_COMMAND+=(__probe_ready)
 else

@@ -134,6 +134,25 @@ describe("GhosttyTerminalCore snapshots", () => {
     expect(core.scrollbarState()?.total).toBeGreaterThanOrEqual(5_000);
   });
 
+  // libghostty-vt clears a prompt on resize only when the shell opts in (shellReady.ts sends it).
+  it.each([
+    { mark: "\x1b]133;A\x07", copies: 2 },
+    { mark: "\x1b]133;A;redraw=1\x07", copies: 1 },
+  ])(
+    "leaves $copies prompt after narrowing a shell that marks with $mark",
+    async ({ mark, copies }) => {
+      const core = await createCore();
+      core.resize(40, 6, 8, 16);
+      const prompt = `${mark}$ echo typed but not run`;
+      core.write(prompt);
+      core.resize(12, 6, 8, 16);
+      // zsh's redraw on SIGWINCH: back to the start of the row, clear below, the prompt again.
+      core.write(`\r\x1b[J${prompt}`);
+      const rows = core.snapshot().rowData.map((row) => row.text);
+      expect(rows.filter((text) => text.startsWith("$ echo")).length).toBe(copies);
+    },
+  );
+
   it("preserves styles, wide cells, and selection after shared memory grows", async () => {
     const core = await createCore();
     const runtime = await loadGhosttyRuntime();

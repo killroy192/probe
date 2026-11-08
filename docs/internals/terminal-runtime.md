@@ -36,7 +36,9 @@ are easy to get wrong: zsh prints the mark from a `line-init` hook, because a `p
 before zsh has put the terminal in raw mode; bash prints it at the end of `PS1`, because
 `PROMPT_COMMAND` runs before readline has; and the mark after the prompt must be B, not the
 prompt-start A, because Ghostty starts a fresh line at an A and would move typed text off the
-prompt's row. The zsh wrapper keeps `ZDOTDIR` pointing at its own folder while it reads the user's
+prompt's row. The A goes at the start of the prompt instead, as `133;A;redraw=1`, so it is printed
+again with every redraw: libghostty-vt clears the prompt rows on resize only for a shell that sends
+`redraw=1`, and without that a narrowed window keeps a stale copy of the prompt line. The zsh wrapper keeps `ZDOTDIR` pointing at its own folder while it reads the user's
 files and restores the user's value before the first prompt. Other shells are not wrapped and get
 the command at once.
 
