@@ -7,6 +7,10 @@
       "types": "./src/runtime.ts",
       "import": "./src/runtime.ts"
     },
+    "./node": {
+      "types": "./src/node.ts",
+      "import": "./src/node.ts"
+    },
     "./ghostty-vt.wasm": "./vendor/ghostty-vt.wasm",
     "./ghostty-write-pty.wasm": "./vendor/ghostty-write-pty.wasm"
   },
