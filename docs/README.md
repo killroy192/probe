@@ -1,10 +1,16 @@
-# T3 Code docs
+# Probe docs
 
-## Using T3 Code
+## Using Probe
+
+- [Workspaces](./user/workspaces.md): workspaces, projects, shells, worktrees, restarts
+- [Terminal history](./user/terminal.md)
+
+## Inherited from T3 Code
+
+These pages describe T3 Code features still in the code that Probe has not reviewed yet. Some name
+T3 Code products (releases, T3 Connect, the mobile app) that do not exist for Probe.
 
 - [Install T3 Code](./user/install.md)
-- [Workspaces](./user/workspaces.md)
-- [Terminal history](./user/terminal.md)
 - [Source control](./user/source-control.md)
 - [Appearance and themes](./user/appearance.md)
 - [Keyboard shortcuts](./user/keybindings.md)
@@ -36,10 +42,11 @@ removed.
 
 ---
 
-## Working on T3 Code
+## Working on Probe
 
-Start with the [development runbook](./operations/development.md) and
-[contribution policy](../CONTRIBUTING.md).
+Start with the [development runbook](./operations/development.md) (including the
+[scenario tests](./operations/development.md#scenario-tests)) and the
+[contribution policy](../CONTRIBUTING.md). Project rules for agents are in [AGENTS.md](../AGENTS.md).
 
 Internal notes preserve architectural decisions, constraints, and implementation traps that the
 source alone does not explain. Most code changes do not need an internal documentation update. Follow the

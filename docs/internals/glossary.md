@@ -1,6 +1,6 @@
 # Glossary
 
-Terms whose meaning matters across T3 Code. Architecture and lifecycle constraints belong in the
+Terms whose meaning matters across Probe. Architecture and lifecycle constraints belong in the
 [overview](./overview.md), not in these definitions.
 
 ## Workspace and conversation
@@ -10,7 +10,6 @@ Terms whose meaning matters across T3 Code. Architecture and lifecycle constrain
 | Environment       | One running server and the machine, credentials, workspace access, and state it owns.                                                                                                                                                      |
 | Client            | A web, desktop, or mobile UI connected to an environment. The desktop app can also host a server.                                                                                                                                          |
 | Project           | An environment-local record that threads belong to, rooted at a directory. Not a workspace project.                                                                                                                                        |
-| Workspace         | A named set of workspace projects and the layout of their shells, saved as one file per workspace.                                                                                                                                         |
 | Workspace         | A named set of workspace projects and the layout of their shells, saved as one file per workspace.                                                                                                                                         |
 | Workspace project | One app or service in a workspace: its folder on disk (a git one's primary worktree) plus the worktrees of its repository. Code and saved files say "project" for it, with the `Workspace` prefix where a thread's project could be meant. |
 | Worktree          | A separate Git checkout of a repository; a thread or a workspace shell can run in one.                                                                                                                                                     |

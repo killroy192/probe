@@ -1,6 +1,10 @@
 # Probe
 
-This repo is a fork of T3 Code that is becoming a terminal-first app. It does not sync upstream.
+Probe is a terminal-first workspace for running many CLI coding agents side by side: workspaces of
+projects, a tree of shells grouped by project and worktree, agent CLIs (Claude Code first) running
+in server-owned terminals, and, next, live agent status. It is a fork of T3 Code that does not sync
+upstream. The old chat UI is hidden and is removed in slices later; do not build on it. Product and
+scope decisions, and the phase order, are in [docs/dev/roadmap.md](docs/dev/roadmap.md).
 
 - **Docs describe what exists**, except `docs/dev/`, which holds tickets and notes for work that is
   planned or in flight. Where each kind of file goes: [Documentation](#documentation).
@@ -9,31 +13,33 @@ This repo is a fork of T3 Code that is becoming a terminal-first app. It does no
   hand-edit frontmatter or `ids.json`. Reference ticket IDs (e.g. `PRB.T-004`) in commits and PRs.
 - Search code and `docs` with the `cocoindex-code` MCP when it helps; the index is gitignored.
 
-## What makes T3 Code special?
-
-We have over 500,000 users who love T3 Code. It's important we maintain the things they love as we continue to iterate on the product. Here's a brief list of the things we can never compromise on.
+## What Probe never compromises on
 
 ### 1. Open at the core
 
-T3 Code is truly open. We share our roadmap, we share how we think about things, and of course we share all our code. A large number of our users run forks. We work in the open, and should strive to stay that way.
+The roadmap, the reasoning and the code are public. Other products can be studied for how they
+behave, but never copy code from a product whose license does not allow it.
 
 ### 2. Performance without compromise
 
-Lots of apps have gotten bogged down with bad tech decisions and "slop". We have not, and we're proud of the performance of T3 Code. We regularly audit for performance regressions, often caused by sending too much data over websockets, css animations causing gpu spikes, lists being hard to render, and more. Make sure all changes are considerate of performance impact.
+Users run ten or more agents at once and notice a dropped frame, a lying spinner and a stale label.
+Watch what crosses the websocket (terminal output is the big stream), what repaints, and what one
+more shell costs the server. Make sure every change is considerate of performance impact.
 
 ### 3. Remote ready
 
-The architecture of T3 Code's websocket layer (npx t3) enables a lot of awesome remote features. These have become core to the product. Whether users are connecting directly over their local network, using Tailscale, or leaning in fully with T3 Connect (our tunnel solution, also in this repo), we need to make sure new features are properly supported.
+The server owns every shell and the browser is a client over the websocket layer, so a shell keeps
+running with no client attached and across server restarts. Clients connect locally, over the local
+network or Tailscale, or through the inherited T3 Connect tunnel. Keep new features working when the
+client is on another machine than the server.
 
-### 4. Multi-surface
+### 4. Surfaces, in order
 
-T3 Code has 3 key app surfaces: **web**, **desktop**, and **mobile**.
-
-**Web** is kind of two surfaces, as we have the public facing "app.t3.codes" as well as locally hosting the web app through the `npx t3` command. Both need to be supported by all new features where reasonable.
-
-**Desktop** is the main surface most users install first. It's a full Electron app that bundles the server runner as well. The desktop app can also be used as the host server, allowing remote connections from app.t3.codes or the mobile app.
-
-**Mobile** is a React Native app for both iOS and Android, available on the App Store and Google Play. The mobile app allows for connecting to any T3 Code server to control work remotely.
+**Browser first**: the locally served `apps/web` is the product for now, and every feature must work
+there. **Desktop** (Electron, wraps the web app) is built and verified only after the browser
+functionality is done. **Mobile** is frozen: build nothing for it, but it must still compile after
+contract changes. The UI is **mouse-first**: every action works with a mouse or touchpad; keyboard
+shortcuts are optional extras, never the only path.
 
 ## A small glossary
 
@@ -78,7 +84,7 @@ Most code changes do not need an internal documentation change. Agents can read 
 ## The three ways to hurt yourself
 
 1. **Killing by pattern.** Never `pkill -f`, `pgrep | kill`, or `kill` a PID you found by matching a name, path, or worktree string. Your own agent process has this worktree's path in its argv, and this machine runs several other dev servers at once. Kill only a PID you captured at spawn, or the owner of your port from `ss -H -ltnp` after confirming `/proc/<pid>/cwd` is your worktree.
-2. **Writing to the live install.** `~/.t3/userdata` is the developer's real T3 Code database, in use while you work. Reading it and copying from it are fine, and a good way to get real test data (see Test data). Never start a server against it, never open it read-write, never clean it up.
+2. **Writing to the live install.** `~/.t3/userdata` is the developer's real T3 Code database, in use while you work. Reading it and copying from it are fine, and a good way to get real test data (see Test data). Never start a server against it, never open it read-write, never clean it up. The same goes for agent CLIs' global config (`~/.claude/settings.json` and the like): Probe never edits it, and neither do your experiments; pass a throwaway file with `--settings` instead.
 3. **Baking in origins.** Never set `VITE_HTTP_URL` or `VITE_WS_URL` for dev. Dev is single-origin and Vite proxies `/api`, `/ws`, `/oauth`, and `/.well-known`. Setting them bakes localhost into the bundle and silently breaks every remote browser.
 
 ## Working in the devcontainer
@@ -104,12 +110,14 @@ machine. The checkout is at `/workspaces/<folder>`. Setup: [Dev container](docs/
 
 The most common defect in this repo is a change that works on the path you tested and is missing everywhere else. Before calling frontend work done, walk this list and say which entries applied:
 
-- **Entry points.** A behavior reachable from the chat view is usually also reachable from Settings, the command palette, and a keybinding. Fixing one is not fixing the feature.
-- **Clients.** Web, desktop (wraps web, adds Electron shell/IPC), and mobile (React Native, separate navigation). Shared logic lives in `packages/client-runtime`
-- **Providers.** Codex, Claude, Cursor, Grok, OpenCode, and Antigravity each have an adapter. Provider-shaped features need a decision per adapter, even if the decision is "not supported here".
-- **Agents.** A capability a user can trigger is usually one an agent should reach through MCP tools, and scheduled tasks run the same paths. That only works when it is a service method, not handler code.
+- **Entry points.** Shell actions are reachable from the tree (row hover actions), the "+" modal, the tab strip, the "Workspaces" menu and Settings, and from inside a shell through the `probe` command. Fixing one is not fixing the feature. Chat entry points stay hidden.
+- **Clients.** The browser is the target. Desktop wraps it and must not break; mobile must still compile. Shared client logic lives in `packages/client-runtime`.
+- **Agent CLIs.** Agent status comes from a per-CLI adapter (Claude Code first); every other CLI runs as a plain terminal. Say per CLI what a change does, even if it is "plain terminal here". The chat-era provider adapters (Codex, Claude, Cursor, Grok, OpenCode, Antigravity) are frozen until chat is removed; do not extend them.
+- **Shells.** zsh and bash start through Probe's wrapper startup files; fish and others are not wrapped. Process handling differs between Linux and macOS (see [Terminal runtime](docs/internals/terminal-runtime.md)).
+- **Agents.** A capability a user can trigger is usually one an agent should reach too, through the `probe` command in its shell or MCP tools. That only works when it is a service method, not handler code.
 - **Contracts.** Anything crossing the wire is typed in `packages/contracts`. Change the schema and the server, web, mobile, and desktop all follow.
-- **Reverse states.** If you added a way in, add the way out and the way to see it. Snooze needs unsnooze. Close needs reopen. A one-way door is a bug.
+- **Reverse states.** If you added a way in, add the way out and the way to see it. Close needs reopen; kill needs a way to see what ended; an ended shell needs Restore or remove. A one-way door is a bug.
+- **Lifetimes.** Shells outlive the browser tab, the server process and the client. Check a change after a reload, a server restart, and with a second client connected.
 - **Connection modes.** Local, remote/relay, and tunnel behave differently. Multi-device and multi-environment cases are real.
 - **Docs.** Check whether the change makes existing guidance inaccurate. Apply the [documentation rules](#documentation) before adding anything.
 
@@ -125,6 +133,8 @@ The most common defect in this repo is a change that works on the path you teste
   its own container. Steps: [Worktrees](docs/operations/development.md#worktrees).
 
 ## Test data
+
+Probe's own state (saved workspaces in `userdata/workspaces`, the shell host and its shells) starts empty in a worktree's `.t3`; the scenario harness builds its own on a throwaway home. The seeding below copies chat-era data, which only matters when you touch code that still reads it.
 
 An empty database is a bad test. Seed your worktree's `.t3` with a copy of real data instead of pointing at live state:
 
@@ -173,11 +183,12 @@ An empty database is a bad test. Seed your worktree's `.t3` with a copy of real 
   });
   ```
 
-- User-visible frontend changes should get one integrated pass in a real client: `test-t3-app` for web, `test-t3-mobile` for mobile. The primary agent does this once after integrating. Subagents do not launch their own dev servers.
+- Terminal-first behavior is proven by the scenario harness: `vp run test:scenarios` (or `-- --only <id>`) starts Probe on a throwaway home and drives it in headless Chromium, with the mock agent CLI (`scripts/mock-agent/mock-agent.ts`) standing in for Claude Code. A new user-facing behavior adds or extends a scenario. See [Scenario tests](docs/operations/development.md#scenario-tests).
+- User-visible frontend changes should get one integrated pass in a real client with `test-t3-app`. The primary agent does this once after integrating. Subagents do not launch their own dev servers.
 
-- Real agent turns cost money. To watch a turn stream through the pipeline and UI, use the free `Replay (dev)` provider that `vp run dev` registers; [test-t3-app](.agents/skills/test-t3-app/SKILL.md) shows how to start one. Use a real provider only when the change depends on that provider's behavior, and then pick its cheapest model, such as Haiku for Claude or Luna for Codex.
+- Real agent runs cost money. Use the mock agent in shells. Run a real CLI (Claude Code in a shell) only when the change depends on its behavior, and then pick its cheapest model, such as Haiku. The `Replay (dev)` provider that `vp run dev` registers only matters for chat code; [test-t3-app](.agents/skills/test-t3-app/SKILL.md) shows how to start one.
 
-For mobile verification, a missing or outdated native client is an install step, not a blocker. Run `vp run mobile:install <ios|android> [device-id]` on the device host before starting Metro; it targets the only booted simulator or connected Android device when the id is omitted. It installs the dev client for this checkout's native fingerprint from the shared cache in seconds and builds only when no machine has built it yet, so prefer it over `expo run:*`, `xcodebuild`, or `gradlew`, which rebuild from scratch. Its stdout is one JSON line; build output goes to the log it names. See `test-t3-mobile` for the full workflow.
+Mobile is frozen, so you rarely need a device. When a change does touch mobile, a missing or outdated native client is an install step, not a blocker. a missing or outdated native client is an install step, not a blocker. Run `vp run mobile:install <ios|android> [device-id]` on the device host before starting Metro; it targets the only booted simulator or connected Android device when the id is omitted. It installs the dev client for this checkout's native fingerprint from the shared cache in seconds and builds only when no machine has built it yet, so prefer it over `expo run:*`, `xcodebuild`, or `gradlew`, which rebuild from scratch. Its stdout is one JSON line; build output goes to the log it names. See `test-t3-mobile` for the full workflow.
 
 ## Evals
 
@@ -185,14 +196,22 @@ For mobile verification, a missing or outdated native client is an install step,
 
 ## How it works
 
+Probe's path: clients send typed WebSocket requests (`workspace.*`, `shell.*`) to services in `apps/server`. A workspace is saved as one file in `userdata/workspaces`. `Shells` (`apps/server/src/terminal/Shells.ts`) owns standalone shells on top of the terminal manager; a detached **shell host**, one per server state folder, owns their PTYs so shells keep running while the server is stopped and the next server reattaches. The server types an agent command into a shell once its wrapper startup files report the first prompt. Details: [Terminal runtime](docs/internals/terminal-runtime.md).
+
+The chat path below is hidden and frozen until it is removed; touch it only to keep the app running.
+
 Clients send typed WebSocket requests. The server turns them into _commands_. The _orchestrator_ (`apps/server/src/orchestration-v2/Orchestrator.ts`) serializes commands and decides _events_ without doing any I/O. The _event sink_ commits those events, the _projections_ the UI reads, the _command receipt_, and _outbox_ effects in one transaction. The _effect worker_ then runs the effects, such as starting a provider turn or capturing a checkpoint, and feeds results back as commands. Provider CLIs run as subprocesses; per-provider _adapters_ translate their native protocols into orchestration events. Each turn ends with a _checkpoint_, a hidden git ref, so the app can diff and restore.
 
 Architecture and its constraints: `docs/internals/overview.md`. Glossary: `docs/internals/glossary.md`
 
 ## Where code lives
 
+- `apps/server/src/terminal` - shells, the shell host, wrapper startup files, process trees. `apps/server/src/savedWorkspaces` saves workspaces; the `shell.*` and workspace contracts are in `packages/contracts/src`.
+- `apps/web/src/components/workspaces` - the terminal-first screen: start screen, sidebar tree, "+" modal, tabs.
+- `scripts/scenarios` - the scenario harness; `scripts/mock-agent` - the mock agent CLI.
+- `docs/dev` - roadmap, open questions, tickets, design drafts and research.
 - `apps/server` - WebSocket, orchestration, providers, checkpointing. Effect-heavy: read [Effect services](docs/internals/effect-services.md) before adding server code, and `.repos/effect-smol/LLMS.md` for the Effect library itself.
-- `apps/web` - React/Vite UI. `apps/desktop` wraps it, `apps/mobile` is React Native, `apps/marketing` is the site.
+- `apps/web` - React/Vite UI. `apps/desktop` wraps it, `apps/mobile` is React Native (frozen), `apps/marketing` is the T3 site, to be removed.
 - `packages/contracts` - Effect/Schema contracts plus small derived helpers. No heavy runtime logic.
 - `packages/shared` - shared runtime utils, subpath exports, no barrel.
 - `packages/client-runtime` - client code shared by web and mobile.
