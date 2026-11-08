@@ -272,6 +272,21 @@ describe("shell ready wrapper in a real shell", () => {
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
   );
 
+  bash("bash signals input start after the prompt, with no prompt-start mark after it", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const home = yield* fs.makeTempDirectoryScoped({ prefix: "probe-home-" });
+      yield* fs.writeFileString(`${home}/.bashrc`, "export PROBE_TEST_USER_RC=rc\nPS1='bp> '\n");
+      const result = yield* runUnderWrapper("bash", home, {}, "echo typed");
+      const first = result.output.slice(0, result.markAt);
+      const promptAt = first.lastIndexOf("bp> ");
+      assert.isAbove(promptAt, 0);
+      assert.notInclude(first.slice(promptAt), "\u001b]133;A");
+      assert.include(first.slice(promptAt), INPUT_MARK, "input starts after the prompt");
+      assert.include(result.output, "RESULT[rc][unset]");
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
+  );
+
   bash("bash runs the user's .bashrc and prints the mark", () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
