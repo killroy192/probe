@@ -54,6 +54,9 @@ maintain the roster and carry transcript paths so a subagent pane can follow its
 
 ## Not verified
 
+Updated by `claude-code-hooks-spike.md` (2026-11-08): `Stop` does not fire on interrupt, a nested
+`claude -p` has its own `session_id`, and `--settings` adds hooks for one session.
+
 - Claude hook payload: common fields `session_id`, `cwd`, `transcript_path`, `hook_event_name` and
   subagent `agent_id`/`agent_type` are confirmed in Claude Code's hooks docs (2026-11-01). Still open: `Stop` on
   interrupt, nested `claude -p` session ids, per-session hooks via `--settings`. See `../questions.md`.

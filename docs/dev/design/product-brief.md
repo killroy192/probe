@@ -27,14 +27,15 @@ T3 Code (this vault is the source of truth until there is implementation; `probe
 - Notifications when an agent finishes or needs input: sound, OS notification, dock badge,
   suppressed when you are already looking at that pane, click to focus.
 
-## How status works (from Paradev research)
+## How status works
 
-Hooks merged into the agent's global config (Claude Code first, `~/.claude/settings.json`) post
-lifecycle events to the probe server. The server sets an env marker on every PTY, so hooks only report
-for agents started in probe. Details and pitfalls: `../research/paradev-agent-status.md`.
+The UI reads the terminal: the agent CLI is the shell's foreground process, and the title it sets
+says whether it is working. Hooks added per session (never in the agent's global config) give the
+detail other agents read through the probe CLI. Details: `roadmap.md` and
+`../research/claude-code-hooks-spike.md`.
 
 - The server also watches the Claude Code process, so a crash clears the status.
-- Nested sessions share the parent's PTY, so the tree is keyed by `session_id` + `cwd`. (Unverified.)
+- Nested sessions get no Probe hooks, so they never touch their parent shell's status.
 - Agents may create worktrees or spawn sessions. Probe detects and shows them; it does not block.
   A worktree node exists only while a session runs there.
 
@@ -55,5 +56,5 @@ Non-Claude CLIs: plain terminals with no status.
 
 - Removing chat means deleting the `orchestration-v2` code (about 165 entries in `apps/server/src/orchestration-v2`; its docs are already deleted) and everything that depends on it. We do not reimplement it. Mitigation: add the terminal path first, delete in slices (PRB.E-005).
 - Effect-TS conventions and a ~29k-file monorepo.
-- Hook payloads and nested-session behavior are unverified for current Claude Code.
+- Claude Code's terminal title is undocumented and may change between versions.
 - Paradev is source-available (ELv2): behavioral reference only, no copied code.

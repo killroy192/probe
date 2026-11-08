@@ -19,19 +19,13 @@ it is verified or decided; settled decisions go to `roadmap.md`.
   PRB.T-002 builds it inside the ws layer (`apps/server/src/ws.ts`); deferred by the user.
 - PRB.E-002 A-2: Claude Code typed into a ready Probe shell starts and works like in a plain terminal
   (input, resize, exit back to the prompt). Checked by hand in PRB.E-002 story 1 or 2; phase 2 depends on it.
+- Claude Code's terminal title (spinner while working, `✳` otherwise) is undocumented: whether it is
+  stable across versions, and whether the user can turn it off. The UI status depends on it
+  (`research/claude-code-hooks-spike.md`).
 - Paradev CLA terms (not read; irrelevant unless we contribute).
 
 ## Decisions pending
 
-- Session identity: a nested agent inherits the parent PTY's env, so terminal id alone cannot tell
-  sessions apart. Key the tree by hook `session_id` plus `cwd`. **Verified** (code.claude.com/docs/en/hooks,
-  read 2026-11-01): every hook payload carries `session_id`, `cwd`, `transcript_path`,
-  `hook_event_name`; events fired inside a subagent also carry `agent_id` and `agent_type`.
-  *Still unverified:* whether a nested `claude -p` run gets its own `session_id` and fires the same global hooks
-  (docs only say hooks load from settings, so likely yes); whether `Stop` fires on Esc/Ctrl+C (the docs
-  page was truncated before that section); whether `--settings` can add hooks for a single session
-  (docs show it only for `disableAllHooks`).
-- Status for an agent whose process is alive but silent (interrupted turn): timeout or process check.
 
 - Batch reference format: reuse T3 context records or probe-specific.
 - Comment storage: server DB vs. per-worktree file.

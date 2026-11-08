@@ -11,7 +11,7 @@ Principle: **add the terminal path first, delete chat later**, keeping the app r
 | 3 | Remove chat. Features that depend on chat text (linking from text, etc.) are dropped. |
 | 4 | A new shell is a plain shell or runs a starting script (a name and a command line, typed once the shell is ready, in the chosen worktree), configured per user and overridden per workspace (PRB.E-002; narrowed by the user 2026-11-08: no env, no folder, no separate script tabs for now). |
 | 5 | Context from files and the browser flows back into the active terminal. |
-| 6 | Agent status comes from hooks, starting with Claude Code; other CLIs run as plain terminals. |
+| 6 | Agent status comes from a per-CLI adapter, starting with Claude Code: the UI reads the terminal title the CLI sets, and hooks added per session feed the probe CLI that agents read (2026-11-08). Other CLIs run as plain terminals until they get an adapter. |
 | 7 | Agents sidebar tree: workspace > project > worktree (labelled with its current branch) > shell, built from live PTY sessions (PRB.E-001). There is no subagent level and no subagent visualization (dropped 2026-11-07, user). No enforcement of how worktrees or agents are created. |
 | 8 | The UI is mouse-first: every action works with a mouse or touchpad; hotkeys are optional extras, never the only path (user, 2026-11-02). |
 
@@ -22,7 +22,7 @@ the agents sidebar come before review.
 
 0. **Run it**: toolchain installed, app runs in the browser with a working terminal (PRB.T-001).
 1. **Terminal-first workspace** (first feature, PRB.E-001): workspaces, a shell tree (project > worktree > shell), standalone shells started in an existing worktree or a new forked one, running a mock agent CLI, with the scenario harness. Next: starting scripts (PRB.E-002); separate script tabs are deferred.
-2. **Agent state and agents sidebar**: Claude Code hooks, status model, notifications, status on the shell tree from PRB.E-001, probe CLI for worktrees and agents.
+2. **Agent state and agents sidebar**: Claude Code adapter (terminal title for the UI, per-session hooks for the CLI), status model, notifications, status on the shell tree from PRB.E-001, probe CLI for worktrees and agents.
 3. **Review**: CodeMirror pane, comments on any file, batches, MCP tools, expand window.
 4. **Context to terminal**: stage a reference into the active PTY without Enter.
 5. **Remove chat** in slices: UI, then providers, then orchestration.
@@ -31,15 +31,22 @@ the agents sidebar come before review.
 8. **Mobile port** (frozen until desktop settles).
 9. **Hygiene**: full local checks baseline and recording it (PRB.T-002), after features land.
 
-Chat is removed late, but agent state must not depend on it: hooks are the source from phase 2.
+Chat is removed late, but agent state must not depend on it: the terminal and hooks are the sources from phase 2.
 
 ## Other decisions
 
 Recorded from 2026-11-01; each entry carries its own date where it has one.
 
-- Agent status hooks are merged into the agent's global config (`~/.claude/settings.json` first),
-  as Paradev does, with probe-owned entries identifiable and removable. See
-  `research/paradev-agent-status.md`. Per-session settings file was not evaluated.
+- Agent status wiring (2026-11-08, user, after `research/claude-code-hooks-spike.md`; supersedes
+  merging hooks into `~/.claude/settings.json`): Probe never edits an agent's global config. The UI
+  status comes from the terminal: the shell's foreground process is the agent, and the title it sets
+  says working (spinner) or not; this also catches interrupts, which fire no hook, and a running agent
+  with no title yet (trust dialog) shows as waiting, with no extra status. Hooks are added per session
+  (`--settings`, optionally `--session-id`) through a `claude` shell function in Probe's zsh and bash
+  wrappers, so a hand-typed `claude` gets them and nested sessions do not; they feed the probe CLI that
+  other agents read. Every status event carries the shell's token. Each CLI gets its own adapter
+  (detect, attach hooks, map title and events to Probe's statuses); endpoints are found at call time,
+  as `probe kill` does.
 - PRB.E-001 decisions (2026-11-02): a workspace is created by Probe and saves its layout; reopening it restores running shells and resumes dead agents as described in the next entry (supersedes "no persistence" and the earlier "fresh shells on restore" idea); a folder's own checkout is a worktree (shown as its primary worktree); shells are started only from the "+" modal described under "+" and projects below; non-git folders get shells and tabs without git features.
 - PRB.E-001 restore (2026-11-02, narrowed 2026-11-07, user, PRB.T-008 planning): running shells survive restarts with scrollback; a shell killed through Probe (tree or in-shell kill command) or exiting normally with any status is removed and never restored. An unexpected end (signal, or the owner process lost) leaves the shell listed as ended, and the user restores it with a Restore action on its row or removes it; nothing restores automatically, there are no attempts or retries, and no agent is resumed (supersedes the 2026-11-02 automatic restore with resume and the "later restores" wording below). A restored shell is a new process in the same place under the same id, with empty output and a "restored" marker. Resuming agents is deferred.
 - PRB.E-001 answers (2026-11-02): "Open workspace" is a scrollable dropdown of saved workspaces (one file per workspace in an internal Probe folder, name parsed from the file name, no file picker); switching restores the whole layout and running shells are shown again, removing deletes the file and layout for good, and the app then returns to the start screen. Old chat URLs land on the current workspace, else the start screen. "+" modal choices are remembered per workspace; a failed-start worktree stays pickable; detached HEAD shows the short commit hash. Rename is deferred (out of scope). Scenarios run locally only (no CI) with Playwright as a library. Resolves U-6, U-7, U-8.
