@@ -801,6 +801,7 @@ export const makeShells = Effect.fn("Shells.make")(function* (
           cols: found.session.cols,
           rows: found.session.rows,
           output: found.session.output,
+          grids: found.session.grids,
           process: found.process,
         });
         yield* Effect.logInfo("shell reattached", {

@@ -950,6 +950,29 @@ it.layer(
     }).pipe(Effect.scoped),
   );
 
+  it.effect("adopts a shell's output at the grids it was printed at", () =>
+    Effect.gen(function* () {
+      const { manager } = yield* createManager(5, { createEmulator: ghosttyEmulator });
+      const grids = [{ at: 0, cols: 120, rows: 10 }];
+      let output = T010_PROMPT;
+      for (const cols of [100, 120, 110, 25]) {
+        grids.push({ at: output.length, cols, rows: 10 });
+        output += `\r\r\x1b[0m\x1b[27m\x1b[24m\x1b[J${T010_PROMPT}`;
+      }
+      const snapshot = yield* manager.adopt({
+        threadId: "thread-1",
+        terminalId: DEFAULT_TERMINAL_ID,
+        cwd: process.cwd(),
+        cols: 25,
+        rows: 10,
+        output,
+        grids,
+        process: new FakePtyProcess(77),
+      });
+      expect(promptCopies(snapshot.history, 25, 10)).toEqual({ prompts: 1, typed: 1 });
+    }).pipe(Effect.scoped),
+  );
+
   it.effect("caps incrementally appended history without losing partial or empty lines", () =>
     Effect.gen(function* () {
       const { manager, ptyAdapter } = yield* createManager(3);

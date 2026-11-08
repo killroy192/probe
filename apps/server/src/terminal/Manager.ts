@@ -250,7 +250,39 @@ export interface TerminalAdoptInput {
   readonly rows: number;
   /** The raw output the process produced, oldest first; it becomes the history. */
   readonly output: string;
+  /** The PTY's grid from each offset of `output` on, oldest first, when the host recorded them. */
+  readonly grids?: ReadonlyArray<OutputGrid> | undefined;
   readonly process: PtyAdapter.PtyProcess;
+}
+
+interface OutputGrid {
+  readonly at: number;
+  readonly cols: number;
+  readonly rows: number;
+}
+
+/** `output` cut where the PTY's grid changed; all of it at `current` without usable grids. */
+function outputAtGrids(
+  output: string,
+  grids: ReadonlyArray<OutputGrid>,
+  current: { readonly cols: number; readonly rows: number },
+): ReadonlyArray<{ readonly text: string; readonly cols: number; readonly rows: number }> {
+  const usable =
+    grids.length > 0 &&
+    grids[0]!.at === 0 &&
+    grids.every(
+      (grid, index) =>
+        grid.cols > 0 &&
+        grid.rows > 0 &&
+        grid.at <= output.length &&
+        (index === 0 || grid.at >= grids[index - 1]!.at),
+    );
+  if (!usable) return [{ text: output, ...current }];
+  return grids.map((grid, index) => ({
+    text: output.slice(grid.at, grids[index + 1]?.at ?? output.length),
+    cols: grid.cols,
+    rows: grid.rows,
+  }));
 }
 
 interface TerminalSubprocessInspectResult {
@@ -3145,7 +3177,14 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
         const existing = yield* getSession(input.threadId, input.terminalId);
         if (Option.isSome(existing)) return snapshot(existing.value);
         // The process is live: its output is kept like live output, not reset like inherited history.
-        const sanitized = sanitizeTerminalHistoryChunk("", input.output);
+        // Each part replays at the grid it was printed at, as it did live.
+        const parts = outputAtGrids(input.output, input.grids ?? [], input);
+        let pendingControlSequence = "";
+        const visibleParts = parts.map((part) => {
+          const sanitized = sanitizeTerminalHistoryChunk(pendingControlSequence, part.text);
+          pendingControlSequence = sanitized.pendingControlSequence;
+          return { ...part, text: sanitized.visibleText };
+        });
         const session: TerminalSessionState = {
           threadId: input.threadId,
           terminalId: input.terminalId,
@@ -3155,11 +3194,11 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
           pid: null,
           history: new BoundedTerminalHistory(
             historyLineLimit,
-            sanitized.visibleText,
+            visibleParts.map((part) => part.text).join(""),
             historyByteLimit,
           ),
           emulator: null,
-          pendingHistoryControlSequence: sanitized.pendingControlSequence,
+          pendingHistoryControlSequence: pendingControlSequence,
           pendingProcessEvents: [],
           pendingProcessEventIndex: 0,
           processEventDrainRunning: false,
@@ -3177,7 +3216,14 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
           childCommandLabel: null,
           runtimeEnv: null,
         };
-        openEmulator(session, sanitized.visibleText);
+        openEmulator(session, "");
+        for (const part of visibleParts) {
+          useEmulator(session, (emulator) => {
+            emulator.resize(part.cols, part.rows);
+            emulator.write(part.text);
+          });
+        }
+        useEmulator(session, (emulator) => emulator.resize(session.cols, session.rows));
         const sessionKey = toSessionKey(input.threadId, input.terminalId);
         yield* modifyManagerState((state) => {
           const sessions = new Map(state.sessions);
