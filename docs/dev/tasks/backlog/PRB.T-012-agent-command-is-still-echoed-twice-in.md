@@ -11,7 +11,8 @@ updated: 2026-11-07
 # Agent command is still echoed twice in fish shells
 
 Follow-up to PRB.T-011 (2026-11-07). That fix starts zsh and bash through wrapper startup files that
-print an OSC 133;A prompt mark, and `Shells.open` types the agent command after the first mark. fish
+print an OSC 133;B input-start mark after the prompt (it was 133;A until PRB.T-010), and
+`Shells.open` types the agent command after the first one. fish
 is not wrapped (`shellReadyLaunch` in `apps/server/src/terminal/shellReady.ts` returns null for it),
 so a fish user still gets the command typed at once: the terminal echoes it before the prompt and
 fish draws it again after, so it shows twice.
@@ -22,7 +23,8 @@ checked. Install it there (or on the author's machine) before writing the code.
 ## Direction
 
 - `shellReadyLaunch` returns `{ args: ["--init-command", <script>], env: {} }` for `fish`. The script
-  defines a function on the `fish_prompt` event that prints `ESC ] 133 ; A BEL`. `--init-command`
+  makes fish print `ESC ] 133 ; B BEL` once its prompt is drawn; the scanner ignores A. fish 4 prints
+  its own OSC 133 marks, so check first whether it already sends B. `--init-command`
   runs after fish reads the user's `config.fish`, so no wrapper folder is needed. Check that
   against the installed version.
 - Check where the mark lands against fish's raw-mode setup, as was done for zsh and bash: typing on

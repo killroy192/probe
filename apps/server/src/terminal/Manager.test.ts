@@ -2228,7 +2228,7 @@ it.layer(
 
   // The agent command is typed in the background, once the shell is ready; these wait for the write.
   {
-    const MARK = "\u001b]133;A\u0007";
+    const MARK = "\u001b]133;B\u0007";
 
     const openAgent = (shell: string, options?: { readonly promptTimeout?: "1 millis" }) =>
       Effect.gen(function* () {
@@ -2251,8 +2251,8 @@ it.layer(
       Effect.gen(function* () {
         const { wrote, pty } = yield* openAgent("/bin/zsh");
         // Opening did not wait for the prompt; the mark arrives in pieces, like real output.
-        pty.emitData("startup noise\r\n\u001b]13");
-        pty.emitData("3;A\u0007$ ");
+        pty.emitData("startup noise\r\n$ \u001b]13");
+        pty.emitData("3;B\u0007");
         yield* Deferred.await(wrote);
         pty.emitData(MARK);
         assert.deepEqual(pty.writes, ["node agent.ts\r"]);

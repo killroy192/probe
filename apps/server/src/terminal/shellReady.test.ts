@@ -19,8 +19,7 @@ import {
   type ShellOutputEvent,
 } from "./shellReady.ts";
 
-const MARK = "\u001b]133;A\u0007";
-const INPUT_MARK = "\u001b]133;B\u0007";
+const MARK = "\u001b]133;B\u0007";
 
 /** Feeds `chunks` to a fresh scanner and returns the chunk indexes that completed a mark. */
 const hits = (chunks: ReadonlyArray<string>) => {
@@ -29,24 +28,10 @@ const hits = (chunks: ReadonlyArray<string>) => {
 };
 
 describe("ready scanner", () => {
-  it("finds the prompt-start mark, alone or among other output", () => {
+  it("finds the input-start mark, alone or after a prompt", () => {
     assert.deepStrictEqual(hits([MARK]), [0]);
-    assert.deepStrictEqual(hits([`banner\r\n${MARK}vscode $ `]), [0]);
-    assert.deepStrictEqual(hits(["\u001b]133;A\u001b\\"]), [0]);
-    // Parameters after the A, as some prompts add them, still count.
-    assert.deepStrictEqual(hits(["\u001b]133;A;cl=m;aid=1\u0007"]), [0]);
-  });
-
-  it("finds the input-start mark, alone, after a prompt, or split", () => {
-    assert.deepStrictEqual(hits([INPUT_MARK]), [0]);
-    assert.deepStrictEqual(hits([`vscode $ ${INPUT_MARK}`]), [0]);
-    for (let cut = 1; cut < 7; cut += 1) {
-      assert.deepStrictEqual(
-        hits([INPUT_MARK.slice(0, cut), INPUT_MARK.slice(cut)]),
-        [1],
-        `cut at ${cut}`,
-      );
-    }
+    assert.deepStrictEqual(hits([`banner\r\nvscode $ ${MARK}`]), [0]);
+    assert.deepStrictEqual(hits(["\u001b]133;B\u001b\\"]), [0]);
   });
 
   it("finds a mark split at any byte boundary", () => {
@@ -54,20 +39,25 @@ describe("ready scanner", () => {
     for (let cut = 1; cut < 7; cut += 1) {
       assert.deepStrictEqual(hits([MARK.slice(0, cut), MARK.slice(cut)]), [1], `cut at ${cut}`);
     }
-    assert.deepStrictEqual(hits(["\u001b", "]", "1", "3", "3", ";", "A"]), [6]);
+    assert.deepStrictEqual(hits(["\u001b", "]", "1", "3", "3", ";", "B"]), [6]);
+  });
+
+  it("ignores the prompt-start mark, which a shell prints before the prompt is read", () => {
+    assert.deepStrictEqual(hits(["\u001b]133;A\u0007"]), []);
+    assert.deepStrictEqual(hits(["\u001b]133;A;redraw=1\u0007vscode $ "]), []);
   });
 
   it("ignores output that only looks like the mark", () => {
     assert.deepStrictEqual(hits(["\u001b]133;C\u0007"]), []);
-    assert.deepStrictEqual(hits(["\u001b]13;A\u0007"]), []);
-    assert.deepStrictEqual(hits(["133;A"]), []);
-    assert.deepStrictEqual(hits(["\u001b]133", "plain text", ";A"]), []);
+    assert.deepStrictEqual(hits(["\u001b]13;B\u0007"]), []);
+    assert.deepStrictEqual(hits(["133;B"]), []);
+    assert.deepStrictEqual(hits(["\u001b]133", "plain text", ";B"]), []);
     assert.deepStrictEqual(hits(["\u001b[?2004h", "\u001b]7;file://host/tmp\u001b\\"]), []);
   });
 
   it("recovers from a broken start and finds the next mark", () => {
-    assert.deepStrictEqual(hits(["\u001b]133;\u001b]133;A\u0007"]), [0]);
-    assert.deepStrictEqual(hits(["\u001b\u001b]133;A"]), [0]);
+    assert.deepStrictEqual(hits(["\u001b]133;\u001b]133;B\u0007"]), [0]);
+    assert.deepStrictEqual(hits(["\u001b\u001b]133;B"]), [0]);
   });
 });
 
@@ -87,7 +77,7 @@ describe("waiting for the prompt mark", () => {
       const { events, waiting } = yield* start();
       yield* Queue.offer(events, output("noise\r\n\u001b]13"));
       assert.isUndefined(waiting.pollUnsafe());
-      yield* Queue.offer(events, output("3;A\u0007"));
+      yield* Queue.offer(events, output("3;B\u0007"));
       assert.strictEqual(yield* Fiber.join(waiting), "mark");
     }),
   );
@@ -257,7 +247,7 @@ describe("shell ready wrapper in a real shell", () => {
       assert.isAbove(promptAt, 0);
       // Ghostty starts a fresh line at a prompt-start mark, so one after the prompt splits the line.
       assert.notInclude(first.slice(promptAt), "\u001b]133;A");
-      assert.include(first.slice(promptAt), INPUT_MARK, "input starts after the prompt");
+      assert.include(first.slice(promptAt), MARK, "input starts after the prompt");
       assert.include(result.output, "RESULT[rc][unset]");
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
   );
@@ -282,7 +272,7 @@ describe("shell ready wrapper in a real shell", () => {
       const promptAt = first.lastIndexOf("bp> ");
       assert.isAbove(promptAt, 0);
       assert.notInclude(first.slice(promptAt), "\u001b]133;A");
-      assert.include(first.slice(promptAt), INPUT_MARK, "input starts after the prompt");
+      assert.include(first.slice(promptAt), MARK, "input starts after the prompt");
       assert.include(result.output, "RESULT[rc][unset]");
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
   );

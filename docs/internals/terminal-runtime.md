@@ -29,12 +29,14 @@ The command is typed only once the shell is ready. Typed at once, the terminal d
 before the prompt and the shell's line editor draws it again after, so it shows twice. zsh and bash
 are therefore started through wrapper startup files ([`shellReady.ts`](../../apps/server/src/terminal/shellReady.ts),
 written to `<state dir>/shell-ready` and chosen in `trySpawn` for shell owners only) that run the
-user's own files and then print the OSC 133;A prompt mark. `Shells` types after the first mark, or
-after 15 seconds without one (a slow startup file, or a user config that replaced the wrapper), and
-does it in the background so `shell.open` returns at once. Two details are easy to get wrong: zsh
-prints the mark from a `line-init` hook, because a `precmd` hook runs before zsh has put the
-terminal in raw mode, and bash prints it at the end of `PS1`, because `PROMPT_COMMAND` runs before
-readline has. The zsh wrapper keeps `ZDOTDIR` pointing at its own folder while it reads the user's
+user's own files and then print the OSC 133;B input-start mark after the prompt. `Shells` types
+after the first mark, or after 15 seconds without one (a slow startup file, or a user config that
+replaced the wrapper), and does it in the background so `shell.open` returns at once. Three details
+are easy to get wrong: zsh prints the mark from a `line-init` hook, because a `precmd` hook runs
+before zsh has put the terminal in raw mode; bash prints it at the end of `PS1`, because
+`PROMPT_COMMAND` runs before readline has; and the mark after the prompt must be B, not the
+prompt-start A, because Ghostty starts a fresh line at an A and would move typed text off the
+prompt's row. The zsh wrapper keeps `ZDOTDIR` pointing at its own folder while it reads the user's
 files and restores the user's value before the first prompt. Other shells are not wrapped and get
 the command at once.
 
