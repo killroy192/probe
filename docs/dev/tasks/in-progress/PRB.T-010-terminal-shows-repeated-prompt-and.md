@@ -104,8 +104,9 @@ since the snapshot.
 **Shared runtime: done.** `packages/ghostty-vt` holds the libghostty-vt runtime and wasm (web
 and Node), and `GhosttyVtTerminal` formats a terminal's state as VT. Its tests cover the T-010
 case: raw history replayed at 25 cols shows the prompt 5 times, the formatted snapshot shows it
-once. Tab stops are left out of the snapshot because the formatter restores them after the
-cursor, which leaves the cursor in the wrong column.
+once. The formatter places the cursor before its tab stops, whose moves leave the cursor
+elsewhere, and a placed cursor loses a pending wrap. So `format("vt")` places the cursor again at
+the end, and when the cursor is waiting to wrap, prints the last cell again with its style.
 
 **Cost, measured 2026-11-08** (Node, arm64 container, mixed coloured and Unicode output, 160×48;
 the wasm is built `ReleaseSmall`):
