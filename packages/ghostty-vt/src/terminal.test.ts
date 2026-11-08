@@ -37,6 +37,29 @@ describe("GhosttyVtTerminal", () => {
     expect(copy.format("vt")).toBe(source.format("vt"));
   });
 
+  it("keeps custom tab stops, and the cursor where it was", () => {
+    const source = terminal(20, 4);
+    // Clear every tab stop, set one at column 4, and leave the cursor at column 2.
+    source.write("\x1b[3g\x1b[4G\x1bH\rab");
+    const copy = replay(source.format("vt"), 20, 4);
+    source.write("\tX");
+    copy.write("\tX");
+    expect(copy.format("plain")).toBe(source.format("plain"));
+    expect(copy.format("plain")).toContain("ab X");
+  });
+
+  // At the last column the cursor waits to wrap; the next character starts the next row.
+  it("keeps a pending wrap at the end of a full row", () => {
+    const source = terminal(10, 4);
+    // The last cell keeps its own colour; the pen after it is reset.
+    source.write("012345678\x1b[31m9\x1b[0m");
+    const copy = replay(source.format("vt"), 10, 4);
+    source.write("next");
+    copy.write("next");
+    expect(copy.format("vt")).toBe(source.format("vt"));
+    expect(copy.format("plain")).toContain("0123456789\nnext");
+  });
+
   it("keeps the alternate screen and input modes", () => {
     const source = terminal(20, 4);
     source.write("\x1b[?1049h\x1b[?1h\x1b[?2004hin vim");
