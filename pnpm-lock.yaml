@@ -949,6 +949,9 @@ importers:
       '@t3tools/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
+      '@t3tools/ghostty-vt':
+        specifier: workspace:*
+        version: link:../../packages/ghostty-vt
       '@t3tools/provider-testing':
         specifier: workspace:*
         version: link:../../packages/provider-testing

@@ -36,6 +36,8 @@ import {
   CodexSettings,
   ProviderInstanceId,
 } from "@t3tools/contracts";
+import { loadGhosttyRuntime } from "@t3tools/ghostty-vt/node";
+import { GhosttyVtTerminal } from "@t3tools/ghostty-vt/terminal";
 import { makeKeyedCoalescingWorker } from "@t3tools/shared/KeyedCoalescingWorker";
 import * as KeyedLock from "@t3tools/shared/KeyedLock";
 import { AgentScope } from "@t3tools/shared/AgentScope";
@@ -94,6 +96,8 @@ export {
 
 const DEFAULT_HISTORY_LINE_LIMIT = 5_000;
 const DEFAULT_HISTORY_BYTE_LIMIT = 8 * 1024 * 1024;
+// About 2,000 rows at 160 columns; its formatted snapshot is ~212 KiB (PRB.T-010).
+const EMULATOR_SCROLLBACK_BYTES = 4 * 1024 * 1024;
 const MAX_HISTORY_CHUNK_LENGTH = 16 * 1024;
 const DEFAULT_PERSIST_DEBOUNCE_MS = 250;
 const DEFAULT_SUBPROCESS_POLL_INTERVAL_MS = 1_000;
@@ -300,6 +304,8 @@ interface TerminalSessionState {
   status: TerminalSessionStatus;
   pid: number | null;
   history: BoundedTerminalHistory;
+  /** The screen the output builds, at the PTY's grid; null when libghostty-vt failed. */
+  emulator: GhosttyVtTerminal | null;
   pendingHistoryControlSequence: string;
   pendingProcessEvents: Array<PendingProcessEvent>;
   pendingProcessEventIndex: number;
@@ -1474,6 +1480,7 @@ interface TerminalManagerOptions {
     Record<string, string>,
     TerminalProviderInstanceNotFoundError | TerminalProviderEnvironmentError
   >;
+  createEmulator?: (cols: number, rows: number) => GhosttyVtTerminal;
 }
 
 export const resolveProviderInstanceTerminalEnvironment = Effect.fn(
@@ -1576,6 +1583,57 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
   const logsDir = options.logsDir;
   const historyLineLimit = options.historyLineLimit ?? DEFAULT_HISTORY_LINE_LIMIT;
   const historyByteLimit = options.historyByteLimit ?? DEFAULT_HISTORY_BYTE_LIMIT;
+  const createEmulator =
+    options.createEmulator ??
+    (yield* Effect.tryPromise(loadGhosttyRuntime).pipe(
+      Effect.map(
+        (runtime) => (cols: number, rows: number) =>
+          GhosttyVtTerminal.create(runtime, cols, rows, EMULATOR_SCROLLBACK_BYTES),
+      ),
+      Effect.catch((error) =>
+        Effect.logWarning("terminals run without an emulator", { cause: error.cause }).pipe(
+          Effect.as(undefined),
+        ),
+      ),
+    ));
+  // A failing emulator is dropped, never the output: attach then sends raw history.
+  const dropEmulator = (session: TerminalSessionState, error?: unknown) => {
+    const emulator = session.emulator;
+    session.emulator = null;
+    try {
+      emulator?.dispose();
+    } catch {}
+    if (error === undefined) return;
+    runFork(
+      Effect.logWarning("terminal emulator failed; attach sends raw history", {
+        threadId: session.threadId,
+        terminalId: session.terminalId,
+        cause: error,
+      }),
+    );
+  };
+  const useEmulator = (
+    session: TerminalSessionState,
+    use: (emulator: GhosttyVtTerminal) => void,
+  ) => {
+    if (!session.emulator) return;
+    try {
+      use(session.emulator);
+    } catch (error) {
+      dropEmulator(session, error);
+    }
+  };
+  const openEmulator = (session: TerminalSessionState, output: string) => {
+    dropEmulator(session);
+    if (!createEmulator) return;
+    try {
+      session.emulator = createEmulator(session.cols, session.rows);
+    } catch (error) {
+      dropEmulator(session, error);
+      return;
+    }
+    if (output.length > 0) useEmulator(session, (emulator) => emulator.write(output));
+  };
   const platform = yield* HostProcess.Platform;
   const architecture = yield* HostProcess.Architecture;
   const agentScope = yield* AgentScope;
@@ -1783,6 +1841,7 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
     yield* resizePtyProcess(session, process, cols, rows);
     session.cols = cols;
     session.rows = rows;
+    useEmulator(session, (emulator) => emulator.resize(cols, rows));
     session.updatedAt = yield* nowIso;
     const eventStamp = advanceEventSequence(session);
     yield* publishEvent({
@@ -2200,12 +2259,12 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
 
   const evictInactiveSessionsIfNeeded = Effect.fn("terminal.evictInactiveSessionsIfNeeded")(
     function* () {
-      yield* modifyManagerState((state) => {
+      const evicted = yield* modifyManagerState((state) => {
         const inactiveSessions = [...state.sessions.values()].filter(
           (session) => session.status !== "running",
         );
         if (inactiveSessions.length <= maxRetainedInactiveSessions) {
-          return [undefined, state] as const;
+          return [[] as TerminalSessionState[], state] as const;
         }
 
         inactiveSessions.sort(
@@ -2217,15 +2276,19 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
 
         const sessions = new Map(state.sessions);
 
-        const toEvict = inactiveSessions.length - maxRetainedInactiveSessions;
-        for (const session of inactiveSessions.slice(0, toEvict)) {
+        const toEvict = inactiveSessions.slice(
+          0,
+          inactiveSessions.length - maxRetainedInactiveSessions,
+        );
+        for (const session of toEvict) {
           const key = toSessionKey(session.threadId, session.terminalId);
           sessions.delete(key);
           closedSessionKeys.add(key);
         }
 
-        return [undefined, { ...state, sessions }] as const;
+        return [toEvict, { ...state, sessions }] as const;
       });
+      for (const session of evicted) dropEmulator(session);
     },
   );
 
@@ -2264,6 +2327,7 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
           session.pendingHistoryControlSequence = sanitized.pendingControlSequence;
           if (sanitized.visibleText.length > 0) {
             session.history.append(sanitized.visibleText);
+            useEmulator(session, (emulator) => emulator.write(sanitized.visibleText));
           }
           const eventStamp = advanceEventSequence(session);
 
@@ -2510,6 +2574,9 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
     });
 
     const startingAt = yield* nowIso;
+    if (session.cols !== input.cols || session.rows !== input.rows) {
+      useEmulator(session, (emulator) => emulator.resize(input.cols, input.rows));
+    }
     yield* modifyManagerState((state) => {
       session.status = "starting";
       session.cwd = input.cwd;
@@ -2657,6 +2724,7 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
       sessions.delete(key);
       return [true, { ...state, sessions }] as const;
     });
+    if (Option.isSome(session)) dropEmulator(session.value);
 
     if (removed) {
       yield* publishEvent({
@@ -2895,6 +2963,7 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
         concurrency: "unbounded",
         discard: true,
       });
+      for (const session of sessions) dropEmulator(session);
     }).pipe(Effect.ignoreCause({ log: true })),
   );
 
@@ -2929,6 +2998,7 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
         status: "starting",
         pid: null,
         history,
+        emulator: null,
         pendingHistoryControlSequence: "",
         pendingProcessEvents: [],
         pendingProcessEventIndex: 0,
@@ -2947,6 +3017,7 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
         childCommandLabel: null,
         runtimeEnv: normalizedRuntimeEnv(input.env),
       };
+      openEmulator(session, history.value());
 
       const createdSession = session;
       yield* modifyManagerState((state) => {
@@ -2989,6 +3060,7 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
       liveSession.worktreePath = nextWorktreePath;
       liveSession.runtimeEnv = nextRuntimeEnv;
       liveSession.history.clear();
+      openEmulator(liveSession, "");
       liveSession.pendingHistoryControlSequence = "";
       liveSession.pendingProcessEvents = [];
       liveSession.pendingProcessEventIndex = 0;
@@ -2998,6 +3070,7 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
       liveSession.runtimeEnv = nextRuntimeEnv;
       liveSession.worktreePath = nextWorktreePath;
       liveSession.history.clear();
+      openEmulator(liveSession, "");
       liveSession.pendingHistoryControlSequence = "";
       liveSession.pendingProcessEvents = [];
       liveSession.pendingProcessEventIndex = 0;
@@ -3046,6 +3119,7 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
             sanitized.visibleText,
             historyByteLimit,
           ),
+          emulator: null,
           pendingHistoryControlSequence: sanitized.pendingControlSequence,
           pendingProcessEvents: [],
           pendingProcessEventIndex: 0,
@@ -3064,6 +3138,7 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
           childCommandLabel: null,
           runtimeEnv: null,
         };
+        openEmulator(session, sanitized.visibleText);
         const sessionKey = toSessionKey(input.threadId, input.terminalId);
         yield* modifyManagerState((state) => {
           const sessions = new Map(state.sessions);
@@ -3497,6 +3572,7 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
         const terminalId = input.terminalId;
         const session = yield* requireSession(input.threadId, terminalId);
         session.history.clear();
+        openEmulator(session, "");
         session.pendingHistoryControlSequence = "";
         session.pendingProcessEvents = [];
         session.pendingProcessEventIndex = 0;

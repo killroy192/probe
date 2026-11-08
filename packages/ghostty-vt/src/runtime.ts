@@ -1,6 +1,30 @@
 // @effect-diagnostics globalConsole:off - libghostty-vt logs through a wasm import; the runtime has no Effect.
 type WasmFunction = (...args: Array<number | bigint>) => number;
 
+// Typed here, not from the DOM lib: the server builds without it, and Node has the same API.
+interface WasmMemory {
+  readonly buffer: ArrayBuffer;
+  grow(delta: number): number;
+}
+interface WasmTable {
+  readonly length: number;
+  grow(delta: number): number;
+  set(index: number, value: unknown): void;
+}
+interface WasmInstance {
+  readonly exports: Readonly<Record<string, unknown>>;
+}
+type WasmBytes = ArrayBuffer | Uint8Array;
+interface WasmApi {
+  instantiate(
+    bytes: WasmBytes,
+    imports: Record<string, Record<string, unknown>>,
+  ): Promise<{ readonly instance: WasmInstance }>;
+  readonly Memory: abstract new (...args: never[]) => WasmMemory;
+  readonly Table: abstract new (...args: never[]) => WasmTable;
+}
+const Wasm = (globalThis as unknown as { readonly WebAssembly: WasmApi }).WebAssembly;
+
 interface TypeField {
   readonly offset: number;
   readonly size: number;
@@ -19,18 +43,18 @@ const textDecoder = new TextDecoder();
 
 /** The official libghostty-vt C ABI over WebAssembly: calls, memory, type layouts, PTY replies. */
 export class GhosttyRuntime {
-  readonly memory: WebAssembly.Memory;
+  readonly memory: WasmMemory;
   readonly layouts: TypeLayouts;
-  private readonly exports: WebAssembly.Exports;
+  private readonly exports: WasmInstance["exports"];
   private memoryView: DataView;
   private readonly ptyWriters = new Map<number, (data: string) => void>();
   private nextPtyWriterId = 1;
   private writePtyFunctionIndex = 0;
 
-  private constructor(instance: WebAssembly.Instance) {
+  private constructor(instance: WasmInstance) {
     this.exports = instance.exports;
     const memory = instance.exports.memory;
-    if (!(memory instanceof WebAssembly.Memory)) {
+    if (!(memory instanceof Wasm.Memory)) {
       throw new Error("libghostty-vt did not export WebAssembly memory");
     }
     this.memory = memory;
@@ -43,23 +67,20 @@ export class GhosttyRuntime {
   }
 
   /** Instantiates libghostty-vt and its PTY reply trampoline from the bytes of the two wasm files. */
-  static async instantiate(
-    wasm: BufferSource,
-    writePtyWasm: BufferSource,
-  ): Promise<GhosttyRuntime> {
-    let instance: WebAssembly.Instance | undefined;
+  static async instantiate(wasm: WasmBytes, writePtyWasm: WasmBytes): Promise<GhosttyRuntime> {
+    let instance: WasmInstance | undefined;
     const imports = {
       env: {
         log: (pointer: number, length: number) => {
           if (!instance) return;
           const memory = instance.exports.memory;
-          if (!(memory instanceof WebAssembly.Memory)) return;
+          if (!(memory instanceof Wasm.Memory)) return;
           const message = textDecoder.decode(new Uint8Array(memory.buffer, pointer, length));
           console.debug("[libghostty-vt]", message);
         },
       },
     };
-    const result = await WebAssembly.instantiate(wasm, imports);
+    const result = await Wasm.instantiate(wasm, imports);
     instance = result.instance;
     const runtime = new GhosttyRuntime(result.instance);
     await runtime.installWritePtyTrampoline(writePtyWasm);
@@ -190,8 +211,8 @@ export class GhosttyRuntime {
     }
   }
 
-  private async installWritePtyTrampoline(writePtyWasm: BufferSource): Promise<void> {
-    const result = await WebAssembly.instantiate(writePtyWasm, {
+  private async installWritePtyTrampoline(writePtyWasm: WasmBytes): Promise<void> {
+    const result = await Wasm.instantiate(writePtyWasm, {
       env: {
         t3_write_pty: (_terminal: number, userdata: number, pointer: number, length: number) => {
           const writer = this.ptyWriters.get(userdata);
@@ -202,7 +223,7 @@ export class GhosttyRuntime {
     });
     const trampoline = result.instance.exports.ghostty_write_pty;
     const table = this.exports.__indirect_function_table;
-    if (typeof trampoline !== "function" || !(table instanceof WebAssembly.Table)) {
+    if (typeof trampoline !== "function" || !(table instanceof Wasm.Table)) {
       throw new Error("libghostty-vt did not expose its callback table");
     }
     const index = table.length;

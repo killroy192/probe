@@ -11,6 +11,8 @@ import {
   ProviderInstanceId,
   TerminalProviderInstanceNotFoundError,
 } from "@t3tools/contracts";
+import { loadGhosttyRuntime } from "@t3tools/ghostty-vt/node";
+import { GhosttyVtTerminal } from "@t3tools/ghostty-vt/terminal";
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
@@ -259,6 +261,7 @@ interface CreateManagerOptions {
   >[0]["resolveProviderInstanceEnvironment"];
   managedBinaryCacheDir?: string;
   managedBinaryToolsDir?: string;
+  createEmulator?: Parameters<typeof TerminalManager.makeWithOptions>[0]["createEmulator"];
 }
 
 interface ManagerFixture {
@@ -315,6 +318,7 @@ const createManager = (
         ...(options.resolveProviderInstanceEnvironment !== undefined
           ? { resolveProviderInstanceEnvironment: options.resolveProviderInstanceEnvironment }
           : {}),
+        ...(options.createEmulator !== undefined ? { createEmulator: options.createEmulator } : {}),
         ...(options.managedBinaryCacheDir === undefined
           ? {}
           : {
@@ -823,6 +827,48 @@ it.layer(
 
       expect(ptyAdapter.processes.map((process) => process.killed)).toEqual([false, false]);
     }),
+  );
+
+  it.effect("keeps an emulator at the PTY's grid, fed with output, and frees it when done", () =>
+    Effect.gen(function* () {
+      const runtime = yield* Effect.promise(() => loadGhosttyRuntime());
+      const emulators: GhosttyVtTerminal[] = [];
+      const { manager, ptyAdapter } = yield* createManager(5, {
+        createEmulator: (cols, rows) => {
+          const emulator = GhosttyVtTerminal.create(runtime, cols, rows, 1024 * 1024);
+          emulators.push(emulator);
+          return emulator;
+        },
+      });
+      const outputs = yield* Queue.unbounded<string>();
+      const unsubscribe = yield* manager.subscribe((event) =>
+        event.type === "output"
+          ? Queue.offer(outputs, event.data).pipe(Effect.asVoid)
+          : Effect.void,
+      );
+      yield* Effect.addFinalizer(() => Effect.sync(unsubscribe));
+      yield* manager.open(openInput({ cols: 20, rows: 4 }));
+      yield* manager.resize({
+        threadId: "thread-1",
+        terminalId: DEFAULT_TERMINAL_ID,
+        cols: 10,
+        rows: 4,
+      });
+      const process = ptyAdapter.processes[0]!;
+      process.emitData("abcdefghijKLM");
+      yield* Queue.take(outputs);
+      // The line wraps at 10 columns, the PTY's width after the resize.
+      expect(emulators[0]!.format("plain")).toContain("abcdefghij\nKLM");
+
+      yield* manager.clear({ threadId: "thread-1", terminalId: DEFAULT_TERMINAL_ID });
+      process.emitData("after");
+      yield* Queue.take(outputs);
+      expect(() => emulators[0]!.format("plain")).toThrow("disposed");
+      expect(emulators[1]!.format("plain").trim()).toBe("after");
+
+      yield* manager.close({ threadId: "thread-1" });
+      expect(() => emulators[1]!.format("plain")).toThrow("disposed");
+    }).pipe(Effect.scoped),
   );
 
   it.effect("caps incrementally appended history without losing partial or empty lines", () =>
