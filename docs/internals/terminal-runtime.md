@@ -85,7 +85,8 @@ Windows has no host. The host exits by itself when it has no shells and no serve
 pid, token hash; an older server wrote `folder` for `project`, which is still read, as are `folders` and
 `lastStart.folder` in workspace files). At startup it matches the registry against the host's sessions by pid: a live
 one is adopted into the manager (`TerminalManager.adopt`) with the host's output as its history,
-so the same process continues with its scrollback; a host session with no registry entry is a
+so the same process continues with its scrollback. The host also sends `grids`, the PTY size from
+each output offset on, and adopt replays each part at its own grid (see below); a host session with no registry entry is a
 crashed server's leftover and is killed.
 
 How a shell ended decides whether it stays: a Probe kill or an exit without a signal (any status)
@@ -120,10 +121,35 @@ skip any incomplete UTF-8 prefix, and apply the line limit. Close the read handl
 before rewriting the capped file. Reading whole old logs would defeat the memory
 bound during startup.
 
+## Snapshots, not raw history
+
+Never replay raw history at a grid other than the one it was printed at. A shell redraws its line
+in place on every resize (`\r`, clear below, prompt, typed text); at a narrower grid the line
+wraps, the `\r` returns only to its last row, and each older redraw stays on screen as a copy.
+
+So each manager session also feeds its output to a headless libghostty-vt terminal
+([`packages/ghostty-vt`](../../packages/ghostty-vt/)) with 4 MiB of scrollback, resized with the
+PTY, and attach sends its formatted screen (`GhosttyVtTerminal.format("vt")`), which replays the
+same at any grid. Raw history stays as the fallback when the emulator fails.
+
+- **Saved history** is that snapshot, ending with its grid as `OSC 5379;grid=<cols>x<rows>`. On
+  open, the server replays it at that grid and resizes, so libghostty-vt reflows it. The grid goes
+  at the end because the tail read and the line cap trim from the start. A file without it holds
+  raw output from an older server.
+- **Adopt** replays the host's output part by part, at the grids the host recorded.
+- **Clients** keep their attach stream for 5 minutes after the last viewer unmounts, so a remount
+  replays the client buffer. When the grid changed since that buffer's snapshot
+  (`needsFreshSnapshot` in client-runtime), the web viewport refreshes its session atom instead,
+  which reattaches for a new snapshot.
+- Formatting costs up to ~11 ms at full scrollback, once per attach and per coalesced save.
+
 ## Renderer ownership
 
-Android and web use the same `libghostty-vt` C ABI for terminal behavior. Platform
-adapters own drawing and input integration, and React stays out of terminal frames.
+Android, web and the server use the same `libghostty-vt` C ABI for terminal behavior. Platform
+adapters own drawing and input integration, and React stays out of terminal frames. Web and the
+server share the wasm runtime in `packages/ghostty-vt`: web fetches the `.wasm` files, and Node
+decodes a base64 copy that `scripts/build-wasm.sh` regenerates, so the bundled server and the
+single executable ship no wasm files.
 The web adapter shares one WebAssembly instance per browser tab while each terminal
 owns and frees its own handles. The canonical upstream pin is
 [`native/libghostty-vt/VERSION`](../../native/libghostty-vt/VERSION); both native and

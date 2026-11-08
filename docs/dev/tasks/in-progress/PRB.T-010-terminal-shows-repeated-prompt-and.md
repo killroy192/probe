@@ -48,7 +48,7 @@ viewport that mounts or reattaches calls `resetAndWrite(history)` at the current
 line now wraps, `\r` returns only to the start of the wrapped row and `\e[J` clears only below
 it, so each redraw recorded at a wider grid leaves its copy behind.
 
-Evidence, from temporary probes (`#region debug:t010`) and a throwaway scenario on the harness
+Evidence, from temporary probes and a throwaway scenario (`DBG-T010`, both since removed) on the harness
 (real server, built web bundle, Chromium): typed text left at the prompt, three resizes at
 146-165 cols, then a reload.
 
@@ -68,7 +68,7 @@ viewports of one shell, and duplicated bytes in the server history.
 The same replay reproduces outside the app: real zsh output replayed through `GhosttyTerminalCore`
 shows one copy at 120 cols and four at 30.
 
-## Fix direction (not decided)
+## Fix options (option 1 chosen)
 
 1. **Recommended: a headless emulator in the shell host.** Feed each shell's output to a
    `libghostty-vt` terminal resized with the PTY, and send a formatted VT snapshot (screen,
@@ -146,20 +146,25 @@ copies. The buffer now marks a grid change after it holds output (`gridChangedSi
 under it. The remount now shows 1 copy. Ended shells are not reattached, since a fresh attach can
 start one again.
 
-## Next
+## Verification (2026-11-08)
 
-- **Mobile is not done.** It replays the same buffer (`terminalOutputWriter.ts`), so a remount
-  after a grid change should hit the same copies. `needsFreshSnapshot` is shared; the screen in
-  `ThreadTerminalRouteScreen.tsx` still has to refresh its attach atom on mount and keep the
-  native view from writing the stale buffer first. Needs a device to verify.
-- Then Phase E: final `DBG-T010` runs, remove the probes and the scenario, `check:changed`,
-  `docs/internals/terminal-runtime.md`, and a manual pass on web and desktop.
+Final `DBG-T010` runs on the finished code (shell on the harness, built web bundle, Chromium; typed
+text left at the prompt, three wide resizes, then narrowed to 62 columns):
 
-`DBG_REMOUNT=1` runs the navigate-away-and-back variant of `DBG-T010`.
+| Run                                 | Before | After |
+| ----------------------------------- | ------ | ----- |
+| Live narrowing                      | 2      | 1     |
+| Reload                              | 5      | 1     |
+| Navigate away and back, no reload   | 5      | 1     |
+| Control: reload without narrowing   | 1      | 1     |
 
-The probes and the `DBG-T010` scenario are not committed; they sit uncommitted in the
-`prb-t-010-terminal-duplicate-text` worktree. There, `node scripts/scenarios/run.ts --rebuild --only
-DBG-T010` reruns the repro into `.logs/debug/t010.ndjson`, and `DBG_NARROW=0` runs the control.
+Regression tests: `packages/ghostty-vt/src/terminal.test.ts` (snapshot vs raw replay),
+`Manager.test.ts` (attach snapshot, saved snapshot reopened at another grid, adopt at grids),
+`shellHost.test.ts` (`KeptOutput` grids), `terminalSession.test.ts` (`needsFreshSnapshot`), and
+`apps/web/src/terminal/ghostty/core.test.ts` (`A;redraw=1` on live narrowing). Each failed before
+its fix.
+
+Mobile replays the same client buffer and is not fixed: PRB.T-014.
 
 ## Done when
 
