@@ -101,10 +101,29 @@ server emulator per session whose snapshot replaces raw history on attach. After
 history, shell-host resize records for `adopt`, and a client reattach when the grid changed
 since the snapshot.
 
+**Shared runtime: done.** `packages/ghostty-vt` holds the libghostty-vt runtime and wasm (web
+and Node), and `GhosttyVtTerminal` formats a terminal's state as VT. Its tests cover the T-010
+case: raw history replayed at 25 cols shows the prompt 5 times, the formatted snapshot shows it
+once. Tab stops are left out of the snapshot because the formatter restores them after the
+cursor, which leaves the cursor in the wrong column.
+
+**Cost, measured 2026-11-08** (Node, arm64 container, mixed coloured and Unicode output, 160×48;
+the wasm is built `ReleaseSmall`):
+
+| Server scrollback | Parse      | Format | Snapshot | Rows kept | Memory per terminal |
+| ----------------- | ---------- | ------ | -------- | --------- | ------------------- |
+| 1 MiB             | ~43 MiB/s  | 5 ms   | 63 KiB   | ~570      | ~5 MiB              |
+| 4 MiB             | ~41 MiB/s  | 11 ms  | 212 KiB  | ~2,050    | ~5 MiB              |
+| 10 MiB            | ~43 MiB/s  | 21 ms  | 505 KiB  | ~5,000    | ~13 MiB             |
+
+All terminals share one wasm instance. Its memory never shrinks, so the server keeps its peak.
+Matching today's 5,000-line history needs ~10 MiB of scrollback, and that snapshot is close to
+the client's 512 KiB buffer cap (`DEFAULT_MAX_TERMINAL_BUFFER_BYTES`).
+
 ## Next
 
-Phase B of the fix: move the Ghostty runtime into a package the server can load, and check the
-formatter (VT output, modes, scrollback) on the T-010 case before the server depends on it. A regression test belongs in
+Choose the server's scrollback budget (the table above), then Phase C: an emulator per server
+session, first running in the shadow, then sending its snapshot on attach. A regression test belongs in
 `apps/web/src/terminal/ghostty/core.test.ts` (or the server's equivalent for option 1): replay a
 short zsh history with redraws recorded wide and assert one prompt.
 
