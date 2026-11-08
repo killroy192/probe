@@ -4,6 +4,7 @@ import {
   EMPTY_TERMINAL_SESSION_STATE,
   selectRunningSubprocessTerminalIds,
   type KnownTerminalSession,
+  type TerminalBufferState,
   type TerminalSessionState,
 } from "@t3tools/client-runtime/state/terminal";
 import {
@@ -144,41 +145,47 @@ const attachedTerminalSessionFamily = Atom.family((key: string) => {
     }).pipe(Atom.withLabel(`web-terminal-session:${key}`));
   }
   const [environmentId, terminal] = decoded.value;
-  return Atom.make((get): TerminalSessionState => {
-    const session = get(environmentSession.sessionStateAtom(environmentId));
-    const canRead = sessionHasScope(session, AuthTerminalReadScope);
-    const canOperate = sessionHasScope(session, AuthTerminalOperateScope);
-    const attach = canOperate
-      ? get(terminalEnvironment.attach({ environmentId, input: terminal }))
-      : canRead
-        ? get(
-            terminalEnvironment.observe({
+  // The stream this session last read; refreshing it reattaches for a fresh snapshot.
+  let source: Atom.Atom<AsyncResult.AsyncResult<TerminalBufferState, unknown>> | null = null;
+  return Atom.readable(
+    (get): TerminalSessionState => {
+      const session = get(environmentSession.sessionStateAtom(environmentId));
+      const canRead = sessionHasScope(session, AuthTerminalReadScope);
+      const canOperate = sessionHasScope(session, AuthTerminalOperateScope);
+      source = canOperate
+        ? terminalEnvironment.attach({ environmentId, input: terminal })
+        : canRead
+          ? terminalEnvironment.observe({
               environmentId,
               input: { threadId: terminal.threadId, terminalId: terminal.terminalId },
-            }),
+            })
+          : null;
+      const attach = source === null ? null : get(source);
+      const metadata = canRead
+        ? AsyncResult.getOrElse(
+            get(terminalEnvironment.metadata({ environmentId, input: null })),
+            () => null,
           )
         : null;
-    const metadata = canRead
-      ? AsyncResult.getOrElse(
-          get(terminalEnvironment.metadata({ environmentId, input: null })),
-          () => null,
-        )
-      : null;
-    const summary =
-      (metadata === null
-        ? null
-        : terminalMetadataIndex(metadata)
-            .byThreadId.get(terminal.threadId)
-            ?.find((candidate) => candidate.terminalId === terminal.terminalId)) ?? null;
-    const buffer =
-      attach === null
-        ? EMPTY_TERMINAL_BUFFER_STATE
-        : AsyncResult.getOrElse(attach, () => EMPTY_TERMINAL_BUFFER_STATE);
-    const state = combineTerminalSessionState(summary, buffer);
-    return attach?._tag === "Failure"
-      ? { ...state, error: formatEnvironmentQueryError(attach.cause), status: "error" }
-      : state;
-  }).pipe(Atom.withLabel(`web-terminal-session:${key}`));
+      const summary =
+        (metadata === null
+          ? null
+          : terminalMetadataIndex(metadata)
+              .byThreadId.get(terminal.threadId)
+              ?.find((candidate) => candidate.terminalId === terminal.terminalId)) ?? null;
+      const buffer =
+        attach === null
+          ? EMPTY_TERMINAL_BUFFER_STATE
+          : AsyncResult.getOrElse(attach, () => EMPTY_TERMINAL_BUFFER_STATE);
+      const state = combineTerminalSessionState(summary, buffer);
+      return attach?._tag === "Failure"
+        ? { ...state, error: formatEnvironmentQueryError(attach.cause), status: "error" }
+        : state;
+    },
+    (refresh) => {
+      if (source !== null) refresh(source);
+    },
+  ).pipe(Atom.withLabel(`web-terminal-session:${key}`));
 });
 
 /**

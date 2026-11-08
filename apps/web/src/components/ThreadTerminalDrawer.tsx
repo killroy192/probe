@@ -6,6 +6,7 @@ import {
 } from "@t3tools/client-runtime/state/runtime";
 import {
   INITIAL_TERMINAL_OUTPUT_CURSOR,
+  needsFreshSnapshot,
   readTerminalOutputUpdate,
   type TerminalOutputCursor,
   type TerminalOutputUpdate,
@@ -586,6 +587,9 @@ function TerminalSessionViewport({
     (listener: (session: TerminalSessionState) => void) =>
       appAtomRegistry.subscribe(terminalSessionAtom, listener),
   );
+  const reattachTerminalSession = useEffectEvent(() =>
+    appAtomRegistry.refresh(terminalSessionAtom),
+  );
   const writeTerminal = useEffectEvent((data: string) =>
     shellId !== undefined
       ? runShellWrite({ environmentId, input: { shellId, data } })
@@ -714,7 +718,11 @@ function TerminalSessionViewport({
         latestSession.output,
         INITIAL_TERMINAL_OUTPUT_CURSOR,
       );
-      if (initialOutput.type === "reset" && initialOutput.data.length > 0) {
+      // Output kept from another grid would replay its redraws as copies. The reattached stream
+      // starts a new output generation, which resets the surface with the server's snapshot.
+      if (needsFreshSnapshot(latestSession)) {
+        reattachTerminalSession();
+      } else if (initialOutput.type === "reset" && initialOutput.data.length > 0) {
         writeTerminalOutputUpdate(terminal, initialOutput);
       }
       outputCursorRef.current = initialOutput.cursor;

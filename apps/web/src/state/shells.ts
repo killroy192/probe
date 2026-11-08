@@ -26,25 +26,30 @@ const EMPTY_SHELL_SESSION_ATOM = Atom.make(EMPTY_TERMINAL_SESSION_STATE).pipe(
 
 const attachedShellSessionFamily = Atom.family((key: string) => {
   const [environmentId, shellId] = JSON.parse(key) as [EnvironmentId, ShellId];
-  return Atom.make((get): TerminalSessionState => {
-    const session = get(environmentSession.sessionStateAtom(environmentId));
-    // Shells have no read-only observe stream; viewing one requires operate.
-    if (!sessionHasScope(session, AuthTerminalOperateScope)) {
-      return {
-        ...EMPTY_TERMINAL_SESSION_STATE,
-        status: "error",
-        error: "You do not have permission to use shells here.",
-      };
-    }
-    const attach = get(shellEnvironment.attach({ environmentId, input: { shellId } }));
-    const state = combineTerminalSessionState(
-      null,
-      AsyncResult.getOrElse(attach, () => EMPTY_TERMINAL_BUFFER_STATE),
-    );
-    return attach._tag === "Failure"
-      ? { ...state, error: formatEnvironmentQueryError(attach.cause), status: "error" }
-      : state;
-  }).pipe(Atom.withLabel(`web-shell-session:${key}`));
+  const attachAtom = shellEnvironment.attach({ environmentId, input: { shellId } });
+  // Refreshing reattaches, so the server sends a fresh snapshot.
+  return Atom.readable(
+    (get): TerminalSessionState => {
+      const session = get(environmentSession.sessionStateAtom(environmentId));
+      // Shells have no read-only observe stream; viewing one requires operate.
+      if (!sessionHasScope(session, AuthTerminalOperateScope)) {
+        return {
+          ...EMPTY_TERMINAL_SESSION_STATE,
+          status: "error",
+          error: "You do not have permission to use shells here.",
+        };
+      }
+      const attach = get(attachAtom);
+      const state = combineTerminalSessionState(
+        null,
+        AsyncResult.getOrElse(attach, () => EMPTY_TERMINAL_BUFFER_STATE),
+      );
+      return attach._tag === "Failure"
+        ? { ...state, error: formatEnvironmentQueryError(attach.cause), status: "error" }
+        : state;
+    },
+    (refresh) => refresh(attachAtom),
+  ).pipe(Atom.withLabel(`web-shell-session:${key}`));
 });
 
 /** One shown shell's attach buffer, in the shape the terminal surface reads. */
