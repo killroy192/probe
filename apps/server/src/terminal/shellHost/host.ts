@@ -16,6 +16,7 @@ import {
   type ClientMessage,
   encodeLine,
   type HostExit,
+  type HostGrid,
   type HostMessage,
   lineReader,
   SHELL_HOST_PROTOCOL,
@@ -28,14 +29,62 @@ import {
 const OUTPUT_LIMIT = 8 * 1024 * 1024;
 const DEFAULT_IDLE_MS = 30_000;
 
+/** A shell's recent output, and the grid each part of it was printed at. */
+export class KeptOutput {
+  private readonly limit: number;
+  private chunks: Array<string> = [];
+  private size = 0;
+  private kept: Array<HostGrid>;
+
+  constructor(cols: number, rows: number, limit = OUTPUT_LIMIT) {
+    this.limit = limit;
+    this.kept = [{ at: 0, cols, rows }];
+  }
+
+  append(data: string): void {
+    this.chunks.push(data);
+    this.size += data.length;
+    let dropped = 0;
+    while (this.size > this.limit && this.chunks.length > 0) {
+      const oldest = this.chunks[0]!;
+      const excess = this.size - this.limit;
+      const cut = Math.min(oldest.length, excess);
+      if (cut === oldest.length) this.chunks.shift();
+      else this.chunks[0] = oldest.slice(cut);
+      this.size -= cut;
+      dropped += cut;
+    }
+    if (dropped === 0) return;
+    const moved = this.kept.map((grid) => ({ ...grid, at: grid.at - dropped }));
+    // The grid of the oldest output left is the last one that started at or before it.
+    const first = moved.findLastIndex((grid) => grid.at <= 0);
+    this.kept = moved.slice(first);
+    this.kept[0] = { ...this.kept[0]!, at: 0 };
+  }
+
+  resize(cols: number, rows: number): void {
+    const last = this.kept.at(-1)!;
+    if (last.at === this.size) this.kept[this.kept.length - 1] = { at: this.size, cols, rows };
+    else if (last.cols !== cols || last.rows !== rows)
+      this.kept.push({ at: this.size, cols, rows });
+  }
+
+  output(): string {
+    return this.chunks.join("");
+  }
+
+  grids(): ReadonlyArray<HostGrid> {
+    return [...this.kept];
+  }
+}
+
 interface HostedSession {
   readonly id: string;
   readonly pty: import("node-pty").IPty;
   readonly cwd: string;
   cols: number;
   rows: number;
-  chunks: Array<string>;
-  size: number;
+  readonly output: KeptOutput;
   exit: HostExit | null;
 }
 
@@ -124,22 +173,6 @@ export async function startShellHost(options: ShellHostOptions): Promise<Running
     if (sessions.size === 0 && client === null) idleTimer = setTimeout(stop, idleMs);
   };
 
-  const keep = (session: HostedSession, data: string) => {
-    session.chunks.push(data);
-    session.size += data.length;
-    while (session.size > OUTPUT_LIMIT && session.chunks.length > 0) {
-      const oldest = session.chunks[0]!;
-      const excess = session.size - OUTPUT_LIMIT;
-      if (oldest.length <= excess) {
-        session.chunks.shift();
-        session.size -= oldest.length;
-      } else {
-        session.chunks[0] = oldest.slice(excess);
-        session.size -= excess;
-      }
-    }
-  };
-
   const handle = (socket: NodeNet.Socket, message: ClientMessage) => {
     switch (message.t) {
       case "hello":
@@ -170,15 +203,14 @@ export async function startShellHost(options: ShellHostOptions): Promise<Running
           cwd: message.cwd,
           cols: message.cols,
           rows: message.rows,
-          chunks: [],
-          size: 0,
+          output: new KeptOutput(message.cols, message.rows),
           exit: null,
         };
         sessions.set(session.id, session);
         checkIdle();
         socket.write(encodeLine({ t: "spawned", req: message.req, id: session.id, pid: pty.pid }));
         pty.onData((data) => {
-          keep(session, data);
+          session.output.append(data);
           send({ t: "data", id: session.id, data });
         });
         pty.onExit(({ exitCode, signal }) => {
@@ -198,7 +230,8 @@ export async function startShellHost(options: ShellHostOptions): Promise<Running
               cwd: session.cwd,
               cols: session.cols,
               rows: session.rows,
-              output: session.chunks.join(""),
+              output: session.output.output(),
+              grids: session.output.grids(),
               exit: session.exit,
             })),
           }),
@@ -214,6 +247,7 @@ export async function startShellHost(options: ShellHostOptions): Promise<Running
         if (session === undefined || session.exit !== null) return;
         session.cols = message.cols;
         session.rows = message.rows;
+        session.output.resize(message.cols, message.rows);
         session.pty.resize(message.cols, message.rows);
         return;
       }

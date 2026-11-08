@@ -33,6 +33,13 @@ export interface HostExit {
   readonly signal: number | null;
 }
 
+/** The PTY's grid from offset `at` of a session's `output` on. */
+export interface HostGrid {
+  readonly at: number;
+  readonly cols: number;
+  readonly rows: number;
+}
+
 export interface HostSession {
   readonly id: string;
   readonly pid: number;
@@ -41,6 +48,8 @@ export interface HostSession {
   readonly rows: number;
   /** The output the host kept, oldest first. */
   readonly output: string;
+  /** The grids `output` was printed at, oldest first. A host from before these sends none. */
+  readonly grids?: ReadonlyArray<HostGrid>;
   readonly exit: HostExit | null;
 }
 

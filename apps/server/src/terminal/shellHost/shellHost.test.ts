@@ -11,7 +11,7 @@ import { afterEach, describe, expect, it } from "vite-plus/test";
 import * as Effect from "effect/Effect";
 
 import { HostConnection, type HostPtyProcess, make } from "./client.ts";
-import { startShellHost, type RunningShellHost } from "./host.ts";
+import { KeptOutput, startShellHost, type RunningShellHost } from "./host.ts";
 import { encodeLine, lineReader, shellHostSocketPath } from "./protocol.ts";
 
 const cleanups: Array<() => void> = [];
@@ -67,6 +67,35 @@ const fifo = (dir: string) => {
   return file;
 };
 
+describe("KeptOutput", () => {
+  it("keeps the grid each part of the output was printed at, as the oldest output goes", () => {
+    const kept = new KeptOutput(80, 24, 10);
+    kept.append("abcd");
+    kept.resize(40, 10);
+    // A resize with no output since replaces the one before it.
+    kept.resize(50, 10);
+    kept.append("efgh");
+    kept.resize(60, 12);
+    expect(kept.grids()).toEqual([
+      { at: 0, cols: 80, rows: 24 },
+      { at: 4, cols: 50, rows: 10 },
+      { at: 8, cols: 60, rows: 12 },
+    ]);
+    kept.append("ijklmn");
+    expect(kept.output()).toBe("efghijklmn");
+    expect(kept.grids()).toEqual([
+      { at: 0, cols: 50, rows: 10 },
+      { at: 4, cols: 60, rows: 12 },
+    ]);
+    kept.append("o");
+    expect(kept.output()).toBe("fghijklmno");
+    expect(kept.grids()).toEqual([
+      { at: 0, cols: 50, rows: 10 },
+      { at: 3, cols: 60, rows: 12 },
+    ]);
+  });
+});
+
 describe("shell host", () => {
   it("keeps a shell and its output while no server is connected", async () => {
     const dir = stateDir();
@@ -75,6 +104,9 @@ describe("shell host", () => {
     const first = await connect(dir);
     const shell = await spawnSh(first, dir, `echo ready; cat "${input}"; read line`);
     await outputContains(shell, "", "ready");
+    shell.resize(40, 10);
+    // A reply means the host has taken the resize.
+    await first.list();
     first.close();
 
     // The shell prints while the server is away; the host keeps it.
@@ -85,6 +117,11 @@ describe("shell host", () => {
     expect(taken!.process.pid).toBe(shell.pid);
     await outputContains(taken!.process, taken!.session.output, "printed-while-away");
     expect(taken!.session.output).toContain("ready");
+    // What the shell printed after the resize was laid out at 40 columns.
+    expect(taken!.session.grids).toEqual([
+      { at: 0, cols: 80, rows: 24 },
+      { at: "ready\r\n".length, cols: 40, rows: 10 },
+    ]);
 
     taken!.process.write("done\n");
     expect(await exitOf(taken!.process)).toEqual({ exitCode: 0, signal: null });
