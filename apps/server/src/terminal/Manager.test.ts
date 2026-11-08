@@ -52,6 +52,47 @@ const ghosttyRuntime = await loadGhosttyRuntime();
 const ghosttyEmulator = (cols: number, rows: number) =>
   GhosttyVtTerminal.create(ghosttyRuntime, cols, rows, 1024 * 1024);
 
+const T010_PROMPT = "\x1b]133;A;redraw=1\x07vscode ➜ ~/repo (main) $ echo typed but not run";
+
+/** Opens a terminal at 120 columns and redraws its prompt after each resize, ending at 25. */
+const redrawPromptAcrossResizes = (
+  manager: TerminalManager.TerminalManager["Service"],
+  ptyAdapter: FakePtyAdapter,
+) =>
+  Effect.gen(function* () {
+    const outputs = yield* Queue.unbounded<string>();
+    const unsubscribe = yield* manager.subscribe((event) =>
+      event.type === "output" ? Queue.offer(outputs, event.data).pipe(Effect.asVoid) : Effect.void,
+    );
+    yield* manager.open(openInput({ cols: 120, rows: 10 }));
+    const process = ptyAdapter.processes.at(-1)!;
+    process.emitData(T010_PROMPT);
+    yield* Queue.take(outputs);
+    for (const cols of [100, 120, 110, 25]) {
+      yield* manager.resize({
+        threadId: "thread-1",
+        terminalId: DEFAULT_TERMINAL_ID,
+        cols,
+        rows: 10,
+      });
+      process.emitData(`\r\r\x1b[0m\x1b[27m\x1b[24m\x1b[J${T010_PROMPT}`);
+      yield* Queue.take(outputs);
+    }
+    unsubscribe();
+  });
+
+/** How many prompts and copies of the typed text `history` shows, replayed at `cols` × `rows`. */
+const promptCopies = (history: string, cols: number, rows: number) => {
+  const replay = ghosttyEmulator(cols, rows);
+  replay.write(history);
+  const screen = replay.format("plain").replaceAll("\n", "");
+  replay.dispose();
+  return {
+    prompts: screen.split("vscode ➜").length - 1,
+    typed: screen.split("typed but not run").length - 1,
+  };
+};
+
 class FakePtyProcess implements PtyAdapter.PtyProcess {
   readonly writes: string[] = [];
   onWrite: (() => void) | undefined;
@@ -880,38 +921,32 @@ it.layer(
   it.effect("sends a snapshot that replays one prompt after redraws at wider grids", () =>
     Effect.gen(function* () {
       const { manager, ptyAdapter } = yield* createManager(5, { createEmulator: ghosttyEmulator });
-      const outputs = yield* Queue.unbounded<string>();
-      const unsubscribe = yield* manager.subscribe((event) =>
-        event.type === "output"
-          ? Queue.offer(outputs, event.data).pipe(Effect.asVoid)
-          : Effect.void,
-      );
-      yield* Effect.addFinalizer(() => Effect.sync(unsubscribe));
-      const prompt = "\x1b]133;A;redraw=1\x07vscode ➜ ~/repo (main) $ echo typed but not run";
-      const redraw = `\r\r\x1b[0m\x1b[27m\x1b[24m\x1b[J${prompt}`;
-      yield* manager.open(openInput({ cols: 120, rows: 10 }));
-      const process = ptyAdapter.processes[0]!;
-      process.emitData(prompt);
-      yield* Queue.take(outputs);
-      for (const cols of [100, 120, 110, 25]) {
-        yield* manager.resize({
-          threadId: "thread-1",
-          terminalId: DEFAULT_TERMINAL_ID,
-          cols,
-          rows: 10,
-        });
-        process.emitData(redraw);
-        yield* Queue.take(outputs);
-      }
-
+      yield* redrawPromptAcrossResizes(manager, ptyAdapter);
       const snapshot = yield* manager.open(openInput({ cols: 25, rows: 10 }));
       expect({ cols: snapshot.cols, rows: snapshot.rows }).toEqual({ cols: 25, rows: 10 });
-      const replay = ghosttyEmulator(25, 10);
-      replay.write(snapshot.history);
-      const screen = replay.format("plain").replaceAll("\n", "");
+      expect(promptCopies(snapshot.history, 25, 10)).toEqual({ prompts: 1, typed: 1 });
+    }).pipe(Effect.scoped),
+  );
+
+  it.effect("saves the snapshot with its grid, and reflows it when reopened at another", () =>
+    Effect.gen(function* () {
+      const { manager, ptyAdapter, logsDir } = yield* createManager(100, {
+        createEmulator: ghosttyEmulator,
+      });
+      yield* redrawPromptAcrossResizes(manager, ptyAdapter);
+      yield* manager.close({ threadId: "thread-1" });
+      const reopened = yield* manager.open(openInput({ cols: 40, rows: 6 }));
+      expect(promptCopies(reopened.history, 40, 6)).toEqual({ prompts: 1, typed: 1 });
+
+      // A file saved before snapshots holds raw output and loads as it did.
+      yield* manager.close({ threadId: "thread-1" });
+      const fs = yield* FileSystem.FileSystem;
+      yield* fs.writeFileString(yield* historyLogPath(logsDir), "raw line\r\n$ ");
+      const raw = yield* manager.open(openInput({ cols: 40, rows: 6 }));
+      const replay = ghosttyEmulator(40, 6);
+      replay.write(raw.history);
+      expect(replay.format("plain")).toContain("raw line\n$");
       replay.dispose();
-      expect(screen.split("vscode ➜").length - 1).toBe(1);
-      expect(screen.split("typed but not run").length - 1).toBe(1);
     }).pipe(Effect.scoped),
   );
 

@@ -337,7 +337,7 @@ interface TerminalViewer {
 }
 
 interface PersistHistoryRequest {
-  history: BoundedTerminalHistory;
+  session: TerminalSessionState;
   immediate: boolean;
 }
 
@@ -352,7 +352,7 @@ type DrainProcessEventAction =
       threadId: string;
       terminalId: string;
       sequence: number;
-      history: BoundedTerminalHistory | null;
+      persist: boolean;
       data: string;
     }
   | {
@@ -1057,6 +1057,12 @@ export class BoundedTerminalHistory {
   }
 }
 
+// A saved snapshot ends with the grid it was formatted at, so a later session can reflow it. At the
+// end, it survives the tail read and the line cap, which trim from the start. Files saved before
+// snapshots have none and hold raw output.
+const SNAPSHOT_GRID = /\u001b\]5379;grid=(\d+)x(\d+)\u0007$/;
+const snapshotGrid = (cols: number, rows: number) => `\u001b]5379;grid=${cols}x${rows}\u0007`;
+
 // Pop beyond Ghostty's eight-entry Kitty stacks on both screens before clearing
 // flags. A 1049 round trip preserves the main cursor, text, and scrollback.
 const INHERITED_INPUT_RESET =
@@ -1638,12 +1644,40 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
   };
   // The emulator's screen replays the same at any later grid; raw history keeps every redraw that
   // a shell printed at an older width, and those pile up when replayed narrower (PRB.T-010).
-  const snapshot = (session: TerminalSessionState) => {
-    let history: string | undefined;
+  const formatScreen = (session: TerminalSessionState) => {
+    let screen: string | undefined;
     useEmulator(session, (emulator) => {
-      history = emulator.format("vt");
+      screen = emulator.format("vt");
     });
-    return sessionSnapshot(session, history ?? session.history.value());
+    return screen;
+  };
+  const snapshot = (session: TerminalSessionState) =>
+    sessionSnapshot(session, formatScreen(session) ?? session.history.value());
+  const savedHistory = (session: TerminalSessionState) => {
+    const screen = formatScreen(session);
+    return screen === undefined
+      ? session.history.value()
+      : screen + snapshotGrid(session.cols, session.rows);
+  };
+  /** A saved snapshot, replayed at its own grid and reflowed to `cols` × `rows`. */
+  const restoreSavedHistory = (saved: string, cols: number, rows: number) => {
+    const grid = SNAPSHOT_GRID.exec(saved);
+    if (!grid) return saved;
+    const screen = saved.slice(0, grid.index);
+    if (!createEmulator) return screen;
+    let emulator: GhosttyVtTerminal | undefined;
+    try {
+      emulator = createEmulator(Number(grid[1]), Number(grid[2]));
+      emulator.write(screen);
+      emulator.resize(cols, rows);
+      return emulator.format("vt");
+    } catch {
+      return screen;
+    } finally {
+      try {
+        emulator?.dispose();
+      } catch {}
+    }
   };
   const platform = yield* HostProcess.Platform;
   const architecture = yield* HostProcess.Architecture;
@@ -2015,7 +2049,7 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
     never
   >({
     merge: (current, next) => ({
-      history: next.history,
+      session: next.session,
       immediate: current.immediate || next.immediate,
     }),
     process: Effect.fn("terminal.persistHistoryWorker")(function* (sessionKey, request) {
@@ -2029,7 +2063,7 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
       }
 
       yield* fileSystem
-        .writeFileString(historyPath(threadId, terminalId), request.history.value())
+        .writeFileString(historyPath(threadId, terminalId), savedHistory(request.session))
         .pipe(
           Effect.catch((error) =>
             Effect.logWarning("failed to persist terminal history", {
@@ -2043,12 +2077,10 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
   });
 
   const queuePersist = Effect.fn("terminal.queuePersist")(function* (
-    threadId: string,
-    terminalId: string,
-    history: BoundedTerminalHistory,
+    session: TerminalSessionState,
   ) {
-    yield* persistWorker.enqueue(toSessionKey(threadId, terminalId), {
-      history,
+    yield* persistWorker.enqueue(toSessionKey(session.threadId, session.terminalId), {
+      session,
       immediate: false,
     });
   });
@@ -2061,15 +2093,13 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
   });
 
   const persistHistory = Effect.fn("terminal.persistHistory")(function* (
-    threadId: string,
-    terminalId: string,
-    history: BoundedTerminalHistory,
+    session: TerminalSessionState,
   ) {
-    yield* persistWorker.enqueue(toSessionKey(threadId, terminalId), {
-      history,
+    yield* persistWorker.enqueue(toSessionKey(session.threadId, session.terminalId), {
+      session,
       immediate: true,
     });
-    yield* flushPersist(threadId, terminalId);
+    yield* flushPersist(session.threadId, session.terminalId);
   });
 
   const readHistoryTail = Effect.fn("terminal.readHistoryTail")(function* (filePath: string) {
@@ -2347,7 +2377,7 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
             threadId: session.threadId,
             terminalId: session.terminalId,
             sequence: eventStamp.sequence,
-            history: sanitized.visibleText.length > 0 ? session.history : null,
+            persist: sanitized.visibleText.length > 0,
             data: nextEvent.data,
           } as const;
         }
@@ -2387,9 +2417,7 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
       }
 
       if (action.type === "output") {
-        if (action.history !== null) {
-          yield* queuePersist(action.threadId, action.terminalId, action.history);
-        }
+        if (action.persist) yield* queuePersist(session);
 
         yield* publishEvent({
           type: "output",
@@ -2721,7 +2749,7 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
     if (Option.isSome(session)) {
       yield* stopProcess(session.value);
       yield* unregisterTerminal({ threadId, terminalId });
-      yield* persistHistory(threadId, terminalId, session.value.history);
+      yield* persistHistory(session.value);
     }
 
     yield* flushPersist(threadId, terminalId);
@@ -2963,7 +2991,7 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
         // A shell in the shell host keeps running for the next server, with its history saved.
         if (session.process.detach !== undefined) {
           session.process.detach();
-          yield* persistHistory(session.threadId, session.terminalId, session.history);
+          yield* persistHistory(session);
           return;
         }
         yield* clearKillFiber(session.process);
@@ -2990,17 +3018,17 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
     if (Option.isNone(existing)) {
       yield* flushPersist(input.threadId, terminalId);
       const inherited = yield* readHistory(input.threadId, terminalId);
+      const cols = input.cols ?? DEFAULT_OPEN_COLS;
+      const rows = input.rows ?? DEFAULT_OPEN_ROWS;
       const history = new BoundedTerminalHistory(
         historyLineLimit,
         neutralizeInheritedHistory(
-          inherited.value(),
+          restoreSavedHistory(inherited.value(), cols, rows),
           historyLineLimit,
           Math.min(historyByteLimit, DEFAULT_MAX_TERMINAL_BUFFER_BYTES),
         ),
         historyByteLimit,
       );
-      const cols = input.cols ?? DEFAULT_OPEN_COLS;
-      const rows = input.rows ?? DEFAULT_OPEN_ROWS;
       const session: TerminalSessionState = {
         threadId: input.threadId,
         terminalId,
@@ -3076,7 +3104,7 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
       liveSession.pendingProcessEvents = [];
       liveSession.pendingProcessEventIndex = 0;
       liveSession.processEventDrainRunning = false;
-      yield* persistHistory(liveSession.threadId, liveSession.terminalId, liveSession.history);
+      yield* persistHistory(liveSession);
     } else if (liveSession.status === "exited" || liveSession.status === "error") {
       liveSession.runtimeEnv = nextRuntimeEnv;
       liveSession.worktreePath = nextWorktreePath;
@@ -3086,7 +3114,7 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
       liveSession.pendingProcessEvents = [];
       liveSession.pendingProcessEventIndex = 0;
       liveSession.processEventDrainRunning = false;
-      yield* persistHistory(liveSession.threadId, liveSession.terminalId, liveSession.history);
+      yield* persistHistory(liveSession);
     }
 
     if (!liveSession.process) {
@@ -3163,7 +3191,7 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
           "started",
           input.process,
         );
-        yield* persistHistory(session.threadId, session.terminalId, session.history);
+        yield* persistHistory(session);
         return snapshot(session);
       }),
     );
@@ -3589,7 +3617,7 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
         session.pendingProcessEventIndex = 0;
         session.processEventDrainRunning = false;
         const eventStamp = advanceEventSequence(session);
-        yield* persistHistory(input.threadId, terminalId, session.history);
+        yield* persistHistory(session);
         yield* publishEvent({
           type: "cleared",
           threadId: input.threadId,
