@@ -137,12 +137,25 @@ the control shows 1.
 - Known limit: a snapshot over the client's 512 KiB buffer is trimmed from the start, as raw
   history is today, which drops the modes and palette the formatter writes first.
 
+**Web remount: done (2026-11-08).** The attach stream outlives a viewport by its 5-minute idle
+TTL, so a viewport that mounted again replayed the client buffer: the last snapshot plus every
+redraw since. After a resize and a client-side navigation away and back, `DBG-T010` showed 5
+copies. The buffer now marks a grid change after it holds output (`gridChangedSinceSnapshot` in
+`packages/client-runtime/src/state/terminalSession.ts`), and a web viewport that mounts with
+`needsFreshSnapshot` refreshes its session atom, which restarts the attach or observe stream
+under it. The remount now shows 1 copy. Ended shells are not reattached, since a fresh attach can
+start one again.
+
 ## Next
 
-Phase D: a viewport that remounts replays the client's buffer at the current grid. When the grid
-changed since the snapshot, it should reattach for a fresh snapshot instead. First find which
-navigations remount (the `viewport:initial` probe), then mark the grid change in
-`packages/client-runtime/src/state/terminalSession.ts`.
+- **Mobile is not done.** It replays the same buffer (`terminalOutputWriter.ts`), so a remount
+  after a grid change should hit the same copies. `needsFreshSnapshot` is shared; the screen in
+  `ThreadTerminalRouteScreen.tsx` still has to refresh its attach atom on mount and keep the
+  native view from writing the stale buffer first. Needs a device to verify.
+- Then Phase E: final `DBG-T010` runs, remove the probes and the scenario, `check:changed`,
+  `docs/internals/terminal-runtime.md`, and a manual pass on web and desktop.
+
+`DBG_REMOUNT=1` runs the navigate-away-and-back variant of `DBG-T010`.
 
 The probes and the `DBG-T010` scenario are not committed; they sit uncommitted in the
 `prb-t-010-terminal-duplicate-text` worktree. There, `node scripts/scenarios/run.ts --rebuild --only
