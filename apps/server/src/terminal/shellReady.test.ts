@@ -147,7 +147,13 @@ describe("shell ready launch", () => {
 });
 
 /** Runs `shell` under a pty with the wrapper, types `line` at the mark, and returns what it printed. */
-const runUnderWrapper = (shell: "zsh" | "bash", home: string, extraEnv: Record<string, string>) =>
+const runUnderWrapper = (
+  shell: "zsh" | "bash",
+  home: string,
+  extraEnv: Record<string, string>,
+  /** Typed at the mark without Enter, then the pty narrows; the result waits for the redraw. */
+  typedBeforeResize?: string,
+) =>
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
     const path = yield* Path.Path;
@@ -165,7 +171,11 @@ const runUnderWrapper = (shell: "zsh" | "bash", home: string, extraEnv: Record<s
     const pty = yield* Effect.promise(() => import("node-pty"));
     return yield* Effect.promise(
       () =>
-        new Promise<{ readonly output: string; readonly markAt: number }>((resolve) => {
+        new Promise<{
+          readonly output: string;
+          readonly markAt: number;
+          readonly resizedAt: number;
+        }>((resolve) => {
           const proc = pty.spawn(shell, [...plan!.args], {
             name: "xterm-256color",
             cols: 100,
@@ -176,15 +186,30 @@ const runUnderWrapper = (shell: "zsh" | "bash", home: string, extraEnv: Record<s
           const scanner = makeReadyScanner();
           let output = "";
           let markAt = -1;
+          let resizedAt = -1;
+          const report = () =>
+            proc.write('printf \'RESULT[%s][%s]\\n\' "$PROBE_TEST_USER_RC" "${ZDOTDIR-unset}"\r');
           proc.onData((data) => {
             output += data;
             if (markAt < 0 && scanner.feed(data)) {
               markAt = output.length;
-              proc.write('printf \'RESULT[%s][%s]\\n\' "$PROBE_TEST_USER_RC" "${ZDOTDIR-unset}"\r');
+              if (typedBeforeResize === undefined) report();
+              else proc.write(typedBeforeResize);
+            }
+            if (typedBeforeResize !== undefined && markAt >= 0) {
+              if (resizedAt < 0 && output.endsWith(typedBeforeResize)) {
+                resizedAt = output.length;
+                proc.resize(40, 30);
+              } else if (resizedAt >= 0 && output.slice(resizedAt).endsWith(typedBeforeResize)) {
+                // The redraw is in; clear the typed line so the report runs alone.
+                typedBeforeResize = undefined;
+                proc.write("\u0015");
+                report();
+              }
             }
             if (markAt >= 0 && /RESULT\[(?!%s)[^\]]*\]\[[^\]]*\]/.test(output)) {
               proc.kill();
-              resolve({ output, markAt });
+              resolve({ output, markAt, resizedAt });
             }
           });
         }),
@@ -215,6 +240,26 @@ describe("shell ready wrapper in a real shell", () => {
         // The user's .zshenv and .zshrc both ran, and ZDOTDIR is the user's again for the session.
         assert.include(result.output, `RESULT[env+rc][${custom}]`);
       }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
+  );
+
+  zsh("zsh signals input start after the prompt, with no prompt-start mark after it", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const home = yield* fs.makeTempDirectoryScoped({ prefix: "probe-home-" });
+      // A theme that sets its prompt from precmd, after the wrapper's files were read.
+      yield* fs.writeFileString(
+        `${home}/.zshrc`,
+        "export PROBE_TEST_USER_RC=rc\nprobe_theme() { PS1='zp> ' }\nprecmd_functions+=(probe_theme)\n",
+      );
+      const result = yield* runUnderWrapper("zsh", home, {}, "echo typed");
+      const first = result.output.slice(0, result.markAt);
+      const promptAt = first.lastIndexOf("zp> ");
+      assert.isAbove(promptAt, 0);
+      // Ghostty starts a fresh line at a prompt-start mark, so one after the prompt splits the line.
+      assert.notInclude(first.slice(promptAt), "\u001b]133;A");
+      assert.include(first.slice(promptAt), INPUT_MARK, "input starts after the prompt");
+      assert.include(result.output, "RESULT[rc][unset]");
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
   );
 
   zsh("zsh without a ZDOTDIR leaves it unset", () =>

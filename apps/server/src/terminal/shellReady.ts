@@ -85,7 +85,7 @@ ZDOTDIR="$__probe_dir"
 `,
   ".zshrc": `ZDOTDIR="\${PROBE_ORIG_ZDOTDIR:-$HOME}"
 [[ -r "$ZDOTDIR/.zshrc" ]] && source "$ZDOTDIR/.zshrc"
-__probe_ready() { printf '\\033]133;A\\a' }
+__probe_ready() { printf '\\033]133;B\\a' }
 if autoload -Uz add-zle-hook-widget 2>/dev/null; then
   add-zle-hook-widget line-init __probe_ready
 else
