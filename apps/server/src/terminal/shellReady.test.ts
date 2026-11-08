@@ -20,6 +20,7 @@ import {
 } from "./shellReady.ts";
 
 const MARK = "\u001b]133;A\u0007";
+const INPUT_MARK = "\u001b]133;B\u0007";
 
 /** Feeds `chunks` to a fresh scanner and returns the chunk indexes that completed a mark. */
 const hits = (chunks: ReadonlyArray<string>) => {
@@ -36,6 +37,18 @@ describe("ready scanner", () => {
     assert.deepStrictEqual(hits(["\u001b]133;A;cl=m;aid=1\u0007"]), [0]);
   });
 
+  it("finds the input-start mark, alone, after a prompt, or split", () => {
+    assert.deepStrictEqual(hits([INPUT_MARK]), [0]);
+    assert.deepStrictEqual(hits([`vscode $ ${INPUT_MARK}`]), [0]);
+    for (let cut = 1; cut < 7; cut += 1) {
+      assert.deepStrictEqual(
+        hits([INPUT_MARK.slice(0, cut), INPUT_MARK.slice(cut)]),
+        [1],
+        `cut at ${cut}`,
+      );
+    }
+  });
+
   it("finds a mark split at any byte boundary", () => {
     // The mark's prefix is its first 7 characters; a cut after them leaves only the terminator.
     for (let cut = 1; cut < 7; cut += 1) {
@@ -45,7 +58,7 @@ describe("ready scanner", () => {
   });
 
   it("ignores output that only looks like the mark", () => {
-    assert.deepStrictEqual(hits(["\u001b]133;B\u0007"]), []);
+    assert.deepStrictEqual(hits(["\u001b]133;C\u0007"]), []);
     assert.deepStrictEqual(hits(["\u001b]13;A\u0007"]), []);
     assert.deepStrictEqual(hits(["133;A"]), []);
     assert.deepStrictEqual(hits(["\u001b]133", "plain text", ";A"]), []);

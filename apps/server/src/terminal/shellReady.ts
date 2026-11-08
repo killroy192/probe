@@ -4,29 +4,31 @@ import * as FileSystem from "effect/FileSystem";
 import * as Option from "effect/Option";
 import * as Stream from "effect/Stream";
 
-/** What a shell prints when its prompt starts: OSC 133;A, the FinalTerm semantic-prompt mark. */
-const PROMPT_START = "\u001b]133;A";
+/** The FinalTerm semantic-prompt marks, OSC 133, up to the letter that names the mark. */
+const SEMANTIC_PROMPT = "\u001b]133;";
+/** Marks that mean the shell is ready: A (prompt start) and B (input start). */
+const READY_MARKS = new Set(["A", "B"]);
 
 export interface ReadyScanner {
   /** Whether this chunk completes the mark; a mark may be split across chunks. */
   readonly feed: (chunk: string) => boolean;
 }
 
-/** Finds the first prompt mark in a shell's output; it matches the prefix, so parameters may follow. */
+/** Finds the first ready mark in a shell's output; it matches the prefix, so parameters may follow. */
 export function makeReadyScanner(): ReadyScanner {
   let matched = 0;
   return {
     feed: (chunk) => {
       for (const char of chunk) {
-        if (char === PROMPT_START[matched]) {
+        if (matched === SEMANTIC_PROMPT.length) {
+          matched = 0;
+          if (READY_MARKS.has(char)) return true;
+        }
+        if (char === SEMANTIC_PROMPT[matched]) {
           matched += 1;
-          if (matched === PROMPT_START.length) {
-            matched = 0;
-            return true;
-          }
         } else {
           // An ESC always starts a new attempt; anything else cannot be part of one.
-          matched = char === PROMPT_START[0] ? 1 : 0;
+          matched = char === SEMANTIC_PROMPT[0] ? 1 : 0;
         }
       }
       return false;
