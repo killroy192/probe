@@ -5,7 +5,7 @@ parent: PRB.E-001
 phase: 1
 labels: [terminal-first, debug]
 created: 2026-11-07
-updated: 2026-11-07
+updated: 2026-11-08
 ---
 
 # Terminal text duplicates, triples or multiplies
