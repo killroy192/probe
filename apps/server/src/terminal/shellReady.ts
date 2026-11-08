@@ -103,8 +103,9 @@ unset __probe_dir
 } as const;
 
 // bash prints PS1 after readline has put the terminal in raw mode, so the mark rides on the end of
-// PS1. A PROMPT_COMMAND runs before that point and would let typed input be echoed twice. The
-// user's PROMPT_COMMAND may change PS1 later, so the hook adds the mark again when it is gone.
+// PS1. A PROMPT_COMMAND runs before that point and would let typed input be echoed twice. The hook
+// runs after the user's PROMPT_COMMAND, which prompt themes use to rebuild PS1 before every prompt,
+// and adds the marks again when they are gone.
 const BASHRC = `[ -r "$HOME/.bashrc" ] && . "$HOME/.bashrc"
 __probe_ready() {
   case "$PS1" in *'133;A'*) ;; *) PS1="\\[\\033]133;A;redraw=1\\a\\]\${PS1}" ;; esac
@@ -113,7 +114,7 @@ __probe_ready() {
 if [[ "$(declare -p PROMPT_COMMAND 2>/dev/null)" == "declare -a"* ]]; then
   PROMPT_COMMAND+=(__probe_ready)
 else
-  PROMPT_COMMAND="__probe_ready\${PROMPT_COMMAND:+;$PROMPT_COMMAND}"
+  PROMPT_COMMAND="\${PROMPT_COMMAND:+$PROMPT_COMMAND;}__probe_ready"
 fi
 `;
 

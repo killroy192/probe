@@ -161,8 +161,9 @@ const runUnderWrapper = (
     const plan = shellReadyLaunch({ shell, platform: "linux", dir, env });
     assert.isNotNull(plan);
     const pty = yield* Effect.promise(() => import("node-pty"));
+    let seen = "";
     return yield* Effect.promise(
-      () =>
+      (signal) =>
         new Promise<{
           readonly output: string;
           readonly markAt: number;
@@ -175,6 +176,7 @@ const runUnderWrapper = (
             cwd: path.resolve(home),
             env: { ...env, ...plan!.env } as Record<string, string>,
           });
+          signal.addEventListener("abort", () => proc.kill());
           const scanner = makeReadyScanner();
           let output = "";
           let markAt = -1;
@@ -183,6 +185,7 @@ const runUnderWrapper = (
             proc.write('printf \'RESULT[%s][%s]\\n\' "$PROBE_TEST_USER_RC" "${ZDOTDIR-unset}"\r');
           proc.onData((data) => {
             output += data;
+            seen = output;
             if (markAt < 0 && scanner.feed(data)) {
               markAt = output.length;
               if (typedBeforeResize === undefined) report();
@@ -205,6 +208,13 @@ const runUnderWrapper = (
             }
           });
         }),
+    ).pipe(
+      // A shell that never prints the mark fails here with its output, instead of hanging.
+      Effect.timeoutOrElse({
+        duration: "10 seconds",
+        orElse: () =>
+          Effect.die(new Error(`no ready mark; the shell printed ${JSON.stringify(seen)}`)),
+      }),
     );
   }).pipe(Effect.scoped, Effect.provide(NodeServices.layer));
 
@@ -269,25 +279,35 @@ describe("shell ready wrapper in a real shell", () => {
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
   );
 
-  bash("bash marks prompt start before its prompt and input start after it", () =>
-    Effect.gen(function* () {
-      const fs = yield* FileSystem.FileSystem;
-      const home = yield* fs.makeTempDirectoryScoped({ prefix: "probe-home-" });
-      yield* fs.writeFileString(`${home}/.bashrc`, "export PROBE_TEST_USER_RC=rc\nPS1='bp> '\n");
-      const result = yield* runUnderWrapper("bash", home, {}, "echo typed");
-      const first = result.output.slice(0, result.markAt);
-      const promptAt = first.lastIndexOf("bp> ");
-      assert.isAbove(promptAt, 0);
-      assert.notInclude(first.slice(promptAt), "\u001b]133;A");
-      assert.include(first.slice(promptAt), MARK, "input starts after the prompt");
-      // The prompt-start mark leads the prompt, and the redraw after the resize prints it again.
-      assert.isTrue(first.slice(0, promptAt).endsWith(PROMPT_MARK), "mark right before the prompt");
-      const redraw = result.output.slice(result.resizedAt);
-      assert.isAbove(redraw.indexOf("bp> "), redraw.indexOf(PROMPT_MARK));
-      assert.isAtLeast(redraw.indexOf(PROMPT_MARK), 0);
-      assert.include(result.output, "RESULT[rc][unset]");
-    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
-  );
+  // Prompt themes (starship, oh-my-bash) rebuild PS1 from PROMPT_COMMAND before every prompt.
+  for (const [setup, rc] of [
+    ["a fixed PS1", "PS1='bp> '"],
+    ["PS1 rebuilt by a PROMPT_COMMAND string", "PROMPT_COMMAND='PS1=\"bp> \"'"],
+    ["PS1 rebuilt by a PROMPT_COMMAND array", "PROMPT_COMMAND=('PS1=\"bp> \"')"],
+  ] as const) {
+    bash(`bash marks prompt start before its prompt and input start after it, with ${setup}`, () =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const home = yield* fs.makeTempDirectoryScoped({ prefix: "probe-home-" });
+        yield* fs.writeFileString(`${home}/.bashrc`, `export PROBE_TEST_USER_RC=rc\n${rc}\n`);
+        const result = yield* runUnderWrapper("bash", home, {}, "echo typed");
+        const first = result.output.slice(0, result.markAt);
+        const promptAt = first.lastIndexOf("bp> ");
+        assert.isAbove(promptAt, 0);
+        assert.notInclude(first.slice(promptAt), "\u001b]133;A");
+        assert.include(first.slice(promptAt), MARK, "input starts after the prompt");
+        // The prompt-start mark leads the prompt, and the redraw after the resize prints it again.
+        assert.isTrue(
+          first.slice(0, promptAt).endsWith(PROMPT_MARK),
+          "mark right before the prompt",
+        );
+        const redraw = result.output.slice(result.resizedAt);
+        assert.isAbove(redraw.indexOf("bp> "), redraw.indexOf(PROMPT_MARK));
+        assert.isAtLeast(redraw.indexOf(PROMPT_MARK), 0);
+        assert.include(result.output, "RESULT[rc][unset]");
+      }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
+    );
+  }
 
   bash("bash runs the user's .bashrc and prints the mark", () =>
     Effect.gen(function* () {
