@@ -120,4 +120,5 @@ cp "${build_root}/bin/ghostty-vt.wasm" "${VENDOR_DIR}/ghostty-vt.wasm"
   -rdynamic \
   -femit-bin="${VENDOR_DIR}/ghostty-write-pty.wasm"
 chmod 0644 "${VENDOR_DIR}/ghostty-write-pty.wasm"
+node "${PACKAGE_DIR}/scripts/embed-wasm.ts"
 log "wrote ${VENDOR_DIR}/ghostty-vt.wasm"

@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import { GHOSTTY_VENDOR_DIR, loadGhosttyRuntimeFrom } from "./node.ts";
+import { loadGhosttyRuntime } from "./node.ts";
 import { GhosttyVtTerminal } from "./terminal.ts";
 
-const runtime = await loadGhosttyRuntimeFrom(GHOSTTY_VENDOR_DIR);
+const runtime = await loadGhosttyRuntime();
 const SCROLLBACK = 1024 * 1024;
 
 const terminal = (cols: number, rows: number) =>

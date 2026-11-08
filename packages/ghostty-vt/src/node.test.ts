@@ -1,10 +1,24 @@
+// @effect-diagnostics nodeBuiltinImport:off - Compares the embedded wasm with the vendored files.
+import * as NodeFS from "node:fs";
+
 import { describe, expect, it } from "vite-plus/test";
 
-import { GHOSTTY_VENDOR_DIR, loadGhosttyRuntimeFrom } from "./node.ts";
+import { decodeEmbeddedWasm, loadGhosttyRuntime } from "./node.ts";
+
+const vendored = (file: string) =>
+  new Uint8Array(NodeFS.readFileSync(new URL(`../vendor/${file}`, import.meta.url)));
 
 describe("loading libghostty-vt in Node", () => {
-  it("instantiates from the package's wasm folder and runs a terminal", async () => {
-    const runtime = await loadGhosttyRuntimeFrom(GHOSTTY_VENDOR_DIR);
+  // Fails when the wasm was rebuilt without regenerating src/embeddedWasm.generated.ts.
+  it("embeds the vendored wasm files byte for byte", () => {
+    const embedded = decodeEmbeddedWasm();
+    expect(embedded.wasm).toEqual(vendored("ghostty-vt.wasm"));
+    expect(embedded.writePtyWasm).toEqual(vendored("ghostty-write-pty.wasm"));
+  });
+
+  it("instantiates the embedded runtime once and runs a terminal", async () => {
+    const runtime = await loadGhosttyRuntime();
+    expect(await loadGhosttyRuntime()).toBe(runtime);
     const optionsSize = runtime.layout("GhosttyTerminalOptions").size;
     const options = runtime.alloc(optionsSize);
     runtime.setField(options, "GhosttyTerminalOptions", "cols", 20);
@@ -20,11 +34,5 @@ describe("loading libghostty-vt in Node", () => {
     runtime.free(pointer, text.length);
     runtime.call("ghostty_terminal_free", terminal);
     runtime.freeOpaque(slot);
-  });
-
-  it("names the folder when the wasm files are not there", async () => {
-    await expect(loadGhosttyRuntimeFrom("/nonexistent/ghostty-vt")).rejects.toThrow(
-      "/nonexistent/ghostty-vt",
-    );
   });
 });

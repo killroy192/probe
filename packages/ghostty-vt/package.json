@@ -20,6 +20,7 @@
   },
   "scripts": {
     "build:wasm": "bash scripts/build-wasm.sh",
+    "embed:wasm": "node scripts/embed-wasm.ts",
     "typecheck": "tsc --noEmit",
     "test": "vp test run --config ../../vite.config.ts --dir ."
   },
