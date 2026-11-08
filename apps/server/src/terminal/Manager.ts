@@ -70,6 +70,7 @@ import * as ServerSettings from "../serverSettings.ts";
 import { increment, terminalSessionsTotal } from "../observability/Metrics.ts";
 import { expandHomePath } from "@t3tools/provider-core/server/pathExpansion";
 import * as ProcessRunner from "../processRunner.ts";
+import { shellReadyLaunch, writeShellReadyFiles } from "./shellReady.ts";
 import * as PortScanner from "../preview/PortScanner.ts";
 import * as NativeTelemetryClient from "../resourceTelemetry/NativeTelemetryClient.ts";
 import { terminalOutputStream } from "./OutputProtocol.ts";
@@ -211,6 +212,9 @@ export class TerminalManager extends Context.Service<
      * kept as the session's history. Nothing is spawned.
      */
     readonly adopt: (input: TerminalAdoptInput) => Effect.Effect<TerminalSessionSnapshot>;
+
+    /** Whether the terminal's shell was started to print a prompt mark; see shellReady.ts. */
+    readonly printsPromptMark: (threadId: string, terminalId: string) => Effect.Effect<boolean>;
 
     /** Whether this server holds a session for the terminal, running or ended. */
     readonly has: (threadId: string, terminalId: string) => Effect.Effect<boolean>;
@@ -1440,6 +1444,8 @@ interface TerminalManagerOptions {
   ptyAdapter: PtyAdapter.PtyAdapter["Service"];
   /** Spawns shells (`shell:` owners) where they outlive the server; thread terminals never. */
   shellPtyAdapter?: PtyAdapter.PtyAdapter["Service"] | undefined;
+  /** Holds the wrapper files that make zsh and bash print a mark at their prompt; see shellReady.ts. */
+  shellReadyDir?: string | undefined;
   shellResolver?: () => string;
   env?: NodeJS.ProcessEnv;
   managedBinaryCacheDir?: string;
@@ -1513,13 +1519,24 @@ export const resolveProviderInstanceTerminalEnvironment = Effect.fn(
 
 /** @public */
 export const make = Effect.fn("TerminalManager.make")(function* () {
-  const { terminalLogsDir, providerStatusCacheDir, baseDir } = yield* ServerConfig.ServerConfig;
+  const { terminalLogsDir, providerStatusCacheDir, baseDir, stateDir } =
+    yield* ServerConfig.ServerConfig;
   const ptyAdapter = yield* PtyAdapter.PtyAdapter;
   const shellHost = yield* Effect.serviceOption(ShellHost);
   const portDiscovery = yield* PortScanner.PortDiscovery;
   const nativeTelemetry = yield* NativeTelemetryClient.NativeTelemetryClient;
   const serverSettings = yield* ServerSettings.ServerSettingsService;
   const path = yield* Path.Path;
+  const readyDir = path.join(stateDir, "shell-ready");
+  // Without the wrapper files shells start as they are, and the agent command is typed at once.
+  const shellReadyDir = yield* writeShellReadyFiles(readyDir).pipe(
+    Effect.as(readyDir),
+    Effect.catch((error) =>
+      Effect.logWarning("shells start without the ready wrapper", { reason: error.message }).pipe(
+        Effect.as(undefined),
+      ),
+    ),
+  );
   const resolveProviderInstanceEnvironment = Effect.fn(
     "terminal.resolveProviderInstanceEnvironment",
   )((rawProviderInstanceId: string, env: Record<string, string> | undefined) =>
@@ -1534,6 +1551,7 @@ export const make = Effect.fn("TerminalManager.make")(function* () {
     logsDir: terminalLogsDir,
     ptyAdapter,
     shellPtyAdapter: Option.isSome(shellHost) ? shellHost.value.adapter : undefined,
+    shellReadyDir,
     processTable: nativeTelemetry.processTable.pipe(
       Effect.mapError(
         (cause) => new TerminalSubprocessCheckError({ cause, command: "resource-monitor" }),
@@ -2355,6 +2373,9 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
     yield* evictInactiveSessionsIfNeeded();
   });
 
+  // Kept by process, so a restart or a close needs no cleanup here.
+  const wrappedProcesses = new WeakSet<PtyAdapter.PtyProcess>();
+
   const trySpawn = Effect.fn("terminal.trySpawn")(function* (
     shellCandidates: ReadonlyArray<ShellCandidate>,
     spawnEnv: NodeJS.ProcessEnv,
@@ -2384,11 +2405,21 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
       );
     }
 
+    const ready =
+      options.shellReadyDir !== undefined && isShellOwnerId(session.threadId)
+        ? shellReadyLaunch({
+            shell: candidate.shell,
+            platform,
+            dir: options.shellReadyDir,
+            env: spawnEnv,
+          })
+        : null;
+    const launchEnv = ready === null ? spawnEnv : { ...spawnEnv, ...ready.env };
     const launch = yield* agentScope.wrap({
       command: candidate.shell,
-      args: candidate.args ?? [],
+      args: [...(ready?.args ?? []), ...(candidate.args ?? [])],
       name: "terminal",
-      env: spawnEnv,
+      env: launchEnv,
       survivesRestart: true,
     });
     const adapter =
@@ -2402,11 +2433,12 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
         cwd: session.cwd,
         cols: session.cols,
         rows: session.rows,
-        env: spawnEnv,
+        env: launchEnv,
       }),
     );
 
     if (attempt._tag === "Success") {
+      if (ready !== null) wrappedProcesses.add(attempt.success);
       return {
         process: attempt.success,
         shellLabel: formatShellCandidate(candidate),
@@ -3550,6 +3582,16 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
     resyncStream,
     write,
     resize,
+    printsPromptMark: Effect.fn("TerminalManager.printsPromptMark")(
+      function* (threadId, terminalId) {
+        const session = yield* getSession(threadId, terminalId);
+        return (
+          Option.isSome(session) &&
+          session.value.process !== null &&
+          wrappedProcesses.has(session.value.process)
+        );
+      },
+    ),
     has: Effect.fn("TerminalManager.has")(function* (threadId, terminalId) {
       return Option.isSome(yield* getSession(threadId, terminalId));
     }),

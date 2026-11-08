@@ -20,10 +20,23 @@ service. A shell that cannot start is closed again, and `shell.open` fails with 
 
 `shell.open` with `agent: true` (used by `workspace.startShell`) checks that the first word of
 `PROBE_AGENT_COMMAND` resolves to a file or a program on the server's `PATH`, then starts the
-normal interactive shell and writes the command as its first input. The check runs before
-spawning so a missing CLI fails the start instead of leaving a shell that only printed "command
-not found". Writing the command, rather than spawning the CLI directly, keeps the shell open when
-the CLI exits. `Shells` logs each start, failed start (with the cwd) and end at info level.
+normal interactive shell and types the command into it. The check runs before spawning so a
+missing CLI fails the start instead of leaving a shell that only printed "command not found".
+Typing the command, rather than spawning the CLI directly, keeps the shell open when the CLI
+exits. `Shells` logs each start, failed start (with the cwd) and end at info level.
+
+The command is typed only once the shell is ready. Typed at once, the terminal driver echoes it
+before the prompt and the shell's line editor draws it again after, so it shows twice. zsh and bash
+are therefore started through wrapper startup files ([`shellReady.ts`](../../apps/server/src/terminal/shellReady.ts),
+written to `<state dir>/shell-ready` and chosen in `trySpawn` for shell owners only) that run the
+user's own files and then print the OSC 133;A prompt mark. `Shells` types after the first mark, or
+after 15 seconds without one (a slow startup file, or a user config that replaced the wrapper), and
+does it in the background so `shell.open` returns at once. Two details are easy to get wrong: zsh
+prints the mark from a `line-init` hook, because a `precmd` hook runs before zsh has put the
+terminal in raw mode, and bash prints it at the end of `PS1`, because `PROMPT_COMMAND` runs before
+readline has. The zsh wrapper keeps `ZDOTDIR` pointing at its own folder while it reads the user's
+files and restores the user's value before the first prompt. Other shells are not wrapped and get
+the command at once.
 
 A shell started from a workspace carries its project and worktree. Every 2 seconds, and only
 while such shells exist, `Shells` reads each worktree's `HEAD` file (following a linked
