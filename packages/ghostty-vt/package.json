@@ -11,6 +11,10 @@
       "types": "./src/node.ts",
       "import": "./src/node.ts"
     },
+    "./terminal": {
+      "types": "./src/terminal.ts",
+      "import": "./src/terminal.ts"
+    },
     "./ghostty-vt.wasm": "./vendor/ghostty-vt.wasm",
     "./ghostty-write-pty.wasm": "./vendor/ghostty-write-pty.wasm"
   },
