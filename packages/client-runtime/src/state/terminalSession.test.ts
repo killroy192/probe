@@ -14,6 +14,7 @@ import {
   combineTerminalSessionState,
   EMPTY_TERMINAL_BUFFER_STATE,
   INITIAL_TERMINAL_OUTPUT_CURSOR,
+  needsFreshSnapshot,
   nextTerminalAttachSeedState,
   readTerminalOutputUpdate,
   terminalOutputText,
@@ -93,8 +94,43 @@ describe("terminal session reducers", () => {
     );
 
     expect(attached.grid).toEqual({ cols: 130, rows: 15 });
-    expect(narrowed).toEqual({ ...attached, grid: { cols: 54, rows: 15 } });
+    // The snapshot was formatted at 130 columns: replayed now, its redraws would be copies.
+    expect(narrowed).toEqual({
+      ...attached,
+      grid: { cols: 54, rows: 15 },
+      gridChangedSinceSnapshot: true,
+    });
     expect(unchanged).toBe(narrowed);
+    expect(needsFreshSnapshot(combineTerminalSessionState(null, attached))).toBe(false);
+    expect(needsFreshSnapshot(combineTerminalSessionState(null, narrowed))).toBe(true);
+    // Reattaching an ended shell could start it again; its output no longer changes anyway.
+    const exited = applyTerminalAttachStreamEvent(narrowed, {
+      type: "exited",
+      threadId: TARGET.threadId,
+      terminalId: TARGET.terminalId,
+      exitCode: 0,
+      exitSignal: null,
+    });
+    expect(needsFreshSnapshot(combineTerminalSessionState(null, exited))).toBe(false);
+
+    const resnapshot = applyTerminalAttachStreamEvent(narrowed, {
+      type: "snapshot",
+      snapshot: { ...BASE_SNAPSHOT, cols: 54, rows: 15 },
+    });
+    expect(resnapshot.gridChangedSinceSnapshot).toBe(false);
+    const cleared = applyTerminalAttachStreamEvent(narrowed, {
+      type: "cleared",
+      threadId: TARGET.threadId,
+      terminalId: TARGET.terminalId,
+    });
+    expect(cleared.gridChangedSinceSnapshot).toBe(false);
+    // With nothing kept to replay, a resize leaves nothing stale.
+    const emptyResized = applyTerminalAttachStreamEvent(cleared, {
+      ...activity,
+      cols: 80,
+      rows: 20,
+    });
+    expect(emptyResized.gridChangedSinceSnapshot).toBe(false);
   });
 
   it("preserves a BOM code point at a new output chunk boundary", () => {

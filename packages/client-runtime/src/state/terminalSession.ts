@@ -37,6 +37,8 @@ export interface TerminalSessionState {
   readonly output: TerminalOutputState;
   /** Null when the server predates shared terminal geometry. */
   readonly grid: TerminalGrid | null;
+  /** The output was laid out at another grid than today's; see `needsFreshSnapshot`. */
+  readonly gridChangedSinceSnapshot: boolean;
   readonly status: TerminalSessionSnapshot["status"] | "closed";
   readonly error: string | null;
   readonly hasRunningSubprocess: boolean;
@@ -48,6 +50,7 @@ export interface TerminalSessionState {
 export interface TerminalBufferState {
   readonly output: TerminalOutputState;
   readonly grid: TerminalGrid | null;
+  readonly gridChangedSinceSnapshot: boolean;
   readonly status: TerminalSessionSnapshot["status"] | "closed";
   readonly error: string | null;
   readonly updatedAt: string | null;
@@ -77,6 +80,7 @@ export function selectRunningSubprocessTerminalIds(
 export const EMPTY_TERMINAL_BUFFER_STATE = Object.freeze<TerminalBufferState>({
   output: EMPTY_TERMINAL_OUTPUT_STATE,
   grid: null,
+  gridChangedSinceSnapshot: false,
   status: "closed",
   error: null,
   updatedAt: null,
@@ -88,6 +92,7 @@ export const EMPTY_TERMINAL_SESSION_STATE = Object.freeze<TerminalSessionState>(
   summary: null,
   output: EMPTY_TERMINAL_OUTPUT_STATE,
   grid: null,
+  gridChangedSinceSnapshot: false,
   status: "closed",
   error: null,
   hasRunningSubprocess: false,
@@ -117,6 +122,7 @@ function terminalBufferStateFromSnapshot(
   return {
     output: resetOutput(current.output, snapshot.history, maxBufferBytes),
     grid: nextGrid(current.grid, snapshot),
+    gridChangedSinceSnapshot: false,
     status: snapshot.status,
     error: null,
     updatedAt: snapshot.updatedAt,
@@ -149,6 +155,7 @@ export function combineTerminalSessionState(
     summary,
     output: buffer.output,
     grid: buffer.grid,
+    gridChangedSinceSnapshot: buffer.gridChangedSinceSnapshot,
     status: buffer.version > 0 ? buffer.status : (summary?.status ?? buffer.status),
     error: buffer.error,
     hasRunningSubprocess: summary?.hasRunningSubprocess ?? false,
@@ -156,6 +163,15 @@ export function combineTerminalSessionState(
     version: buffer.version,
     lifecycleVersion: buffer.lifecycleVersion,
   };
+}
+
+/**
+ * Whether a renderer mounting now should get a new snapshot instead of replaying the buffer. A
+ * shell redraws its line on every resize, and output kept from another grid replays those redraws
+ * as copies (PRB.T-010). An ended shell is left as it is: reattaching could start it again.
+ */
+export function needsFreshSnapshot(state: TerminalSessionState): boolean {
+  return state.gridChangedSinceSnapshot && state.status === "running";
 }
 
 export function applyTerminalAttachStreamEvent(
@@ -187,6 +203,7 @@ export function applyTerminalAttachStreamEvent(
       return {
         ...current,
         output: resetOutput(current.output, "", maxBufferBytes),
+        gridChangedSinceSnapshot: false,
         error: null,
         version: current.version + 1,
       };
@@ -213,7 +230,13 @@ export function applyTerminalAttachStreamEvent(
       };
     case "activity": {
       const grid = nextGrid(current.grid, event);
-      return grid === current.grid ? current : { ...current, grid };
+      if (grid === current.grid) return current;
+      return {
+        ...current,
+        grid,
+        gridChangedSinceSnapshot:
+          current.gridChangedSinceSnapshot || current.output.retainedBytes > 0,
+      };
     }
   }
 }
