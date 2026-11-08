@@ -122,8 +122,11 @@ the client's 512 KiB buffer cap (`DEFAULT_MAX_TERMINAL_BUFFER_BYTES`).
 
 ## Next
 
-Choose the server's scrollback budget (the table above), then Phase C: an emulator per server
-session, first running in the shadow, then sending its snapshot on attach. A regression test belongs in
+Scrollback budget, chosen by the author 2026-11-08: 4 MiB per server terminal (~2,000 rows at
+160 cols, ~212 KiB snapshot). Then Phase C: an emulator per server session, first running in the
+shadow, then sending its snapshot on attach. Before it goes live, the server build copies the
+two wasm files to `dist/ghostty-vt/` and the CLI archive stages them beside the executable. A
+server that cannot find them keeps today's raw history. A regression test belongs in
 `apps/web/src/terminal/ghostty/core.test.ts` (or the server's equivalent for option 1): replay a
 short zsh history with redraws recorded wide and assert one prompt.
 
