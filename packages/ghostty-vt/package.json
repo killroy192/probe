@@ -1,0 +1,22 @@
+{
+  "name": "@t3tools/ghostty-vt",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./runtime": {
+      "types": "./src/runtime.ts",
+      "import": "./src/runtime.ts"
+    },
+    "./ghostty-vt.wasm": "./vendor/ghostty-vt.wasm",
+    "./ghostty-write-pty.wasm": "./vendor/ghostty-write-pty.wasm"
+  },
+  "scripts": {
+    "build:wasm": "bash scripts/build-wasm.sh",
+    "typecheck": "tsc --noEmit",
+    "test": "vp test run --config ../../vite.config.ts --dir ."
+  },
+  "devDependencies": {
+    "@types/node": "catalog:",
+    "vite-plus": "catalog:"
+  }
+}

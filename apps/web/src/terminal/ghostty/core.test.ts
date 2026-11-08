@@ -13,11 +13,11 @@ import { writeTerminalOutputUpdate } from "../../components/ThreadTerminalDrawer
 import { GHOSTTY_CELL_WIDE, GhosttyTerminalCore, ghosttyCellText } from "./core";
 import { loadGhosttyRuntime } from "./runtime";
 
-vi.mock("./vendor/ghostty-vt.wasm?url", async () => ({
-  default: (await import("./vendor/ghostty-vt.wasm?inline")).default,
+vi.mock("@t3tools/ghostty-vt/ghostty-vt.wasm?url", async () => ({
+  default: (await import("@t3tools/ghostty-vt/ghostty-vt.wasm?inline")).default,
 }));
-vi.mock("./vendor/ghostty-write-pty.wasm?url&no-inline", async () => ({
-  default: (await import("./vendor/ghostty-write-pty.wasm?inline")).default,
+vi.mock("@t3tools/ghostty-vt/ghostty-write-pty.wasm?url&no-inline", async () => ({
+  default: (await import("@t3tools/ghostty-vt/ghostty-write-pty.wasm?inline")).default,
 }));
 
 function codepointView(codepoints: ReadonlyArray<number>): DataView {

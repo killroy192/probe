@@ -17,11 +17,11 @@ import {
   type GhosttyTerminalSurfaceOptions,
 } from "./surface";
 
-vi.mock("./vendor/ghostty-vt.wasm?url", async () => ({
-  default: (await import("./vendor/ghostty-vt.wasm?inline")).default,
+vi.mock("@t3tools/ghostty-vt/ghostty-vt.wasm?url", async () => ({
+  default: (await import("@t3tools/ghostty-vt/ghostty-vt.wasm?inline")).default,
 }));
-vi.mock("./vendor/ghostty-write-pty.wasm?url&no-inline", async () => ({
-  default: (await import("./vendor/ghostty-write-pty.wasm?inline")).default,
+vi.mock("@t3tools/ghostty-vt/ghostty-write-pty.wasm?url&no-inline", async () => ({
+  default: (await import("@t3tools/ghostty-vt/ghostty-write-pty.wasm?inline")).default,
 }));
 
 describe("GhosttyTerminalSurface visibility", () => {

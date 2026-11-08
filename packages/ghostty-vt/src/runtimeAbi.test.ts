@@ -1,20 +1,18 @@
+// @effect-diagnostics nodeBuiltinImport:off - Reads the vendored wasm files and the pinned revision.
+import * as NodeFS from "node:fs";
+
 import { describe, expect, it } from "vite-plus/test";
 
-import wasmDataUrl from "./vendor/ghostty-vt.wasm?inline";
-import writePtyWasmDataUrl from "./vendor/ghostty-write-pty.wasm?inline";
-import pinnedVersion from "../../../../../native/libghostty-vt/VERSION?raw";
+const read = (path: string) => NodeFS.readFileSync(new URL(path, import.meta.url));
+const wasmBytes = () => new Uint8Array(read("../vendor/ghostty-vt.wasm"));
+const writePtyWasmBytes = () => new Uint8Array(read("../vendor/ghostty-write-pty.wasm"));
+const pinnedVersion = read("../../../native/libghostty-vt/VERSION").toString("utf8");
 
 type WasmFunction = (...args: number[]) => number;
 
-function decodeWasmDataUrl(dataUrl: string): Uint8Array {
-  const encoded = dataUrl.split(",", 2)[1];
-  if (!encoded) throw new Error("The vendored Ghostty WASM data URL is invalid");
-  return Uint8Array.from(atob(encoded), (character) => character.charCodeAt(0));
-}
-
 describe("vendored libghostty-vt WebAssembly", () => {
   it("stays pinned to the canonical revision and size budget", async () => {
-    const wasm = decodeWasmDataUrl(wasmDataUrl);
+    const wasm = wasmBytes();
     expect(wasm.byteLength).toBeLessThan(750_000);
 
     const result = await WebAssembly.instantiate(wasm.buffer as ArrayBuffer, {
@@ -35,15 +33,14 @@ describe("vendored libghostty-vt WebAssembly", () => {
   });
 
   it("routes terminal-generated replies through the shared callback table", async () => {
-    const mainResult = await WebAssembly.instantiate(
-      decodeWasmDataUrl(wasmDataUrl).buffer as ArrayBuffer,
-      { env: { log: () => {} } },
-    );
+    const mainResult = await WebAssembly.instantiate(wasmBytes().buffer as ArrayBuffer, {
+      env: { log: () => {} },
+    });
     const main = mainResult instanceof WebAssembly.Instance ? mainResult : mainResult.instance;
     const memory = main.exports.memory as WebAssembly.Memory;
     let reply = "";
     const trampolineResult = await WebAssembly.instantiate(
-      decodeWasmDataUrl(writePtyWasmDataUrl).buffer as ArrayBuffer,
+      writePtyWasmBytes().buffer as ArrayBuffer,
       {
         env: {
           t3_write_pty: (_terminal: number, _userdata: number, pointer: number, length: number) => {
