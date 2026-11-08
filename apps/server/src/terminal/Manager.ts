@@ -404,7 +404,7 @@ function terminalWireLabel(session: TerminalSessionState): string {
   return truncateTerminalWireLabel(getTerminalLabel(session.terminalId));
 }
 
-function snapshot(session: TerminalSessionState): TerminalSessionSnapshot {
+function sessionSnapshot(session: TerminalSessionState, history: string): TerminalSessionSnapshot {
   return {
     threadId: session.threadId,
     terminalId: session.terminalId,
@@ -412,7 +412,7 @@ function snapshot(session: TerminalSessionState): TerminalSessionSnapshot {
     worktreePath: session.worktreePath,
     status: session.status,
     pid: session.pid,
-    history: session.history.value(),
+    history,
     exitCode: session.exitCode,
     exitSignal: session.exitSignal,
     label: terminalWireLabel(session),
@@ -1480,7 +1480,8 @@ interface TerminalManagerOptions {
     Record<string, string>,
     TerminalProviderInstanceNotFoundError | TerminalProviderEnvironmentError
   >;
-  createEmulator?: (cols: number, rows: number) => GhosttyVtTerminal;
+  /** Defaults to libghostty-vt; null keeps no emulator, so attach sends raw history. */
+  createEmulator?: ((cols: number, rows: number) => GhosttyVtTerminal) | null;
 }
 
 export const resolveProviderInstanceTerminalEnvironment = Effect.fn(
@@ -1584,18 +1585,19 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
   const historyLineLimit = options.historyLineLimit ?? DEFAULT_HISTORY_LINE_LIMIT;
   const historyByteLimit = options.historyByteLimit ?? DEFAULT_HISTORY_BYTE_LIMIT;
   const createEmulator =
-    options.createEmulator ??
-    (yield* Effect.tryPromise(loadGhosttyRuntime).pipe(
-      Effect.map(
-        (runtime) => (cols: number, rows: number) =>
-          GhosttyVtTerminal.create(runtime, cols, rows, EMULATOR_SCROLLBACK_BYTES),
-      ),
-      Effect.catch((error) =>
-        Effect.logWarning("terminals run without an emulator", { cause: error.cause }).pipe(
-          Effect.as(undefined),
-        ),
-      ),
-    ));
+    options.createEmulator !== undefined
+      ? (options.createEmulator ?? undefined)
+      : yield* Effect.tryPromise(loadGhosttyRuntime).pipe(
+          Effect.map(
+            (runtime) => (cols: number, rows: number) =>
+              GhosttyVtTerminal.create(runtime, cols, rows, EMULATOR_SCROLLBACK_BYTES),
+          ),
+          Effect.catch((error) =>
+            Effect.logWarning("terminals run without an emulator", { cause: error.cause }).pipe(
+              Effect.as(undefined),
+            ),
+          ),
+        );
   // A failing emulator is dropped, never the output: attach then sends raw history.
   const dropEmulator = (session: TerminalSessionState, error?: unknown) => {
     const emulator = session.emulator;
@@ -1633,6 +1635,15 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
       return;
     }
     if (output.length > 0) useEmulator(session, (emulator) => emulator.write(output));
+  };
+  // The emulator's screen replays the same at any later grid; raw history keeps every redraw that
+  // a shell printed at an older width, and those pile up when replayed narrower (PRB.T-010).
+  const snapshot = (session: TerminalSessionState) => {
+    let history: string | undefined;
+    useEmulator(session, (emulator) => {
+      history = emulator.format("vt");
+    });
+    return sessionSnapshot(session, history ?? session.history.value());
   };
   const platform = yield* HostProcess.Platform;
   const architecture = yield* HostProcess.Architecture;

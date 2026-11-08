@@ -48,6 +48,10 @@ vi.mock("effect/SynchronizedRef", async (importOriginal) => {
 
 const encodeUnknownJson = Schema.encodeUnknownSync(Schema.fromJsonString(Schema.Unknown));
 
+const ghosttyRuntime = await loadGhosttyRuntime();
+const ghosttyEmulator = (cols: number, rows: number) =>
+  GhosttyVtTerminal.create(ghosttyRuntime, cols, rows, 1024 * 1024);
+
 class FakePtyProcess implements PtyAdapter.PtyProcess {
   readonly writes: string[] = [];
   onWrite: (() => void) | undefined;
@@ -318,7 +322,8 @@ const createManager = (
         ...(options.resolveProviderInstanceEnvironment !== undefined
           ? { resolveProviderInstanceEnvironment: options.resolveProviderInstanceEnvironment }
           : {}),
-        ...(options.createEmulator !== undefined ? { createEmulator: options.createEmulator } : {}),
+        // Most cases check the raw history attach falls back to; emulator cases pass one.
+        createEmulator: options.createEmulator ?? null,
         ...(options.managedBinaryCacheDir === undefined
           ? {}
           : {
@@ -831,11 +836,10 @@ it.layer(
 
   it.effect("keeps an emulator at the PTY's grid, fed with output, and frees it when done", () =>
     Effect.gen(function* () {
-      const runtime = yield* Effect.promise(() => loadGhosttyRuntime());
       const emulators: GhosttyVtTerminal[] = [];
       const { manager, ptyAdapter } = yield* createManager(5, {
         createEmulator: (cols, rows) => {
-          const emulator = GhosttyVtTerminal.create(runtime, cols, rows, 1024 * 1024);
+          const emulator = ghosttyEmulator(cols, rows);
           emulators.push(emulator);
           return emulator;
         },
@@ -868,6 +872,46 @@ it.layer(
 
       yield* manager.close({ threadId: "thread-1" });
       expect(() => emulators[1]!.format("plain")).toThrow("disposed");
+    }).pipe(Effect.scoped),
+  );
+
+  // PRB.T-010: zsh redraws its line on every resize. Raw history replayed at the narrow grid kept
+  // each wide redraw as a copy; the snapshot holds the screen as it is now.
+  it.effect("sends a snapshot that replays one prompt after redraws at wider grids", () =>
+    Effect.gen(function* () {
+      const { manager, ptyAdapter } = yield* createManager(5, { createEmulator: ghosttyEmulator });
+      const outputs = yield* Queue.unbounded<string>();
+      const unsubscribe = yield* manager.subscribe((event) =>
+        event.type === "output"
+          ? Queue.offer(outputs, event.data).pipe(Effect.asVoid)
+          : Effect.void,
+      );
+      yield* Effect.addFinalizer(() => Effect.sync(unsubscribe));
+      const prompt = "\x1b]133;A;redraw=1\x07vscode ➜ ~/repo (main) $ echo typed but not run";
+      const redraw = `\r\r\x1b[0m\x1b[27m\x1b[24m\x1b[J${prompt}`;
+      yield* manager.open(openInput({ cols: 120, rows: 10 }));
+      const process = ptyAdapter.processes[0]!;
+      process.emitData(prompt);
+      yield* Queue.take(outputs);
+      for (const cols of [100, 120, 110, 25]) {
+        yield* manager.resize({
+          threadId: "thread-1",
+          terminalId: DEFAULT_TERMINAL_ID,
+          cols,
+          rows: 10,
+        });
+        process.emitData(redraw);
+        yield* Queue.take(outputs);
+      }
+
+      const snapshot = yield* manager.open(openInput({ cols: 25, rows: 10 }));
+      expect({ cols: snapshot.cols, rows: snapshot.rows }).toEqual({ cols: 25, rows: 10 });
+      const replay = ghosttyEmulator(25, 10);
+      replay.write(snapshot.history);
+      const screen = replay.format("plain").replaceAll("\n", "");
+      replay.dispose();
+      expect(screen.split("vscode ➜").length - 1).toBe(1);
+      expect(screen.split("typed but not run").length - 1).toBe(1);
     }).pipe(Effect.scoped),
   );
 
