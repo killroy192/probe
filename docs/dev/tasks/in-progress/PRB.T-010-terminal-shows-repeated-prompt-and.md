@@ -84,10 +84,27 @@ shows one copy at 120 cols and four at 30.
 The live-narrowing copy needs prompt marks (`OSC 133` shell integration) so the terminal can clear
 the prompt on resize; whether this `libghostty-vt` pin does that is unverified.
 
+## Progress (2026-11-08)
+
+Option 1 was chosen.
+
+**Live narrowing: fixed.** libghostty-vt's C ABI clears the prompt on resize only when the shell
+sends `OSC 133;A;redraw=1` (`src/terminal/c/terminal.zig:284` at the pin). The PRB.T-011 wrapper
+sent a plain `A` *after* the prompt, which Ghostty treats as a fresh line: typed text moved to its
+own row, and redraws left an orphan prompt row. Now zsh and bash lead the prompt with
+`A;redraw=1` and signal readiness with `B` after it. bash 5.2's readline redraws on SIGWINCH, so
+bash gets `redraw=1` too. In `DBG-T010`, live narrowing shows 1 copy (it was 2).
+
+**Reload: still 5 copies.** Raw replay has no resizes in it, so marks cannot help. Next: a shared
+`packages/ghostty-vt` runtime that Node can load, a headless terminal with a VT formatter, then a
+server emulator per session whose snapshot replaces raw history on attach. After that, persisted
+history, shell-host resize records for `adopt`, and a client reattach when the grid changed
+since the snapshot.
+
 ## Next
 
-Spike: run the Ghostty formatter in Node on recorded zsh output, resize to 62 cols, and check that
-a snapshot shows one copy. Then pick the fix. A regression test belongs in
+Phase B of the fix: move the Ghostty runtime into a package the server can load, and check the
+formatter (VT output, modes, scrollback) on the T-010 case before the server depends on it. A regression test belongs in
 `apps/web/src/terminal/ghostty/core.test.ts` (or the server's equivalent for option 1): replay a
 short zsh history with redraws recorded wide and assert one prompt.
 
