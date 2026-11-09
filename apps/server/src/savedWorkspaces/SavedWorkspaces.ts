@@ -59,6 +59,8 @@ const SavedWorkspaceFile = Schema.Struct({
   projects: Schema.optional(Schema.Array(Schema.Struct({ path: Schema.String }))),
   lastStart: Schema.optional(Schema.NullOr(WorkspaceLastStart)),
   tabs: Schema.optional(WorkspaceTabs),
+  /** The last "Shell N" started; ended shells can be restored, so their numbers stay taken. */
+  lastShellNumber: Schema.optional(Schema.Number),
 });
 type SavedWorkspaceFile = typeof SavedWorkspaceFile.Type;
 const encodeSavedWorkspaceFile = Schema.encodeSync(Schema.fromJsonString(SavedWorkspaceFile));
@@ -579,9 +581,10 @@ const make = Effect.gen(function* () {
   const rememberStart = Effect.fn("SavedWorkspaces.rememberStart")(function* (
     name: string,
     lastStart: WorkspaceLastStart,
+    lastShellNumber: number,
   ) {
     const file = yield* readFile(name);
-    yield* writeFile(name, { ...file, lastStart });
+    yield* writeFile(name, { ...file, lastStart, lastShellNumber });
   }, lock.withPermits(1));
 
   const requireProject = Effect.fn("SavedWorkspaces.requireProject")(function* (
@@ -807,7 +810,8 @@ const make = Effect.gen(function* () {
     yield* requireProject(input.name, input.project);
     const place = yield* placeShell(input.project, input.worktree);
     // Numbered per workspace in start order; a failed start gives its number back.
-    const number = (shellNumbers.get(input.name) ?? 0) + 1;
+    const saved = (yield* readFile(input.name)).lastShellNumber ?? 0;
+    const number = Math.max(shellNumbers.get(input.name) ?? 0, saved) + 1;
     shellNumbers.set(input.name, number);
     const shell = yield* shells
       .open(
@@ -837,7 +841,7 @@ const make = Effect.gen(function* () {
       worktree:
         worktree.kind === "new" ? { kind: "new", startingPoint: worktree.startingPoint } : worktree,
     };
-    yield* rememberStart(input.name, lastStart).pipe(
+    yield* rememberStart(input.name, lastStart, number).pipe(
       Effect.catch((error) =>
         Effect.logWarning("could not remember the workspace's last start", {
           name: input.name,
