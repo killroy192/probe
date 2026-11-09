@@ -93,10 +93,10 @@ Diagnostics, Devices, Sharing & access and Archive. It differs in three places:
 
 ### Questions for the author
 
-- **Q-A, Labs.** Its client rows are chat-era sidebar flags. Its server rows (guest links, linked environments, simlock) are per-machine features. Sort Labs as server-owned and drop or move its client rows when chat goes?
-- **Q-B, About and Open-source licenses.** Neither stores anything. Client-owned (they describe the app), with each server's version shown on that server's own page (Sharing & access already shows it)?
+- **Q-A, Labs.**\1 *Deferred by the author (2026-11-09).*
+- **Q-B, About and Open-source licenses.**\1 *Deferred by the author (2026-11-09).*
 - **Q-C, Browser (hidden).** Client `browser*` preferences plus the server's agent browser access. Split it when it is unhidden, or leave it hidden until chat removal decides?
-- **Q-D, where client-owned settings live.** Today they are per browser profile, so a second browser on the same default server starts from defaults, while keybindings and the default theme follow the default server. The epic says they live on the default server. Either PRB.T-025 moves client settings to the default server (new work: a server-stored client-settings document), or the epic is reworded to "per browser profile, plus keybindings and the default theme from the default server". Either way, a remote server's state never overrides them, which already holds for the browser-stored ones.
+- **Q-D, where client-owned settings live. Decided (author, 2026-11-09): on the default server, the host server that serves the UI.** Today General, Appearance and the theme are per browser profile (or the desktop file), so PRB.T-025 moves them to the default server; keybindings and the default theme are already there. A remote server's state never overrides them.
 
 ## 3. Assumption results
 
