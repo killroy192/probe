@@ -14,19 +14,19 @@ updated: 2026-11-08
 
 **Problem:** A user's starting scripts are the same in every workspace. One workspace has no use for a script that clutters its modal, or needs a script that makes sense only there (for example a test runner). Today the only way is to change the user list for everyone, or to type the command by hand in each shell.
 
-**Proposed solution:** From the "Workspaces" menu, the user opens a workspace's starting scripts dialog. It shows the user scripts as inherited, which the user can disable in this workspace and enable again (they cannot be edited or renamed there), and it lets the user add, edit and remove scripts that exist only in this workspace. The modal in that workspace offers the resulting merged list; every other workspace, and Settings, are unchanged.
+**Proposed solution:** From the "Workspaces" menu, the user opens a workspace's starting scripts dialog. It shows the user scripts as inherited, which the user can disable in this workspace and enable again (they cannot be edited or renamed there), and it lets the user add, edit and remove scripts that exist only in this workspace. The modal in that workspace offers the resulting merged list: the default server's user list (the server that serves the UI) plus this workspace's own file, which lives on the workspace's server. Every other workspace, and Settings, are unchanged. With one server these are the same machine.
 
 ## Epic and Requirements
 
 - **Epic:** PRB.E-002 Starting scripts: choose what a new shell runs
 - **Candidate story:** #4 Workspace scripts
 - **Delivers:**
-  - FR-4: the workspace dialog (inherited user scripts with disable and enable, no edit or rename of a user script, add, edit and remove workspace scripts, disabling kept across renames of the user script, saved with the workspace only, workspace scripts never in the user list or Settings).
-  - FR-5: the merged list for a workspace (Plain shell, user scripts not disabled in user-list order, then the workspace's scripts in the order added; entries told apart by identity, names and commands may repeat, also within one workspace's scripts).
+  - FR-4: the workspace dialog (inherited user scripts with disable and enable, no edit or rename of a user script, add, edit and remove workspace scripts, disabling kept across renames of the user script, saved in the workspace file on the workspace's server only, workspace scripts never in the user list or Settings).
+  - FR-5: the merged list for a workspace (Plain shell, the default server's user scripts not disabled in user-list order, then the workspace's scripts in the order added; entries told apart by identity, names and commands may repeat, also within one workspace's scripts).
   - FR-2 (reused): the name and command rules, including a name defaulting to the command's program and names not needing to be unique, applied to workspace scripts. The rules themselves belong to PRB.T-018.
   - FR-11 (part, as amended 2026-11-08): two clients changing different workspace scripts both survive; on the same script the last save wins. Live refresh of other clients is PRB.T-020.
   - NFR-2 (part): a damaged workspace file never stops Probe from starting, and for a workspace that fails to open the problem appears in the message that says why.
-  - NFR-3 (part): logs never carry the command line; every user has the same permissions (settled 2026-11-08), so there is no permission check on edits.
+  - NFR-3 (part): scripts are stored only in the workspace file on the workspace's server (and the user list on the default server, PRB.T-016); logs never carry the command line; every user has the same permissions (settled 2026-11-08), so there is no permission check on edits.
   - NFR-5 and NFR-7 (part): pointer-only actions; user docs for workspace scripts.
   - Scenario E2-S2.
 - **One deployable outcome:** A user can hide a user script in one workspace, add a script only there, undo each, and see the modal in that workspace offer exactly that merged list, while other workspaces and Settings keep the user list. It contributes to the epic goal of managing scripts "for themselves and per workspace from the UI".
@@ -45,9 +45,9 @@ Read from code by the earlier draft on 2026-11-08 (the code search index was una
 
 ## Expected Behavior
 
-In a workspace, the user opens "Starting scripts" from the "Workspaces" menu and sees a dialog listing Plain shell (fixed), then each user script marked inherited, then the workspace's own scripts. An inherited script can be disabled in this workspace and enabled again; its name and command are shown but cannot be edited or renamed there. A disabled script stays visible in the dialog, marked disabled, and is not offered in the modal. "Add script" creates a workspace script from a command and an optional name (the name defaults to the command's program: the first word after any leading env assignments, whitespace trimmed; the user can type another name). A workspace script can be edited (name and command) and removed. Changes are saved with the workspace and apply to that workspace only; workspace scripts never appear in the user list or in Settings.
+In a workspace, the user opens "Starting scripts" from the "Workspaces" menu and sees a dialog listing Plain shell (fixed), then each user script marked inherited, then the workspace's own scripts. An inherited script can be disabled in this workspace and enabled again; its name and command are shown but cannot be edited or renamed there. A disabled script stays visible in the dialog, marked disabled, and is not offered in the modal. "Add script" creates a workspace script from a command and an optional name (the name defaults to the command's program: the first word after any leading env assignments, whitespace trimmed; the user can type another name). A workspace script can be edited (name and command) and removed. Changes are saved with the workspace, in its file on the workspace's server, and apply to that workspace only; workspace scripts never appear in the user list or in Settings. The inherited scripts are the default server's user list (user decision 2026-11-09), whichever server the workspace is on; the disabled marks refer to them by identity and are stored in the workspace's file.
 
-The modal offers the merged list: Plain shell, then the user scripts not disabled (user-list order), then the workspace's scripts (order added). Names and commands may repeat between the user list and a workspace and between workspaces; entries are told apart by identity, not by name, so there is no collision rule.
+The modal offers the merged list: Plain shell, then the default server's user scripts not disabled (user-list order), then the workspace's scripts (order added). Names and commands may repeat between the user list and a workspace and between workspaces; entries are told apart by identity, not by name, so there is no collision rule.
 
 Disabling belongs to the user script, not to its name: renaming the user script in Settings keeps it disabled. If the user script is deleted, the disabled mark goes away with it.
 
@@ -77,6 +77,7 @@ Concurrent edits merge per script: each change is applied to the workspace's scr
 - EC-8: Two clients edit the workspace's scripts at the same time: different scripts both survive, the same script keeps the last save (see Expected Behavior). Live refresh of the other client is PRB.T-020.
 - EC-9: Disabling or enabling a user script that was deleted meanwhile: nothing to change; the dialog shows the current state without an error.
 - EC-10: A user script is disabled in sparta and has the same name as a workspace script there: only the workspace script is offered in the modal; the disabled user script stays listed as disabled in the dialog.
+- EC-11: The workspace is on a second server (PRB.E-003). Its dialog shows the default server's user list as inherited; disabling and workspace scripts are written to the workspace file on the second server and never to the default server's state; a workspace of the default server is unaffected.
 
 ### Error Handling
 
@@ -99,14 +100,14 @@ Concurrent edits merge per script: each change is applied to the workspace's scr
 
 ## Technical Scope
 
-- **Layers:** terminal UI (new dialog entry in the "Workspaces" menu, the dialog itself, the modal reading the merged list); server (workspace storage carries the disabled user scripts and the workspace scripts; the merge; the per-script merge of concurrent edits); contracts (workspace detail and the commands that change a workspace's scripts); data (workspace file gains this data, older files must still open unchanged).
+- **Layers:** terminal UI (new dialog entry in the "Workspaces" menu, the dialog itself, the modal reading the merged list from the default server's user list and the workspace's file); server, the workspace's own (workspace storage carries the disabled user scripts and the workspace scripts; the merge; the per-script merge of concurrent edits); contracts (workspace detail and the commands that change a workspace's scripts); data (workspace file gains this data, older files must still open unchanged).
 - **Docs impact:** `docs/user/workspaces.md` (a section on a workspace's starting scripts: inherited, disable and enable, add, edit and remove workspace scripts, default names, what happens when a user script is renamed or deleted); the epic's "Starting scripts" user section (NFR-7) is shared with PRB.T-016 and PRB.T-018, so extend rather than duplicate it. `docs/internals/` only if the merge rule or the workspace file field carries a cross-component constraint the code cannot show (decide in the plan).
 - **Mobile impact:** contracts change, so mobile must still compile (`vp run check:changed` type-checks it); no mobile UI is built.
 
 ## Non-functional Requirements and Constraints
 
 - NFR-2: a damaged workspace file never stops Probe from starting; for a workspace that fails to open, the problem appears in the message that says why (settled 2026-11-08; the epic's NFR-2 is narrowed the same way).
-- NFR-3: scripts are stored only in the workspace file in Probe's state folder; logs carry the script name and program, never the full command line, and saving an edit must not log it. Every user has the same permissions; this story adds no permission checks (settled 2026-11-08).
+- NFR-3: workspace scripts and disabled marks are stored in the workspace file on the workspace's server, not in the user-list storage and not copied to the default server when that is another machine, and never in a repository; logs carry the script name and program, never the full command line, and saving an edit must not log it. Every user has the same permissions; this story adds no permission checks (settled 2026-11-08).
 - NFR-5: every action (disable, enable, add, edit, remove, open the dialog) works with the mouse or touchpad alone; Enter is only a shortcut.
 - NFR-1: no continuously repainting animation in the dialog (code review).
 - Client mutations follow the repo's command conventions in AGENTS.md.
@@ -137,6 +138,7 @@ Concurrent edits merge per script: each change is applied to the workspace's scr
 | AC-18 | Given scenario E2-S2 driven with pointer actions only (disable, add, rename, remove, enable; other workspace and Settings unchanged), when run from a clean shell, then it passes | auto | FR-4, FR-5, NFR-5 |
 | AC-19 | Given the server log, when a workspace script is saved, edited and started, then the log lines carry the script name and program and never the command line | manual | NFR-3 |
 | AC-20 | Given the PR, when a reviewer reads the diff, then the user docs describe workspace scripts and disabling, the dialog has no continuously repainting animation, and mobile still type-checks | manual | NFR-7, NFR-1 |
+| AC-21 | Given the harness has a second server (PRB.E-003) and a workspace of it is open, when the user opens the dialog, then it shows the default server's user scripts as inherited; when the user disables one and adds a workspace script, then the modal of that workspace offers the merged list, the change is in the workspace file on the second server and not in the default server's state, and workspaces of the default server and Settings are unchanged | auto (second-server check: verified by PRB.E-003 story 8, does not gate this story; PRB.E-003 adds and runs it; this is where the stricter "not in the default server's state" check is made) | FR-4, FR-5, EC-11 |
 
 AC-19 and AC-20 are manual (code review, as the epic's verification table says); the reviewer is the author.
 
@@ -147,7 +149,7 @@ AC-19 and AC-20 are manual (code review, as the epic's verification table says);
 | PRB.T-018 | Reuses the FR-2 name and command rules and the user list management (renames and deletes that EC-4, EC-5 and EC-6 react to) | backlog |
 | PRB.T-016 | Through PRB.T-018: the persisted user list, the stable identity of a user script, and the dropdown that shows the merged list | backlog |
 
-PRB.T-020 depends on this story (live updates cover both lists); PRB.T-017 is independent.
+PRB.E-003 carries the multi-server connection and is not a blocker: this story works fully with one server, and AC-21 is verified by PRB.E-003 story 8, does not gate this story (PRB.E-003 adds and runs it against its harness second server). PRB.T-020 depends on this story (live updates cover both lists); PRB.T-017 is independent.
 
 ## Assumptions
 
@@ -158,3 +160,5 @@ PRB.T-020 depends on this story (live updates cover both lists); PRB.T-017 is in
 | SA-3 | The "Workspaces" menu is the right and only entry point for the dialog; keybinding and command-palette entries are not required (the epic names the menu) | assumption | unverified | Author confirms at story review | author |
 | SA-4 | Changing workspace contracts does not break mobile beyond compile (no mobile screen uses workspace detail) | assumption | unverified | `vp run check:changed` in the plan stage | author |
 | SA-5 | A user script has an identity that survives a rename and that a workspace can refer to (epic FR-6 and FR-4 already rely on this) | assumption | unverified | Read PRB.T-016 when it is planned | author |
+| SA-6 | The identity of a user script (a default-server list entry) is stable and meaningful as a key stored in a workspace file on another server, because the same list is offered for every server's workspaces; and merging the two sources needs the default server's list at the time the dialog or modal opens | assumption | unverified | Plan stage, with PRB.T-016's identity (its SA-10) and PRB.E-003's connection model (epic A-6) | author |
+| SA-7 | A disabled mark whose script no longer matches (the same workspace opened from a UI served by a different default server, or the user list Reset so its scripts have new identities) is ignored: nothing is hidden and no error is shown (epic A-7, R-6) | assumption | unverified | Plan stage: a test that an unmatched mark changes nothing and raises no error in the dialog or the modal | author |

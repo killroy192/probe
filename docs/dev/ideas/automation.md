@@ -1,0 +1,1 @@
+we might want to run some actovities automatically. Automation is workspace specific

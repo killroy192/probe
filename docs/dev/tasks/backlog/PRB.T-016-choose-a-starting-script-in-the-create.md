@@ -14,26 +14,26 @@ updated: 2026-11-08
 
 **Problem:** Every shell started from a workspace runs one server-wide command, set by an environment variable at server start (the mock agent in dev and in the scenario harness). The modal's "Starting script" dropdown is disabled and shows "mock agent" only. A user cannot start a plain shell, or anything else, from the modal, and the harness cannot vary what it starts. Nothing else in the epic (Settings, workspace scripts, Claude Code in Probe shells) can be built until the choice is made per start.
 
-**Proposed solution:** The user picks, for each start, Plain shell or one of their user scripts. The user list is kept in Probe's state folder, starts with "mock agent" in dev and the scenario harness, and survives reloads and restarts. The choice is remembered per project, and the scenario harness and dev runner stop using the environment variable. The story also settles where a program is looked up (U-1) and measures the plain-shell start time.
+**Proposed solution:** The user picks, for each start, Plain shell or one of their user scripts. The user list is kept on the default server (the server that serves the UI; user decision 2026-11-09), starts with "mock agent" in dev and the scenario harness, and survives reloads and restarts. The same list is offered for a workspace on any connected server (PRB.E-003), and the start runs on the workspace's server. With one server nothing differs for the user. The choice is remembered per project, and the scenario harness and dev runner stop using the environment variable. The story also settles where a program is looked up (U-1) and measures the plain-shell start time.
 
 ## Epic and Requirements
 
 - **Epic:** PRB.E-002 Starting scripts: choose what a new shell runs
 - **Candidate story:** # 1 Choose a starting script in the modal (first story of the epic)
 - **Delivers:**
-  - FR-1: a chosen script's command is typed once after the first prompt, in the chosen worktree; Plain shell types nothing.
-  - FR-3: Plain shell first and fixed; a state folder with NO saved user list gets "mock agent" where the default is enabled (dev and the scenario harness only, until U-2 is settled: SU-2). A saved list the user emptied is a saved list: it stays empty and is not seeded again.
+  - FR-1: a chosen script's command is typed once after the first prompt, in the chosen worktree, in the shell on the workspace's server; Plain shell types nothing.
+  - FR-3: Plain shell first and fixed; the default server's state folder with NO saved user list gets "mock agent" where the default is enabled (dev and the scenario harness only, until U-2 is settled: SU-2). A saved list the user emptied is a saved list: it stays empty and is not seeded again.
   - FR-6: the dropdown is enabled, offers the list, and preselects the project's last choice, falling back to Plain shell when that script is no longer in the list or the project has none. The remembered choice follows a script by identity, not name (settled 2026-11-08), which matters once editing exists (PRB.T-018, PRB.T-020).
   - FR-12 (the not-in-the-list half only): a start naming a script that is not in the list at start time is refused with a message naming it. The removed or disabled by another client case is PRB.T-020.
-  - FR-2 (the persistence half only): the user list survives a reload and a server restart. Add, edit and remove from the UI are PRB.T-018.
+  - FR-2 (the persistence half only): the user list is saved on the default server and survives a reload and a restart of it. Add, edit and remove from the UI are PRB.T-018.
   - NFR-1: the plain-shell click-to-prompt time is measured and checked against the 700 ms guardrail; no fixed wait is added before typing.
   - NFR-2: a damaged saved list never stops Probe starting and the modal still offers Plain shell (the "shown in Settings" half is PRB.T-018). The command is typed exactly once, only into its own shell.
-  - NFR-3: logs carry the script name and program, never the full command line.
+  - NFR-3: logs carry the script name and program, never the full command line. Scripts are stored only in the default server's state folder and in workspace files.
   - NFR-4: zsh and bash, a second command line beyond the mock agent (A-1), the manual Claude Code check (A-2), mobile still compiles.
   - NFR-5: pick and start work with the pointer alone.
-  - NFR-6: each shell start is logged with the script name and program, or "plain".
+  - NFR-6: each shell start is logged, by the workspace's server, with the script name and program, or "plain".
   - NFR-7: docs updated in the same PR.
-- **One deployable outcome:** A user opens the modal, chooses Plain shell or a script from their saved list, and the shell starts accordingly in the chosen worktree; the next start on that project preselects the same choice. This puts the per-start choice in place that every other story and phase 3 build on.
+- **One deployable outcome:** A user opens the modal, chooses Plain shell or a script from their saved list (kept on the default server), and the shell starts accordingly in the chosen worktree on the workspace's server; the next start on that project preselects the same choice. This puts the per-start choice in place that every other story and phase 3 build on.
 
 ## Current Behavior
 
@@ -47,7 +47,8 @@ Verified by reading the code on 2026-11-08 (the code search index was unavailabl
 - **Modal.** `apps/web/src/components/workspaces/StartShellDialog.tsx` renders the "Starting script" select disabled, with a constant `"mock agent"` as its only item. It does not send a script.
 - **Harness and dev.** `scripts/scenarios/server.ts` sets `PROBE_AGENT_COMMAND` to the mock agent command, with a temporary `MOCK_AGENT_HOME`. `scripts/dev-runner.ts` (around line 342) sets the same variable to the mock agent unless the developer set one. `docs/internals/terminal-runtime.md` and `docs/internals/testing.md` describe the variable.
 - **Scenarios.** `scripts/scenarios/scenarios/` has S1 to S8 from PRB.E-001 (including `plus-modal.ts`, `restart.ts`, `worktrees.ts`); S2 prints a start-to-banner time (mock agent banner, not a plain prompt) and does not enforce it.
-- **User list.** No user-scripts store exists. Unverified: whether Probe's state folder already has a suitable place or format for a user-level list (see SA-2).
+- **One server.** Today the UI talks to one server and the user list, the workspace and the shell are all in that server. PRB.E-003 adds connections to other servers; this story must not assume that the workspace's server is the default server. How a start request for a workspace on another server gets the command is epic U-4 (cross-epic: E-003 U-7, SU-5 here); it does not gate this story.
+- **User list.** No user-scripts store exists. Unverified: whether the default server's state folder already has a suitable place or format for a user-level list (see SA-2).
 - **Mobile.** Verified 2026-11-08: no mobile source references `startShell` or `WorkspaceLastStart` (only a generated preview bundle does); the users are `apps/web/src/state/workspaces.ts`, `WorkspaceSidebar.tsx`, `worktreeChoice.ts` and `packages/client-runtime/src/state/workspaces.ts`. Whether mobile still compiles against the changed contracts is checked by `vp run check:changed` (SA-5).
 - **Restore.** Verified 2026-11-08: `Shells.restore` (`Shells.ts`, around line 703) reopens the shell with only its saved folder and a fresh token. It never passes the agent flag, never types the command, and does not read the remembered start (`WorkspaceLastStart` is written only by `rememberStart` in `SavedWorkspaces.ts`, after a new start). Adding a script to the remembered start does not reach Restore (SA-6).
 - **Remembered start saving.** Verified 2026-11-08: in `SavedWorkspaces.ts` (around line 840) a failed `rememberStart` is caught and logged as a warning, and the started shell is returned (SA-4). The remembered start already survives reload and server restart for the worktree choice (scenario `restart.ts`; SA-9).
@@ -59,23 +60,24 @@ Plain shell and the user scripts are offered in the "Create shell" modal. The us
 
 - **Plain shell:** an interactive shell opens in the chosen worktree at its prompt; nothing is typed.
 - **A user script:** the same shell opens in the chosen worktree and the script's command is typed once, after the first prompt, then runs. When the command ends, the shell stays at its prompt (today's behavior, unchanged).
-- **User list:** kept in Probe's state folder. A state folder with no saved list at all gets a list holding "mock agent" where the default is enabled (dev and the scenario harness enable it; any other start does not until U-2 is settled, SU-2), otherwise an empty list. A saved list that is empty is not "no list": it stays empty after a restart and is never seeded again. The list survives a reload and a server restart. In this story the list can be filled only by the defaults and by the harness seeding a file in its temporary state folder; editing from the UI is PRB.T-018.
-- **Remembered choice:** the project's last successful start remembers its script, saved with the workspace beside the worktree choice; the modal preselects it. The choice follows a script by identity, not by name. If the script is no longer in the list, or the project has no remembered script, the modal preselects Plain shell (settled 2026-11-08).
-- **Missing program:** the existing refusal behavior is kept for the chosen script (the program is named, no shell is left). Changing how the program is looked up, and the new messages, are PRB.T-017.
+- **Servers (user decision 2026-11-09):** the user list belongs to the person, so it lives on the default server (the server that serves the UI), like the other settings about the person. The modal offers that list for a workspace on any connected server. The shell is opened, the command typed and the program checked on the workspace's server. In a single-server setup these are the same machine.
+- **User list:** kept in the default server's state folder. A state folder with no saved list at all gets a list holding "mock agent" where the default is enabled (dev and the scenario harness enable it; any other start does not until U-2 is settled, SU-2), otherwise an empty list. A saved list that is empty is not "no list": it stays empty after a restart and is never seeded again. The list survives a reload and a server restart. In this story the list can be filled only by the defaults and by the harness seeding a file in its temporary state folder; editing from the UI is PRB.T-018.
+- **Remembered choice:** the project's last successful start remembers its script, saved in the workspace file on the workspace's server beside the worktree choice; the modal preselects it. The choice follows a script by identity, not by name. If the script is no longer in the list, or the project has no remembered script, the modal preselects Plain shell (settled 2026-11-08).
+- **Missing program:** the existing refusal behavior is kept for the chosen script (the program is named, no shell is left), and the check runs where the shell runs, on the workspace's server. Changing how the program is looked up, and the new messages (including naming the server), are PRB.T-017.
 - **Script names (settled 2026-11-08, behavior for later stories to build on):** a script's name defaults to its command's program (the first word after any leading env assignments, whitespace trimmed) and the user can type another. Names and commands may repeat, also within one list. This story only needs the name for display, logs and the seeded entries.
 - **Server-wide command:** the environment variable no longer decides what a shell runs. The scenario harness and dev runner seed their scripts in their state folder instead.
-- **Logs:** each start logs the script name and program, or "plain", never the full command line.
+- **Logs:** each start logs, on the workspace's server, the script name and program, or "plain", never the full command line.
 - **U-1 spike (output, not behavior):** a short written finding that settles which `PATH` decides "not found" and how an alias, function, env assignment or builtin first word is treated, so PRB.T-017 can be planned. This story does not change the lookup.
 - **Guardrail:** the plain-shell click-to-prompt time is measured and reported.
 - **Size (one story, kept):** the per-start choice, the persisted list, the remembered choice and the move off the environment variable are the shippable outcome. The U-1 spike (AC-15) and the Claude Code check (AC-14) are written or manual outputs by the author; neither blocks shipping the per-start choice. AC-15 must be done before PRB.T-017 is planned, and AC-14 before the epic closes. They stay in this story only because they use its result.
 
 ### User Flow
 
-1. The user clicks the up-arrow button on a project; the "Create shell" modal opens.
+1. The user clicks the up-arrow button on a project; the "Create shell" modal opens (for a workspace of any connected server).
 2. The Starting script dropdown is enabled. It lists Plain shell first, then the user scripts. The script of the project's last start in this workspace is preselected.
 3. The user picks a script (or leaves the preselected one), chooses the worktree as before, and clicks Start.
 4. The shell appears in the tree and opens in the chosen worktree. With Plain shell the prompt appears and nothing is typed. With a script, its command appears once after the first prompt and runs.
-5. The next time the user opens the modal on that project, the same script is preselected. After a reload and a server restart, the list and the remembered choice are unchanged.
+5. The next time the user opens the modal on that project, the same script is preselected. After a reload and a restart of the default server (and of the workspace's server), the list and the remembered choice are unchanged.
 
 ### Edge Cases
 
@@ -85,11 +87,12 @@ Plain shell and the user scripts are offered in the "Create shell" modal. The us
 - EC-4: A second, non-mock script (a plain command found on `PATH`) is in the list: it is typed once after the first prompt and runs like the mock agent (A-1).
 - EC-5: The shell prints no prompt mark (a shell that is not zsh or bash): behavior is unchanged from today (the command is typed after the existing timeout); fish is PRB.T-012.
 - EC-6: Two starts in different workspaces use the same user list; the remembered script is per workspace and project, not shared.
+- EC-8: The workspace is on a second server (PRB.E-003). The modal offers the default server's list, not a list of that server, and a script started there runs on that server. A script whose program exists only on the default server is a missing program there (PRB.T-017).
 - EC-7: The user list holds a script with an empty name written outside Probe: the story does not validate it (PRB.T-018); Probe still starts and the modal still offers every entry (the empty name is shown as the script's program). Repeated names or commands within or between lists are allowed (settled 2026-11-08) and are told apart by identity.
 
 ### Error Handling
 
-- ER-1: The saved user list cannot be read (damaged file): Probe still starts, the modal offers Plain shell, the problem is logged; the file is not overwritten silently. Showing the problem in Settings is PRB.T-018.
+- ER-1: The saved user list cannot be read (damaged file on the default server): Probe still starts, the modal offers Plain shell, the problem is logged; the file is not overwritten silently. Showing the problem in Settings is PRB.T-018.
 - ER-2: The chosen script's program is not found: the start fails with the existing message naming the program, and no shell is left in the tree. The choice names a script that is not in the list at start time (for example the file changed outside Probe; FR-12): the start fails with a message naming the script, and no shell is left in the tree. The case of a script removed or disabled by another client meanwhile is PRB.T-020. (How "not found" is decided is PRB.T-017.)
 - ER-3: Saving the remembered choice fails: the shell still starts and the failure is logged, as with the remembered worktree today (verified, SA-4).
 - ER-4: A start request that names no script is treated as Plain shell, so older clients and the web client that is mid-reload do not fail. Plain shell is the default (settled 2026-11-08).
@@ -107,18 +110,19 @@ Plain shell and the user scripts are offered in the "Create shell" modal. The us
 
 ## Technical Scope
 
-- **Layers:** server (shell start, user-list storage in the state folder, startup of the harness and dev runner), contracts (the start request and the remembered start gain the script; a user-scripts shape), web (the Create shell modal's dropdown and its remembered choice), scenario harness and mock-agent seeding, and a written U-1 finding. No terminal rendering change.
+- **Layers:** server (shell start on the workspace's server, user-list storage in the default server's state folder, a start request whose shape stays open to both ways of getting the command to the workspace's server, startup of the harness and dev runner), contracts (the start request and the remembered start gain the script; a user-scripts shape), web (the Create shell modal's dropdown and its remembered choice), scenario harness and mock-agent seeding, and a written U-1 finding. No terminal rendering change.
 - **Docs impact:** `docs/internals/terminal-runtime.md` (how the agent command is chosen and typed; the environment variable), `docs/internals/testing.md` (how the runner seeds the mock agent), and the dev setup text if it names the variable; the U-1 finding goes in `docs/internals/` if durable, otherwise in the ticket's handoff and `docs/dev/questions.md`. The first "Starting scripts" section in the user docs is TBD (author, 2026-11-15, at PRB.T-018, which ships the first user-visible management); this story updates any existing user-docs text about the modal only if there is some.
 - **Mobile impact:** the contracts change, so mobile must still type-check; no mobile source uses the changed start request today (verified); no mobile UI.
 
 ## Non-functional Requirements and Constraints
 
 - NFR-1: Plain shell click-to-prompt is measured and printed by the scenario on the author's machine. The 700 ms target applies only if the baseline is at or below it; if the baseline is above it, the author resets the target before PRB.T-017 starts (epic KPI, SU-3). No fixed wait is added before typing a script's command.
-- NFR-2/NFR-3: a damaged list never blocks startup; scripts are stored only in the state folder and workspace files; logs never carry the full command; scenarios use a temporary state folder.
+- NFR-2/NFR-3: a damaged list never blocks startup; scripts are stored only in the default server's state folder and in workspace files (on the workspace's server); logs never carry the full command; scenarios use a temporary state folder.
 - NFR-4: zsh and bash only for typing after the prompt; headless Chromium for scenarios; the PRB.E-001 scenarios S1 to S8 still pass.
 - NFR-5: the pick and the start work with the pointer alone.
 - Repository rules: wire shapes are in `packages/contracts`; clients keep using the existing start command pattern; a server feature is a service method, not handler code (`AGENTS.md`); no UI animation that repaints continuously.
 - Do not reuse T3's project scripts (`ProjectScript`, `t3.json` actions) for storage (epic Notes for stories).
+- Do not assume the workspace's server is the default server. Keep the user list behind its own service; the plan keeps the start request shape open to both options for how the command reaches the workspace's server (carried by the request, or resolved there), because epic U-4 (cross-epic: E-003 U-7) is settled by PRB.E-003's story 2; the one-server behaviour must not depend on the answer.
 
 ## Acceptance Criteria
 
@@ -155,6 +159,10 @@ Plain shell and the user scripts are offered in the "Create shell" modal. The us
 | AC-21 | Given a saved list with an entry with an empty name, and a list with repeated names or commands within and between lists, when the server starts and the modal opens, then Probe runs and the modal offers every entry, told apart by identity; the entry with the empty name shows its program as the label | auto | EC-7 |
 | AC-23 | Given a saved user list that is empty (the user emptied it), when the server restarts and the modal opens, then the list is still empty, "mock agent" is not added back and only Plain shell is offered; and a state folder with no saved list at all still gets the default where it is enabled | auto | FR-3, FR-2 (persistence), EC-1 |
 | AC-22 | Given a script in the list whose name is then changed outside Probe while its identity is kept, when the modal opens, then it is still preselected for the project that remembered it | auto | FR-6 |
+| AC-24 | Given the harness has a second server (PRB.E-003) and a workspace of it is open, when the user opens the modal, then it offers Plain shell and the default server's user list (the same entries as a workspace of the default server) | auto (second-server check: verified by PRB.E-003 story 8, does not gate this story; PRB.E-003 adds and runs it) | FR-3, FR-6, EC-8 |
+| AC-25 | Given the workspace of AC-24, when the user starts a script of the default server's list, then the shell opens in the chosen worktree on the second server, the command is typed there once after the first prompt, and the second server's log carries the script name and program | auto (second-server check: verified by PRB.E-003 story 8, does not gate this story) | FR-1, NFR-6, EC-8 |
+
+In the criteria above "the server" is the single server of a one-server setup (default server and workspace's server alike); AC-24 and AC-25 are the cases where they differ; they are verified by PRB.E-003 story 8, does not gate this story.
 
 ## Dependencies
 
@@ -162,6 +170,7 @@ Plain shell and the user scripts are offered in the "Create shell" modal. The us
 | ---------- | --- | ------ |
 | PRB.E-001 (closing) | The modal, the workspace file with its remembered start, Restore (PRB.T-008) and typing after the first prompt (PRB.T-011) | in progress; the pieces this story uses are already in the code |
 | PRB.T-011 | Typing after the first prompt in zsh and bash | done |
+| PRB.E-003 (not a blocker) | Carries the multi-server connection. This story works fully with one server; AC-24 and AC-25 are verified by PRB.E-003 story 8, does not gate this story (PRB.E-003 adds and runs them against its harness second server) | backlog |
 | None other | This story is FIRST in PRB.E-002 | |
 
 Stories that follow and depend on this one (not a dependency of this story):
@@ -176,7 +185,7 @@ Stories that follow and depend on this one (not a dependency of this story):
 | ID | Statement | Kind (assumption / unknown) | Status (unverified / verified / false) | How and when to verify | Owner |
 | ---- | --------- | --------------------------- | -------------------------------------- | ---------------------- | ----- |
 | SA-1 | Typing after the first prompt works for any command line, not only the mock agent (epic A-1) | assumption | unverified | AC-4: seeded second script in a scenario, plus a second command in the zsh and bash shell-ready tests | author |
-| SA-2 | Probe's state folder can hold the user list as its own file next to other saved state, without conflicting with the workspace files | assumption | unverified | Plan stage: look at the state folder's contents and how workspace files are written | author |
+| SA-2 | The default server's state folder can hold the user list as its own file next to other saved state, without conflicting with the workspace files | assumption | unverified | Plan stage: look at the state folder's contents and how workspace files are written | author |
 | SA-3 | The existing "program not found" check keeps working per start with the chosen command (epic A-5 for the final rule) | assumption | unverified | AC-10 | author |
 | SA-4 | Saving the remembered start fails softly today (the shell still starts) and the same holds with a script in it | assumption | verified for today (2026-11-08: a failed `rememberStart` is caught and logged at `SavedWorkspaces.ts` around line 840); with a script in it checked by AC-19 | AC-19 | author |
 | SA-5 | Mobile, desktop and other dependents compile against the changed contracts without edits beyond the contract | assumption | unverified (no mobile source uses the changed types, 2026-11-08) | AC-16 | author |
@@ -190,3 +199,4 @@ Stories that follow and depend on this one (not a dependency of this story):
 | SU-2 | Whether "mock agent" can be a default user script outside the repository, or only in dev and the harness (epic U-2) | unknown | unverified | Plan stage; until then the default is dev and harness only | author |
 | SU-3 | The plain-shell click-to-prompt time today, and whether it is within 700 ms (epic U-3) | unknown | unverified | AC-2b: measured before any change in this story; 700 ms applies only if the baseline is at or below it, otherwise the author resets the target before PRB.T-017 | author |
 | SU-4 | Whether a workspace file with the remembered script written by this story must stay readable by older servers (a downgrade) | unknown | unverified | TBD (author, 2026-11-15); Probe has no released versions yet, so recommendation is no | author |
+| SU-5 | How a start for a workspace on another server gets the command (carried by the request, or resolved from the default server) and so how a script "not in the list at start time" (AC-10b) is judged there (epic U-4, cross-epic: E-003 U-7) | unknown | unverified | Settled by PRB.E-003 story 2; AC-24 and AC-25 follow its answer and are verified by PRB.E-003 story 8. Not a gate for this story | PRB.E-003 story 2, 2026-11-15 |

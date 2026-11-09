@@ -1,0 +1,1 @@
+Some projects are too early for entreprise. Some stories epics could be breaking down even futher and provide better transparency for reviwer. this is workspace-specific feature

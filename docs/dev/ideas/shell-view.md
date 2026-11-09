@@ -1,0 +1,2 @@
+we can introduce a shell view feature that will be availble via mcp and UI. This should allow to filter shells and sort them. For instance filter buy agent-waiting & date. 
+Shells can be labeled and then this labling can be used for sorting / filtering
