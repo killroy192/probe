@@ -14,6 +14,7 @@ import type { Scenario } from "../scenario.ts";
 import { follow, gone, pageFrames, recorder } from "../support.ts";
 import {
   addProject,
+  addStartingScript,
   cancelModal,
   check,
   closeFolderList,
@@ -366,8 +367,8 @@ export const plusModal: Scenario = {
         "The log has no end line for the killed shell (AC-19).",
       );
 
-      // AC-16, AC-17: one restart carries both faults, an agent command that cannot start
-      // and a git config that makes `git init` fail; a second restart clears them.
+      // AC-16, AC-17: a starting script whose program is missing, and a restart with a git
+      // config that makes `git init` fail; a second restart clears the git fault.
 
       stage = "AC-16";
       // Shells outlive a restart (PRB.T-007); this check starts from none.
@@ -375,15 +376,18 @@ export const plusModal: Scenario = {
         await Effect.runPromise(rpc.client["shell.kill"]({ shellId: shell.shellId }));
       }
       await rpc.close();
-      await server.restart({
-        env: { PROBE_AGENT_COMMAND: "no-such-agent-cli --start", GIT_CONFIG_GLOBAL: badGitConfig },
+      await addStartingScript(server.home, {
+        id: "unstartable",
+        name: "unstartable",
+        command: "no-such-agent-cli --start",
       });
+      await server.restart({ env: { GIT_CONFIG_GLOBAL: badGitConfig } });
       await reopen(page);
       rpc = await connectRpc(server.origin, page);
       shells = shellList(rpc.client);
       await shells.lists.until("the list after restart", () => true);
       await shellNodes(page).first().waitFor({ state: "detached" });
-      await openModal(page, repo);
+      await openModal(page, repo, { script: "unstartable" });
       await startButton(page).click();
       const unstartable = await dialog(page).getByRole("alert").textContent();
       check(

@@ -88,6 +88,7 @@ import * as ProcessRunner from "./processRunner.ts";
 import * as GitManager from "./git/GitManager.ts";
 import * as EnvironmentTheme from "./environmentTheme.ts";
 import * as SavedWorkspaces from "./savedWorkspaces/SavedWorkspaces.ts";
+import * as StartingScripts from "./startingScripts/StartingScripts.ts";
 import * as Shells from "./terminal/Shells.ts";
 import * as ShellHostClient from "./terminal/shellHost/client.ts";
 import * as ShellSelfKillRoute from "./terminal/shellSelfKillRoute.ts";
@@ -645,7 +646,9 @@ const layerRuntimeCoreDependenciesBase = Layer.mergeAll(
   Layer.provideMerge(layerSourceControlProviderRegistry),
   Layer.provideMerge(layerGit),
   Layer.provideMerge(layerVcs),
-  Layer.provideMerge(Layer.mergeAll(layerTerminal, layerPreview, layerDevice)),
+  Layer.provideMerge(
+    Layer.mergeAll(layerTerminal, layerPreview, layerDevice, StartingScripts.layer),
+  ),
   Layer.provideMerge(layerPersistence),
   Layer.provideMerge(
     Layer.mergeAll(Keybindings.layer, EnvironmentTheme.layer, UsageLimitSources.layer),

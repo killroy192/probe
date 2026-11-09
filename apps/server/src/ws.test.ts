@@ -47,6 +47,7 @@ import * as DirectEndpoints from "./environment/DirectEndpoints.ts";
 import * as EnvironmentAuth from "./auth/EnvironmentAuth.ts";
 import * as EnvironmentTheme from "./environmentTheme.ts";
 import * as SavedWorkspaces from "./savedWorkspaces/SavedWorkspaces.ts";
+import * as StartingScripts from "./startingScripts/StartingScripts.ts";
 import * as Shells from "./terminal/Shells.ts";
 import * as GitWorkflowService from "./git/GitWorkflowService.ts";
 import * as HostResources from "./resourceTelemetry/HostResources.ts";
@@ -499,6 +500,7 @@ const layerUnusedConfigRpcServices = Layer.mergeAll(
   Layer.mock(DeviceService.DeviceService)({}),
   Layer.mock(EnvironmentTheme.EnvironmentThemeService)({}),
   Layer.mock(SavedWorkspaces.SavedWorkspaces)({}),
+  Layer.mock(StartingScripts.StartingScripts)({}),
   Layer.mock(GitWorkflowService.GitWorkflowService)({}),
   Layer.mock(HostResources.HostResources)({}),
   Layer.mock(McpAppRequests.McpAppRequests)({}),

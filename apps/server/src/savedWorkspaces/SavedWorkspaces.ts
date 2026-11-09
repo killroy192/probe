@@ -30,6 +30,7 @@ import * as Equal from "effect/Equal";
 import * as Exit from "effect/Exit";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 import type * as PlatformError from "effect/PlatformError";
 import * as PubSub from "effect/PubSub";
@@ -43,6 +44,7 @@ import { writeFileStringAtomically } from "@t3tools/shared/atomicWrite";
 
 import * as ServerConfig from "../config.ts";
 import * as ProjectService from "../project/ProjectService.ts";
+import * as StartingScripts from "../startingScripts/StartingScripts.ts";
 import * as Shells from "../terminal/Shells.ts";
 import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
 import * as VcsDriverRegistry from "../vcs/VcsDriverRegistry.ts";
@@ -57,7 +59,8 @@ const NO_TABS: WorkspaceTabs = { shellIds: [], active: null };
 const SavedWorkspaceFile = Schema.Struct({
   version: Schema.Literal(1),
   projects: Schema.optional(Schema.Array(Schema.Struct({ path: Schema.String }))),
-  lastStart: Schema.optional(Schema.NullOr(WorkspaceLastStart)),
+  /** Keyed by project path. */
+  lastStarts: Schema.optional(Schema.Record(Schema.String, WorkspaceLastStart)),
   tabs: Schema.optional(WorkspaceTabs),
   /** The last "Shell N" started; ended shells can be restored, so their numbers stay taken. */
   lastShellNumber: Schema.optional(Schema.Number),
@@ -65,8 +68,9 @@ const SavedWorkspaceFile = Schema.Struct({
 type SavedWorkspaceFile = typeof SavedWorkspaceFile.Type;
 const encodeSavedWorkspaceFile = Schema.encodeSync(Schema.fromJsonString(SavedWorkspaceFile));
 
-// What older servers wrote: `folders` for the projects, `lastStart.folder`, and `lastFolder`, which
-// files written before worktrees use for the last start. Reading maps them; writing never emits them.
+// What older servers wrote: `folders` for the projects, one `lastStart` per workspace (with
+// `project`, or `folder`), and `lastFolder`, which files written before worktrees use for the last
+// start. Reading maps them; writing never emits them.
 const DiskWorkspaceFile = Schema.Struct({
   ...SavedWorkspaceFile.fields,
   folders: Schema.optional(Schema.Array(Schema.Struct({ path: Schema.String }))),
@@ -74,7 +78,7 @@ const DiskWorkspaceFile = Schema.Struct({
   lastStart: Schema.optional(
     Schema.NullOr(
       Schema.Union([
-        WorkspaceLastStart,
+        Schema.Struct({ project: Schema.String, worktree: WorkspaceLastStart.fields.worktree }),
         Schema.Struct({ folder: Schema.String, worktree: WorkspaceLastStart.fields.worktree }),
       ]),
     ),
@@ -83,7 +87,7 @@ const DiskWorkspaceFile = Schema.Struct({
 const decodeDiskWorkspaceFile = Schema.decodeUnknownExit(Schema.fromJsonString(DiskWorkspaceFile));
 
 const fromDisk = (disk: typeof DiskWorkspaceFile.Type): SavedWorkspaceFile => {
-  const { folders, lastFolder, lastStart, projects, ...rest } = disk;
+  const { folders, lastFolder, lastStart, lastStarts, projects, ...rest } = disk;
   const start =
     lastStart != null
       ? "folder" in lastStart
@@ -93,12 +97,23 @@ const fromDisk = (disk: typeof DiskWorkspaceFile.Type): SavedWorkspaceFile => {
         ? null
         : { project: lastFolder, worktree: { kind: "checkout" as const } };
   const saved = projects ?? folders;
+  const starts =
+    start === null ? lastStarts : { [start.project]: { worktree: start.worktree }, ...lastStarts };
   return {
     ...rest,
     ...(saved === undefined ? {} : { projects: saved }),
-    ...(start === null ? {} : { lastStart: start }),
+    ...(starts === undefined ? {} : { lastStarts: starts }),
   };
 };
+
+/** The remembered starts without those of `projects`. */
+const startsWithout = (
+  lastStarts: SavedWorkspaceFile["lastStarts"],
+  projects: ReadonlySet<string>,
+): Record<string, WorkspaceLastStart> =>
+  Object.fromEntries(
+    Object.entries(lastStarts ?? {}).filter(([project]) => !projects.has(project)),
+  );
 
 interface PublishedWorkspaces {
   readonly seq: number;
@@ -204,6 +219,7 @@ const make = Effect.gen(function* () {
   const provisioning = yield* VcsProvisioningService.VcsProvisioningService;
   const workspacePaths = yield* WorkspacePaths.WorkspacePaths;
   const shells = yield* Shells.Shells;
+  const startingScripts = yield* StartingScripts.StartingScripts;
   const randomId = (yield* Crypto.Crypto).randomUUIDv4().pipe(Effect.orDie);
   const shellNumbers = new Map<string, number>();
   const fileOf = (name: string) => path.join(workspacesDir, `${name}${FILE_SUFFIX}`);
@@ -334,16 +350,16 @@ const make = Effect.gen(function* () {
   const dropProject = Effect.fn("SavedWorkspaces.dropProject")(function* (
     input: WorkspaceRemoveProjectInput,
   ) {
-    const { lastStart, ...file } = yield* readFile(input.name);
+    const file = yield* readFile(input.name);
     const projects = file.projects ?? [];
     if (!projects.some((saved) => saved.path === input.project)) {
       return yield* projectError(`This project is not in the workspace: ${input.project}`);
     }
-    // A remembered start in the removed project would preselect a project that is gone.
+    // A project added again later starts with no remembered choice.
     const next: SavedWorkspaceFile = {
       ...file,
       projects: projects.filter((saved) => saved.path !== input.project),
-      ...(lastStart == null || lastStart.project === input.project ? {} : { lastStart }),
+      lastStarts: startsWithout(file.lastStarts, new Set([input.project])),
     };
     yield* writeFile(input.name, next);
     return yield* toDetail(input.name, next);
@@ -434,15 +450,13 @@ const make = Effect.gen(function* () {
       }),
       { concurrency: "unbounded" },
     );
-    const remembered = file.lastStart ?? null;
     // A remembered project that left the workspace or the disk is not offered again.
-    const lastStart = projects.some(
-      (project) => project.path === remembered?.project && project.exists,
-    )
-      ? remembered
-      : null;
+    const offered = new Set(projects.filter((project) => project.exists).map(({ path }) => path));
+    const lastStarts = Object.fromEntries(
+      Object.entries(file.lastStarts ?? {}).filter(([project]) => offered.has(project)),
+    );
     const tabs = file.tabs ?? NO_TABS;
-    return { name, projects, lastStart, tabs } satisfies WorkspaceDetail;
+    return { name, projects, lastStarts, tabs } satisfies WorkspaceDetail;
   });
 
   /**
@@ -461,11 +475,10 @@ const make = Effect.gen(function* () {
       gone.filter((project) => !listed.some((shell) => (shell.project ?? shell.cwd) === project)),
     );
     if (empty.size === 0) return detail;
-    const { lastStart, ...rest } = file;
     const next: SavedWorkspaceFile = {
-      ...rest,
+      ...file,
       projects: (file.projects ?? []).filter((saved) => !empty.has(saved.path)),
-      ...(lastStart == null || empty.has(lastStart.project) ? {} : { lastStart }),
+      lastStarts: startsWithout(file.lastStarts, empty),
     };
     return yield* writeFile(input.name, next).pipe(
       Effect.tap(() =>
@@ -580,11 +593,16 @@ const make = Effect.gen(function* () {
 
   const rememberStart = Effect.fn("SavedWorkspaces.rememberStart")(function* (
     name: string,
+    project: string,
     lastStart: WorkspaceLastStart,
     lastShellNumber: number,
   ) {
     const file = yield* readFile(name);
-    yield* writeFile(name, { ...file, lastStart, lastShellNumber });
+    yield* writeFile(name, {
+      ...file,
+      lastStarts: { ...file.lastStarts, [project]: lastStart },
+      lastShellNumber,
+    });
   }, lock.withPermits(1));
 
   const requireProject = Effect.fn("SavedWorkspaces.requireProject")(function* (
@@ -798,6 +816,20 @@ const make = Effect.gen(function* () {
     }
   });
 
+  // Judged against the list as saved now, so a script removed meanwhile is refused, not typed.
+  const scriptOf = Effect.fn("SavedWorkspaces.scriptOf")(function* (
+    choice: WorkspaceStartShellInput["script"],
+  ) {
+    if (choice === undefined) return null;
+    const found = yield* startingScripts.find(choice.id);
+    if (Option.isNone(found)) {
+      return yield* projectError(
+        `The starting script "${choice.name}" is no longer in your list. Pick another one.`,
+      );
+    }
+    return found.value;
+  });
+
   const startShell = Effect.fn("SavedWorkspaces.startShell")(function* (
     input: WorkspaceStartShellInput,
   ) {
@@ -808,6 +840,7 @@ const make = Effect.gen(function* () {
     input: WorkspaceStartShellInput,
   ) {
     yield* requireProject(input.name, input.project);
+    const script = yield* scriptOf(input.script);
     const place = yield* placeShell(input.project, input.worktree);
     // Numbered per workspace in start order; a failed start gives its number back.
     const saved = (yield* readFile(input.name)).lastShellNumber ?? 0;
@@ -817,7 +850,6 @@ const make = Effect.gen(function* () {
       .open(
         {
           cwd: place.cwd,
-          agent: true,
           ...(input.cols === undefined ? {} : { cols: input.cols }),
           ...(input.rows === undefined ? {} : { rows: input.rows }),
         },
@@ -825,6 +857,7 @@ const make = Effect.gen(function* () {
           title: `Shell ${number}`,
           project: input.project,
           ...(place.worktree === null ? {} : { worktree: place.worktree }),
+          ...(script === null ? {} : { script }),
         },
       )
       .pipe(
@@ -837,11 +870,11 @@ const make = Effect.gen(function* () {
     // The shell is running either way; failing here would hide it from the caller.
     const worktree = input.worktree ?? { kind: "checkout" as const };
     const lastStart: WorkspaceLastStart = {
-      project: input.project,
       worktree:
         worktree.kind === "new" ? { kind: "new", startingPoint: worktree.startingPoint } : worktree,
+      ...(script === null ? {} : { script: script.id }),
     };
-    yield* rememberStart(input.name, lastStart, number).pipe(
+    yield* rememberStart(input.name, input.project, lastStart, number).pipe(
       Effect.catch((error) =>
         Effect.logWarning("could not remember the workspace's last start", {
           name: input.name,

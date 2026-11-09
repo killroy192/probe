@@ -1,5 +1,8 @@
-import type {
-  WorkspaceDetail,
+import {
+  type StartingScript,
+  type StartingScriptChoice,
+  startingScriptLabel,
+  type WorkspaceDetail,
   WorkspaceProject,
   WorkspaceProjectGit,
   WorkspaceWorktreeChoice,
@@ -23,6 +26,8 @@ import { useDialogAction } from "./dialogAction";
 import { folderName } from "./shellName";
 import {
   existingWorktrees,
+  PLAIN_SHELL,
+  preselectedScript,
   resolvePlace,
   startingPoints,
   toChoice,
@@ -31,9 +36,6 @@ import {
 } from "./worktreeChoice";
 
 type GitResult = { readonly git: WorkspaceProjectGit } | { readonly error: string };
-
-/** The only starting script until scripts can be chosen. */
-const STARTING_SCRIPT = "mock agent";
 
 /**
  * Creates a shell in one project: in an existing worktree, or in a new one forked from a worktree
@@ -45,6 +47,7 @@ export function StartShellDialog({
   onOpenChange,
   workspace,
   loadGit,
+  loadScripts,
   onStart,
 }: {
   /** The project the shell is created in; null keeps the dialog closed. */
@@ -52,14 +55,18 @@ export function StartShellDialog({
   readonly onOpenChange: (open: boolean) => void;
   readonly workspace: WorkspaceDetail;
   readonly loadGit: (project: string) => Promise<GitResult>;
+  readonly loadScripts: () => Promise<ReadonlyArray<StartingScript>>;
   readonly onStart: (
     project: string,
     worktree: WorkspaceWorktreeChoice | null,
+    script: StartingScriptChoice | null,
   ) => Promise<string | null>;
 }) {
   const [chosenMode, setChosenMode] = useState<WorktreeMode | null>(null);
   const [chosenWorktree, setChosenWorktree] = useState<string | null>(null);
   const [chosenStartingPoint, setChosenStartingPoint] = useState<string | null>(null);
+  const [chosenScript, setChosenScript] = useState<string | null>(null);
+  const [scripts, setScripts] = useState<ReadonlyArray<StartingScript> | null>(null);
   const [loaded, setLoaded] = useState<{
     readonly project: string;
     readonly result: GitResult;
@@ -82,6 +89,28 @@ export function StartShellDialog({
     };
   }, [path, isGit]);
 
+  const readScripts = useEffectEvent(() => loadScripts());
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- reads the user's starting scripts from the server each time the dialog opens
+  useEffect(() => {
+    if (path === null) return;
+    let current = true;
+    void readScripts().then((next) => {
+      if (current) setScripts(next);
+    });
+    return () => {
+      current = false;
+    };
+  }, [path]);
+
+  const lastStart = path === null ? null : (workspace.lastStarts[path] ?? null);
+  const script =
+    scripts === null
+      ? PLAIN_SHELL
+      : chosenScript !== null && scripts.some((entry) => entry.id === chosenScript)
+        ? chosenScript
+        : chosenScript === PLAIN_SHELL
+          ? PLAIN_SHELL
+          : preselectedScript(lastStart, scripts);
   const result = isGit && loaded?.project === path ? loaded.result : null;
   const git = result !== null && "git" in result ? result.git : null;
   const place =
@@ -90,15 +119,17 @@ export function StartShellDialog({
       : resolvePlace({
           project: path,
           git,
-          lastStart: workspace.lastStart,
+          lastStart,
           chosenMode,
           chosenWorktree,
           chosenStartingPoint,
         });
   const choice = git === null || place === null ? null : toChoice(git, place);
   const isNew = place?.mode === "new";
+  // Starting before the list arrives would start a plain shell instead of the preselected script.
   const canStart =
     path !== null &&
+    scripts !== null &&
     !action.pending &&
     (!isGit ||
       (result !== null &&
@@ -108,7 +139,9 @@ export function StartShellDialog({
     setChosenMode(null);
     setChosenWorktree(null);
     setChosenStartingPoint(null);
+    setChosenScript(null);
     setLoaded(null);
+    setScripts(null);
   };
 
   const close = (next: boolean) => {
@@ -123,7 +156,10 @@ export function StartShellDialog({
   const start = async () => {
     if (path === null || !canStart) return;
     const worktree = isGit ? (choice ?? { kind: "checkout" as const }) : null;
-    if (await action.run(() => onStart(path, worktree))) {
+    const picked = scripts?.find((entry) => entry.id === script);
+    const chosen =
+      picked === undefined ? null : { id: picked.id, name: startingScriptLabel(picked) };
+    if (await action.run(() => onStart(path, worktree, chosen))) {
       reset();
       onOpenChange(false);
     } else if (isGit) {
@@ -152,17 +188,17 @@ export function StartShellDialog({
             {/* A single shrinkable column, so a long path truncates instead of scrolling. */}
             <div className="grid grid-cols-[minmax(0,1fr)] gap-3">
               <Field label="Starting script">
-                <Select value={STARTING_SCRIPT} disabled>
-                  <SelectTrigger size="sm" aria-label="Starting script">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectPopup alignItemWithTrigger={false}>
-                    <SelectItem value={STARTING_SCRIPT}>{STARTING_SCRIPT}</SelectItem>
-                  </SelectPopup>
-                </Select>
+                <ScriptSelect
+                  value={script}
+                  scripts={scripts ?? []}
+                  onChange={(key) => {
+                    setChosenScript(key);
+                    action.clearError();
+                  }}
+                />
               </Field>
               {!isGit ? null : result === null ? (
-                <p className="text-sm text-muted-foreground">Reading worktrees…</p>
+                <WorktreesLoading fork={lastStart?.worktree.kind === "new"} />
               ) : "error" in result ? (
                 <p className="text-sm text-destructive-foreground">{result.error}</p>
               ) : place === null ? null : (
@@ -267,6 +303,83 @@ function Field({ label, children }: { readonly label: string; readonly children:
       <span className="text-xs font-medium text-muted-foreground">{label}</span>
       {children}
     </div>
+  );
+}
+
+/** Plain shell first, then the user's scripts, told apart by id since names may repeat. */
+function ScriptSelect({
+  value,
+  scripts,
+  onChange,
+}: {
+  readonly value: string;
+  readonly scripts: ReadonlyArray<StartingScript>;
+  readonly onChange: (key: string) => void;
+}) {
+  const options = [
+    { key: PLAIN_SHELL, label: "Plain shell" },
+    ...scripts.map((script) => ({ key: script.id, label: startingScriptLabel(script) })),
+  ];
+  return (
+    <Select
+      value={value}
+      onValueChange={(key) => {
+        if (key !== null) onChange(key);
+      }}
+    >
+      <SelectTrigger size="sm" aria-label="Starting script">
+        <SelectValue>
+          {(key: string | null) => {
+            const option = options.find((candidate) => candidate.key === key) ?? options[0]!;
+            return (
+              <span data-key={option.key} className="truncate">
+                {option.label}
+              </span>
+            );
+          }}
+        </SelectValue>
+      </SelectTrigger>
+      <SelectPopup alignItemWithTrigger={false}>
+        {options.map((option) => (
+          <SelectItem
+            key={option.key}
+            value={option.key}
+            data-key={option.key}
+            data-title={option.label}
+          >
+            <span className="truncate">{option.label}</span>
+          </SelectItem>
+        ))}
+      </SelectPopup>
+    </Select>
+  );
+}
+
+/**
+ * The worktree controls as they will show, disabled, so the dialog keeps its height while the
+ * project's worktrees load.
+ */
+function WorktreesLoading({ fork }: { readonly fork: boolean }) {
+  const label = fork ? "Fork from" : "Start in";
+  return (
+    <>
+      <ToggleGroup className="w-full *:flex-1" value={[fork ? "new" : "existing"]}>
+        <Toggle value="existing" disabled>
+          Existing
+        </Toggle>
+        <Toggle value="new" disabled>
+          Fork
+        </Toggle>
+      </ToggleGroup>
+      <Field label={label}>
+        <Select value={null} disabled>
+          <SelectTrigger size="sm" aria-label={label}>
+            <SelectValue>{() => "Reading worktrees…"}</SelectValue>
+          </SelectTrigger>
+        </Select>
+        {fork ? <p className="text-sm">&nbsp;</p> : null}
+      </Field>
+    </>
   );
 }
 

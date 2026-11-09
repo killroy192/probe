@@ -44,6 +44,11 @@ export function createWorkspaceEnvironmentAtoms<R, E>(
       label: "environment-data:workspace:start-shell",
       tag: WS_METHODS.workspaceStartShell,
     }),
+    /** The user's starting scripts; read from the server that serves the UI. */
+    startingScripts: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:workspace:starting-scripts",
+      tag: WS_METHODS.startingScriptsList,
+    }),
     saveTabs: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:workspace:save-tabs",
       tag: WS_METHODS.workspaceSaveTabs,

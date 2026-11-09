@@ -9,7 +9,7 @@ import * as NodeURL from "node:url";
 
 export const REPO_ROOT = NodePath.resolve(NodeURL.fileURLToPath(import.meta.url), "../../..");
 const DEFAULT_SERVER_BIN = NodePath.join(REPO_ROOT, "apps/server/src/bin.ts");
-/** The agent command the server types into a shell started from a workspace. */
+/** The command of the "mock agent" starting script the harness's state folders start with. */
 export const MOCK_AGENT_COMMAND = `node ${NodePath.join(REPO_ROOT, "scripts/mock-agent/mock-agent.ts")}`;
 const LOG_LIMIT = 4 * 1024 * 1024;
 
@@ -145,7 +145,7 @@ export async function startServer(options: {
   let child: NodeChildProcess.ChildProcess | undefined;
   let logs = "";
   const defaults: ServerEnv = {
-    PROBE_AGENT_COMMAND: MOCK_AGENT_COMMAND,
+    PROBE_SEED_MOCK_AGENT: MOCK_AGENT_COMMAND,
     MOCK_AGENT_HOME: NodePath.join(options.home, "mock-agent"),
   };
 

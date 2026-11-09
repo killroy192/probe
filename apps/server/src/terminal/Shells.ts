@@ -19,6 +19,7 @@ import {
   isShellOwnerId,
   shellIdFromOwnerId,
   shellOwnerId,
+  startingScriptProgram,
 } from "@t3tools/contracts";
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import { resolveSelfInvocation, selfInvocationArgs } from "@t3tools/shared/nodeRuntime";
@@ -233,10 +234,8 @@ export const withoutShells = (
 const DEFAULT_PROMPT_TIMEOUT = "15 seconds";
 
 interface ShellsOptions {
-  /** Typed into a shell opened with `agent: true`; null when none is configured. */
-  readonly agentCommand?: string | null;
   readonly searchPath?: string | undefined;
-  /** How long the agent command waits for the shell's prompt; slow startup files need a long wait. */
+  /** How long a starting script waits for the shell's prompt; slow startup files need a long wait. */
   readonly promptTimeout?: Duration.Input;
   readonly platform?: NodeJS.Platform;
   /** The current folder of each process; a pid it cannot read is left out. */
@@ -259,6 +258,8 @@ export interface ShellOpenOptions {
   readonly project?: string;
   /** The git worktree it starts in; its branch is shown and kept up to date. */
   readonly worktree?: string;
+  /** Typed once the shell is ready; absent for a plain shell. */
+  readonly script?: { readonly name: string; readonly command: string };
 }
 
 const optionalEnv = (env: Record<string, string> | undefined) => (env === undefined ? {} : { env });
@@ -317,11 +318,8 @@ const makeReadCwds = Effect.fnUntraced(function* (platform: NodeJS.Platform) {
 export const withoutDeletedMark = (cwd: string) => cwd.replace(/ \(deleted\)$/, "");
 
 // The program is the command's first word; the shell itself parses the rest when it runs the line.
-const programOf = (command: string) =>
-  command
-    .trim()
-    .split(/\s+/)[0]
-    ?.replace(/^["']|["']$/g, "");
+// Leading `NAME=value` words are skipped: they are not the program, and may carry a secret.
+const programOf = (command: string) => startingScriptProgram(command).replace(/^["']|["']$/g, "");
 
 export const makeShells = Effect.fn("Shells.make")(function* (
   manager: Manager,
@@ -332,7 +330,6 @@ export const makeShells = Effect.fn("Shells.make")(function* (
   const path = yield* Path.Path;
   const scope = yield* Effect.scope;
   const platform = options.platform ?? (yield* HostProcess.Platform);
-  const agentCommand = options.agentCommand ?? null;
   const promptTimeout = options.promptTimeout ?? DEFAULT_PROMPT_TIMEOUT;
   const host = options.host ?? null;
   const registryPath = options.registryPath ?? null;
@@ -549,13 +546,10 @@ export const makeShells = Effect.fn("Shells.make")(function* (
     return false;
   });
 
-  const agentProblem = Effect.fnUntraced(function* (cwd: string) {
-    if (agentCommand === null || agentCommand.trim().length === 0) {
-      return "No agent command is configured.";
-    }
-    const program = programOf(agentCommand);
-    if (program === undefined || program.length === 0 || !(yield* findProgram(program, cwd))) {
-      return `The agent command was not found: ${program ?? agentCommand}`;
+  const scriptProblem = Effect.fnUntraced(function* (command: string, cwd: string) {
+    const program = programOf(command);
+    if (program.length === 0 || !(yield* findProgram(program, cwd))) {
+      return `The agent command was not found: ${program}`;
     }
     return null;
   });
@@ -692,8 +686,8 @@ export const makeShells = Effect.fn("Shells.make")(function* (
 
   // Shells being restored, so a second request while the first runs is refused.
   const restoring = new Set<string>();
-  // Shells whose agent command is not typed yet; input for them waits, so it cannot run ahead of it.
-  const agentPending = new Map<string, Deferred.Deferred<void>>();
+  // Shells whose starting script is not typed yet; input for them waits, so it cannot run ahead of it.
+  const scriptPending = new Map<string, Deferred.Deferred<void>>();
 
   /**
    * Starts an ended shell again as a new process in the same place, under the same id. Only the
@@ -845,9 +839,9 @@ export const makeShells = Effect.fn("Shells.make")(function* (
   return {
     // A shell that cannot start is not kept: the caller gets the launch error's reason instead.
     open: Effect.fn("Shells.open")(function* (input: ShellOpenInput, options?: ShellOpenOptions) {
-      const { agent, ...terminal } = input;
-      if (agent === true) {
-        const problem = yield* agentProblem(input.cwd);
+      const script = options?.script ?? null;
+      if (script !== null) {
+        const problem = yield* scriptProblem(script.command, input.cwd);
         if (problem !== null) return yield* failToStart(input.cwd, problem);
       }
       const shellId = yield* newShellId;
@@ -873,10 +867,9 @@ export const makeShells = Effect.fn("Shells.make")(function* (
       const token = yield* newToken;
       const tokenHash = token === null ? null : hashToken(token);
       if (tokenHash !== null) tokens.set(tokenHash, shellId);
-      const env = envOf(shellId, token, terminal.env);
+      const env = envOf(shellId, token, input.env);
       // Listens from before the shell starts, so its first prompt cannot slip past.
-      const typesAgent = agent === true && agentCommand !== null;
-      const output = typesAgent ? yield* Queue.unbounded<ShellOutputEvent>() : null;
+      const output = script !== null ? yield* Queue.unbounded<ShellOutputEvent>() : null;
       const stopOutput =
         output === null
           ? () => {}
@@ -890,7 +883,7 @@ export const makeShells = Effect.fn("Shells.make")(function* (
                     : Effect.void,
             );
       const snapshot = yield* manager
-        .open({ ...owner, ...terminal, ...(env === undefined ? {} : { env }) })
+        .open({ ...owner, ...input, ...(env === undefined ? {} : { env }) })
         .pipe(
           Effect.ensuring(Effect.sync(stop)),
           Effect.onError(() => Effect.sync(stopOutput)),
@@ -916,32 +909,43 @@ export const makeShells = Effect.fn("Shells.make")(function* (
         ended: null,
       });
       yield* persistOrWarn;
+      // The command line may carry a secret (`TOKEN=… claude`), so only its name and program are logged.
+      const started =
+        script === null
+          ? { script: "plain" }
+          : { script: script.name, program: startingScriptProgram(script.command) };
       yield* Effect.logInfo(
         "shell started",
         record.worktree === null
-          ? { shellId, cwd: snapshot.cwd }
-          : { shellId, cwd: snapshot.cwd, worktree: record.worktree, branch: record.branch },
+          ? { shellId, cwd: snapshot.cwd, ...started }
+          : {
+              shellId,
+              cwd: snapshot.cwd,
+              worktree: record.worktree,
+              branch: record.branch,
+              ...started,
+            },
       );
-      if (output !== null && agentCommand !== null) {
+      if (output !== null && script !== null) {
         // Typed before the shell is ready, the line is echoed once at once and again after the
         // prompt. Waiting for the prompt must not hold up the start, so it happens in the background.
         const typed = yield* Deferred.make<void>();
-        agentPending.set(shellId, typed);
+        scriptPending.set(shellId, typed);
         yield* Effect.gen(function* () {
           const outcome = (yield* manager.printsPromptMark(owner.threadId, owner.terminalId))
             ? yield* waitForPromptMark(Stream.fromQueue(output), promptTimeout)
             : "unwrapped";
           if (outcome === "timeout") {
-            yield* Effect.logWarning("shell printed no prompt mark; typing the agent command", {
+            yield* Effect.logWarning("shell printed no prompt mark; typing the starting script", {
               shellId,
             });
           }
           if (outcome !== "exited") {
-            yield* manager.write({ ...owner, data: `${agentCommand}\r` });
+            yield* manager.write({ ...owner, data: `${script.command}\r` });
           }
         }).pipe(
           Effect.catch((error) =>
-            Effect.logWarning("the agent command was not typed", {
+            Effect.logWarning("the starting script was not typed", {
               shellId,
               reason: error.message,
             }),
@@ -949,7 +953,7 @@ export const makeShells = Effect.fn("Shells.make")(function* (
           Effect.ensuring(
             Effect.sync(() => {
               stopOutput();
-              agentPending.delete(shellId);
+              scriptPending.delete(shellId);
               Deferred.doneUnsafe(typed, Effect.void);
             }),
           ),
@@ -964,7 +968,7 @@ export const makeShells = Effect.fn("Shells.make")(function* (
         viewerId,
       ),
     write: Effect.fn("Shells.write")(function* (input: ShellWriteInput) {
-      const pending = agentPending.get(input.shellId);
+      const pending = scriptPending.get(input.shellId);
       if (pending !== undefined) yield* Deferred.await(pending);
       yield* manager.write({ ...session(input.shellId), data: input.data });
     }),
@@ -1066,11 +1070,10 @@ export const layer = Layer.effect(
   Effect.gen(function* () {
     const manager = yield* TerminalManager;
     const crypto = yield* Crypto.Crypto;
-    const { agentCommand, stateDir } = yield* ServerConfig.ServerConfig;
+    const { stateDir } = yield* ServerConfig.ServerConfig;
     const path = yield* Path.Path;
     const host = yield* Effect.serviceOption(ShellHost);
     const shells = yield* makeShells(manager, crypto.randomUUIDv4().pipe(Effect.orDie), {
-      agentCommand: agentCommand ?? null,
       registryPath: path.join(stateDir, "shells", "registry.json"),
       host: host._tag === "Some" ? host.value : null,
       newToken: crypto.randomBytes(32).pipe(

@@ -3,9 +3,9 @@ id: PRB.T-016
 type: story
 parent: PRB.E-002
 phase: 1
-labels: [terminal-first]
+labels: [terminal-first, implement]
 created: 2026-11-08
-updated: 2026-11-08
+updated: 2026-11-09
 ---
 
 # Choose a starting script in the Create shell modal
@@ -62,7 +62,7 @@ Plain shell and the user scripts are offered in the "Create shell" modal. The us
 - **A user script:** the same shell opens in the chosen worktree and the script's command is typed once, after the first prompt, then runs. When the command ends, the shell stays at its prompt (today's behavior, unchanged).
 - **Servers (user decision 2026-11-09):** the user list belongs to the person, so it lives on the default server (the server that serves the UI), like the other settings about the person. The modal offers that list for a workspace on any connected server. The shell is opened, the command typed and the program checked on the workspace's server. In a single-server setup these are the same machine.
 - **User list:** kept in the default server's state folder. A state folder with no saved list at all gets a list holding "mock agent" where the default is enabled (dev and the scenario harness enable it; any other start does not until U-2 is settled, SU-2), otherwise an empty list. A saved list that is empty is not "no list": it stays empty after a restart and is never seeded again. The list survives a reload and a server restart. In this story the list can be filled only by the defaults and by the harness seeding a file in its temporary state folder; editing from the UI is PRB.T-018.
-- **Remembered choice:** the project's last successful start remembers its script, saved in the workspace file on the workspace's server beside the worktree choice; the modal preselects it. The choice follows a script by identity, not by name. If the script is no longer in the list, or the project has no remembered script, the modal preselects Plain shell (settled 2026-11-08).
+- **Remembered choice (user decision 2026-11-09, PRB.T-016 planning):** each project in a workspace remembers its own last successful start: the worktree choice and the script, saved in the workspace file on the workspace's server. Starting project B no longer forgets project A's choice; this replaces the single remembered start of PRB.E-001, whose worktree memory becomes per project too. Workspace files with the old single remembered start are migrated on read into that project's entry. The modal preselects the project's own entry. The choice follows a script by identity, not by name. If the script is no longer in the list, or the project has no remembered script, the modal preselects Plain shell (settled 2026-11-08).
 - **Missing program:** the existing refusal behavior is kept for the chosen script (the program is named, no shell is left), and the check runs where the shell runs, on the workspace's server. Changing how the program is looked up, and the new messages (including naming the server), are PRB.T-017.
 - **Script names (settled 2026-11-08, behavior for later stories to build on):** a script's name defaults to its command's program (the first word after any leading env assignments, whitespace trimmed) and the user can type another. Names and commands may repeat, also within one list. This story only needs the name for display, logs and the seeded entries.
 - **Server-wide command:** the environment variable no longer decides what a shell runs. The scenario harness and dev runner seed their scripts in their state folder instead.
@@ -195,8 +195,33 @@ Stories that follow and depend on this one (not a dependency of this story):
 | SA-9 | The remembered start already survives a reload and a server restart for the worktree choice, so the script rides on the same mechanism | assumption | verified for the worktree choice (2026-11-08: saved with the workspace file; scenario `restart.ts`); with a script by AC-5 | AC-5 | author |
 | SA-10 | A script can be given an identity that survives a rename and is not its name, so the remembered choice follows it (settled behavior, 2026-11-08) | assumption | unverified | Plan stage; AC-22 | author |
 | SA-11 | The harness can start a server without the mock-agent default, so the no-default case can be tested (the real rule for other installs is SU-2) | assumption | unverified | Plan stage; AC-8 | author |
-| SU-1 | Which `PATH` decides "not found" (the server's or the shell's after startup files), and how aliases, functions, env assignments and builtins are treated (epic U-1) | unknown | unverified | AC-15a to AC-15e, the spike in this story; owner decides before PRB.T-017 is planned | author |
+| SU-1 | Which `PATH` decides "not found" (the server's or the shell's after startup files), and how aliases, functions, env assignments and builtins are treated (epic U-1) | unknown | resolved 2026-11-09 (see Handoff: U-1 finding) | AC-15a to AC-15e, the spike in this story; owner decides before PRB.T-017 is planned | author |
 | SU-2 | Whether "mock agent" can be a default user script outside the repository, or only in dev and the harness (epic U-2) | unknown | unverified | Plan stage; until then the default is dev and harness only | author |
-| SU-3 | The plain-shell click-to-prompt time today, and whether it is within 700 ms (epic U-3) | unknown | unverified | AC-2b: measured before any change in this story; 700 ms applies only if the baseline is at or below it, otherwise the author resets the target before PRB.T-017 | author |
+| SU-3 | The plain-shell click-to-prompt time today, and whether it is within 700 ms (epic U-3) | unknown | resolved 2026-11-09 (see Handoff: plain-shell time) | AC-2b: measured before any change in this story; 700 ms applies only if the baseline is at or below it, otherwise the author resets the target before PRB.T-017 | author |
 | SU-4 | Whether a workspace file with the remembered script written by this story must stay readable by older servers (a downgrade) | unknown | unverified | TBD (author, 2026-11-15); Probe has no released versions yet, so recommendation is no | author |
 | SU-5 | How a start for a workspace on another server gets the command (carried by the request, or resolved from the default server) and so how a script "not in the list at start time" (AC-10b) is judged there (epic U-4, cross-epic: E-003 U-7) | unknown | unverified | Settled by PRB.E-003 story 2; AC-24 and AC-25 follow its answer and are verified by PRB.E-003 story 8. Not a gate for this story | PRB.E-003 story 2, 2026-11-15 |
+
+## Handoff
+
+### U-1 finding (spike, 2026-11-09; AC-15a to AC-15e)
+
+Tested with zsh 5.9 and bash on Linux in this container, using throwaway startup files (a `PATH` entry, an alias and a function defined in `.zshrc` / the bash rcfile). **Not yet repeated with the author's real startup files**; AC-15a to AC-15e stay open until the author does that, but the mechanism below does not depend on the files.
+
+- **Which `PATH` runs the command:** the typed line runs in the interactive shell, so the `PATH` after the startup files ran. The server's check (`findProgram`) searches the server process's own `PATH`, which lacks anything the rc files add (nvm, `~/.local/bin`). A program found only after the rc files is refused today although the shell would run it (R-1 confirmed: `rctool` is "not found" on the server `PATH`, runs in both shells).
+- **Alias, function, builtin as first word:** all run in zsh and bash (`whence -w` / `type -t`: alias, function, builtin). The server check refuses an alias or function name, and cannot see a builtin on any `PATH`.
+- **Leading env assignment (`FOO=1 rctool`):** runs in both shells. Today `programOf` returns `FOO=1` as the program, so the start is refused with "not found: FOO=1".
+- **Consequence for PRB.T-017:** the server-side `PATH` lookup cannot decide "not found" for aliases, functions, builtins or rc-added `PATH`. The workable rule is to ask the shell itself (`command -v` / `whence` in the shell about to run the command, after its first prompt), skipping leading env assignments to find the program. That makes the check run after the shell exists, so "no shell left in the tree" needs the shell closed on a miss. This story keeps today's lookup unchanged.
+
+### Plain-shell time (SU-3, AC-2b; 2026-11-09)
+
+Measured by E2-S3 (click on the up-arrow to the first OSC 133;B prompt mark the page receives) in this dev container, which three other agents share (load 3 to 4 on 10 cores).
+
+- Baseline on the code before this story (commit d120d0bbf, first start on a fresh server, in the project's checkout): 604, 606, 615 ms; later, under heavier load: 619, 634, 644, 726, 851 ms.
+- With this story, plain shell, same setup: 635, 647, 653, 655, 700 ms.
+- The baseline is under 700 ms, so E2-S3 asserts at most 700 ms. One timed start is noisy under load, on the old code and the new code alike; the author's machine is the reference (NFR-1).
+
+### Decisions made while implementing
+
+- The program check skips leading `NAME=value` words. Before, `TOKEN=x claude` was refused with "not found: TOKEN=x", which put the secret in the error and the log (NFR-3). Which `PATH` is searched is unchanged (PRB.T-017).
+- `agent` left the `shell.open` wire input: a script reaches `Shells.open` only as a server-side option from `workspace.startShell`.
+- The scenario helper `openModal` picks "mock agent" by default, so PRB.E-001's S1 to S8 still start the mock agent.

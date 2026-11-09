@@ -13,6 +13,8 @@ import type { Scenario } from "../scenario.ts";
 import { gone, pageFrames } from "../support.ts";
 import {
   addProject,
+  addStartingScript,
+  leaveAgent,
   cancelModal,
   check,
   createShellButton,
@@ -181,7 +183,8 @@ export const worktrees: Scenario = {
 
       stage = "AC-26, AC-27";
       await shellRow(page, shellA!.shellId).click();
-      await typeLine(page, "exit");
+      // Typed before the agent has left, the next line's first keys would go to the agent.
+      await leaveAgent(page, rpc.client, shellA!.shellId);
       await tabs(page)
         .filter({ hasText: /^Shell 1 · repo$/ })
         .waitFor();
@@ -463,12 +466,17 @@ export const worktrees: Scenario = {
 
       stage = "AC-22";
       await rpc.close();
-      await server.restart({ env: { PROBE_AGENT_COMMAND: "no-such-agent-cli --start" } });
+      await addStartingScript(server.home, {
+        id: "unstartable",
+        name: "unstartable",
+        command: "no-such-agent-cli --start",
+      });
+      await server.restart();
       await reopen();
       rpc = await connectRpc(server.origin, page);
       shells = shellList(rpc.client);
       check((await createShellButton(page, repo).count()) === 1, "The project has no +.");
-      await openModal(page, repo);
+      await openModal(page, repo, { script: "unstartable" });
       check((await mode(page)) === "Fork", "The last choice is not preselected.");
       const kept = await proposedName(page);
       const unstartable = await startFromModal(page);

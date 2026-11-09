@@ -1,5 +1,6 @@
 import type {
   ShellSummary,
+  StartingScript,
   WorkspaceProjectGit,
   WorkspaceLastStart,
   WorkspaceStartingPoint,
@@ -131,12 +132,13 @@ export function startingPoints(git: WorkspaceProjectGit): ReadonlyArray<Starting
 }
 
 /**
- * The modal's picks for `project`: the user's own first, then the last start when it was in this
- * project and is still possible (EC-3, EC-4, EC-5), else an existing start in the primary worktree.
+ * The modal's picks for `project`: the user's own first, then the project's last start when it is
+ * still possible (EC-3, EC-4, EC-5), else an existing start in the primary worktree.
  */
 export function resolvePlace(input: {
   readonly project: string;
   readonly git: WorkspaceProjectGit;
+  /** The last start in this project. */
   readonly lastStart: WorkspaceLastStart | null;
   readonly chosenMode: WorktreeMode | null;
   readonly chosenWorktree: string | null;
@@ -145,7 +147,7 @@ export function resolvePlace(input: {
   const { git } = input;
   const existing = existingWorktrees(git);
   const points = startingPoints(git);
-  const remembered = input.lastStart?.project === input.project ? input.lastStart.worktree : null;
+  const remembered = input.lastStart?.worktree ?? null;
   const primary = git.worktrees.find((worktree) => worktree.isMain)?.path ?? null;
 
   const wantsNew =
@@ -199,4 +201,21 @@ export function toChoice(
   return point === undefined
     ? null
     : { kind: "new", name: git.proposedWorktreeName, startingPoint: point.point };
+}
+
+/** The Starting script value for Plain shell; a script's value is its id. */
+export const PLAIN_SHELL = "plain";
+
+/**
+ * The project's last script while it is still in the list, followed by identity through a rename;
+ * else Plain shell.
+ */
+export function preselectedScript(
+  lastStart: WorkspaceLastStart | null,
+  scripts: ReadonlyArray<StartingScript>,
+): string {
+  const remembered = lastStart?.script;
+  return remembered !== undefined && scripts.some((script) => script.id === remembered)
+    ? remembered
+    : PLAIN_SHELL;
 }

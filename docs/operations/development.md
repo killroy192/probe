@@ -297,10 +297,12 @@ node scripts/mock-agent/mock-agent.ts --resume <id>    # replays that conversati
 It echoes each line as `echo: <line>` and exits 0 on `exit`. Sessions are stored in
 `$MOCK_AGENT_HOME` (default: a `probe-mock-agent` folder in the system temp directory).
 
-`vp run dev` sets `PROBE_AGENT_COMMAND` to this mock CLI unless your environment already sets it,
-so shells started from a workspace run it. The scenario runner does the same per scenario. S2
-prints the time from the start click to the CLI banner as `start-to-banner ms=…`; it is reported,
-not enforced.
+`vp run dev` sets `PROBE_SEED_MOCK_AGENT` to this mock CLI unless your environment already sets it,
+so a state folder with no starting scripts gets a "mock agent" script to pick in **Create shell**.
+The scenario runner does the same per scenario. Once the list file exists the variable changes
+nothing; delete `<state dir>/starting-scripts.json` to get the default again. S2 prints the time
+from the start click to the CLI banner as `start-to-banner ms=…` (reported, not enforced); E2-S3
+prints the click-to-prompt time of a plain shell as `click-to-prompt ms=…` and fails above 700.
 
 ## Desktop artifacts
 

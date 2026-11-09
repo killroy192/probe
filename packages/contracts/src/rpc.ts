@@ -425,6 +425,7 @@ import {
 } from "./sourceControl.ts";
 import { VcsError } from "./vcs.ts";
 import { Project, ProjectMutation, ProjectMutationError } from "./project.ts";
+import { StartingScriptList } from "./startingScripts.ts";
 
 export const WS_METHODS = {
   projectsListEntries: "projects.listEntries",
@@ -508,6 +509,7 @@ export const WS_METHODS = {
   workspaceStartShell: "workspace.startShell",
   workspaceSaveTabs: "workspace.saveTabs",
   workspaceProjectGit: "workspace.projectGit",
+  startingScriptsList: "startingScripts.list",
 
   previewOpen: "preview.open",
   previewResize: "preview.resize",
@@ -1731,6 +1733,12 @@ const WsWorkspaceStartShellRpc = Rpc.make(WS_METHODS.workspaceStartShell, {
   ]),
 });
 
+const WsStartingScriptsListRpc = Rpc.make(WS_METHODS.startingScriptsList, {
+  payload: Schema.Struct({}),
+  success: StartingScriptList,
+  error: EnvironmentAuthorizationError,
+});
+
 const WsSubscribeWorkspacesRpc = Rpc.make(WS_METHODS.subscribeWorkspaces, {
   payload: Schema.Struct({}),
   success: WorkspaceListEvent,
@@ -2295,6 +2303,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsWorkspaceRemoveProjectRpc,
   WsWorkspaceSaveTabsRpc,
   WsWorkspaceStartShellRpc,
+  WsStartingScriptsListRpc,
   WsWorkspaceProjectGitRpc,
   WsSubscribeWorkspacesRpc,
   WsSubscribeTerminalMetadataRpc,

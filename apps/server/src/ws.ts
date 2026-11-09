@@ -112,6 +112,7 @@ import * as CheckpointDiffQuery from "./checkpointing/CheckpointDiffQuery.ts";
 import * as ServerConfig from "./config.ts";
 import * as EnvironmentTheme from "./environmentTheme.ts";
 import * as SavedWorkspaces from "./savedWorkspaces/SavedWorkspaces.ts";
+import * as StartingScripts from "./startingScripts/StartingScripts.ts";
 import * as Keybindings from "./keybindings.ts";
 import * as ExternalLauncher from "./process/externalLauncher.ts";
 import * as ThreadManagementService from "./orchestration-v2/ThreadManagementService.ts";
@@ -1313,6 +1314,7 @@ export const layerWsRpc = (
       const keybindings = yield* Keybindings.Keybindings;
       const environmentTheme = yield* EnvironmentTheme.EnvironmentThemeService;
       const savedWorkspaces = yield* SavedWorkspaces.SavedWorkspaces;
+      const startingScripts = yield* StartingScripts.StartingScripts;
       const externalLauncher = yield* ExternalLauncher.ExternalLauncher;
       const remoteOpenTargets = yield* RemoteOpenTargets.RemoteOpenTargets;
       const directEndpoints = yield* DirectEndpoints.DirectEndpoints;
@@ -3051,6 +3053,7 @@ export const layerWsRpc = (
         [WS_METHODS.workspaceStartShell]: (input) => savedWorkspaces.startShell(input),
         [WS_METHODS.workspaceSaveTabs]: (input) => savedWorkspaces.saveTabs(input),
         [WS_METHODS.workspaceProjectGit]: (input) => savedWorkspaces.projectGit(input),
+        [WS_METHODS.startingScriptsList]: (_input) => startingScripts.list,
         [WS_METHODS.subscribeWorkspaces]: (_input) =>
           savedWorkspaces.streamChanges.pipe(Stream.map((workspaces) => ({ workspaces }))),
         [WS_METHODS.previewOpen]: (input) => previewManager.open(input),

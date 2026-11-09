@@ -1,8 +1,10 @@
-// @effect-diagnostics nodeBuiltinImport:off - Runs git on the scenario's throwaway fixtures.
+// @effect-diagnostics nodeBuiltinImport:off - Runs git on the scenario's throwaway fixtures and writes their starting scripts.
 
 import * as NodeChildProcess from "node:child_process";
+import * as NodeFSP from "node:fs/promises";
+import * as NodePath from "node:path";
 
-import type { ShellSummary } from "@t3tools/contracts";
+import type { ShellSummary, StartingScript } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
 import * as Stream from "effect/Stream";
@@ -71,11 +73,50 @@ export async function openAddFolder(page: PointerPage) {
   await dialog(page).getByTestId("add-project").waitFor();
 }
 
-/** Opens "Create shell" from a project's "+" and waits until a git project's choices loaded. */
-export async function openModal(page: PointerPage, folder: string) {
+/** The "Starting script" dropdown in "Create shell". */
+export const scriptDropdown = (page: PointerPage) =>
+  dialog(page).getByRole("combobox", { name: "Starting script" });
+
+/** The label of the selected starting script. */
+export async function selectedScript(page: PointerPage) {
+  return (await scriptDropdown(page).locator("[data-key]").textContent())?.trim() ?? null;
+}
+
+/** The starting scripts offered, as their labels in order. */
+export async function scriptItems(page: PointerPage) {
+  await scriptDropdown(page).click();
+  const items = page.getByRole("option");
+  await items.first().waitFor();
+  const labels = await items.evaluateAll((elements) =>
+    elements.map((element) => element.getAttribute("data-title") ?? ""),
+  );
+  // Closes the list the way a user does: picking the item that was already selected.
+  const selected = await scriptDropdown(page).locator("[data-key]").getAttribute("data-key");
+  await page.locator(`[role="option"][data-key="${selected}"]`).click();
+  return labels;
+}
+
+/** Picks a starting script by its label; the first one with that label. */
+export async function pickScript(page: PointerPage, label: string) {
+  await scriptDropdown(page).click();
+  await page.locator(`[role="option"][data-title="${label}"]`).first().click();
+  await scriptDropdown(page).filter({ hasText: label }).waitFor();
+}
+
+/**
+ * Opens "Create shell" from a project's "+" and waits until a git project's choices loaded. The
+ * epic 1 scenarios start the mock agent, so it is picked unless `script` says otherwise; null
+ * leaves the preselected one.
+ */
+export async function openModal(
+  page: PointerPage,
+  folder: string,
+  { script = "mock agent" }: { readonly script?: string | null } = {},
+) {
   await createShellButton(page, folder).click();
   await dialog(page).getByRole("heading", { name: "Create shell" }).waitFor();
   await dialog(page).getByText("Reading worktrees…").waitFor({ state: "detached" });
+  if (script !== null && (await selectedScript(page)) !== script) await pickScript(page, script);
 }
 
 /** The pressed side of the Existing | Fork switch. */
@@ -386,4 +427,24 @@ export async function leaveAgent(page: PointerPage, client: WsClient, shellId: s
   } finally {
     await Effect.runPromise(Fiber.interrupt(viewer));
   }
+}
+
+/** The user's starting scripts file in a harness home; the server reads it on every use. */
+export const startingScriptsFile = (home: string) =>
+  NodePath.join(home, "userdata", "starting-scripts.json");
+
+export async function readStartingScripts(home: string): Promise<ReadonlyArray<StartingScript>> {
+  const saved = JSON.parse(await NodeFSP.readFile(startingScriptsFile(home), "utf8"));
+  return saved.scripts;
+}
+
+/** Replaces the saved list, as an edit outside Probe would. */
+export async function writeStartingScripts(home: string, scripts: ReadonlyArray<StartingScript>) {
+  await NodeFSP.mkdir(NodePath.dirname(startingScriptsFile(home)), { recursive: true });
+  await NodeFSP.writeFile(startingScriptsFile(home), JSON.stringify({ version: 1, scripts }));
+}
+
+/** Adds a script after the saved ones, such as the mock agent the harness starts with. */
+export async function addStartingScript(home: string, script: StartingScript) {
+  await writeStartingScripts(home, [...(await readStartingScripts(home)), script]);
 }

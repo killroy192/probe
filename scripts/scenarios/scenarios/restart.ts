@@ -35,6 +35,7 @@ import {
   shellTab,
   startShell,
   typeLine,
+  modeButton,
 } from "./workspaceUi.ts";
 
 const openTabs = (page: PointerPage) =>
@@ -63,7 +64,7 @@ const alert = (page: PointerPage, text: string) =>
   page.getByRole("alert").filter({ hasText: text });
 
 const lastStartOf = async (client: WsClient, name: string) =>
-  JSON.stringify((await Effect.runPromise(client["workspace.open"]({ name }))).lastStart);
+  JSON.stringify((await Effect.runPromise(client["workspace.open"]({ name }))).lastStarts);
 
 /** Removes an ended shell with the tree's "x" and waits for its row to leave. */
 const removeFromTree = killFromTree;
@@ -283,6 +284,8 @@ export const restartSurvival: Scenario = {
       stage = "AC-23";
       await NodeFSP.access(forkedWorktree);
       await openModal(page, repo);
+      // The project's last start was the fork, so the modal opens on Fork.
+      await modeButton(page, "Existing").click();
       const offered = (await dropdownItems(page, "Start in")).map(([key]) => key);
       await cancelModal(page);
       check(

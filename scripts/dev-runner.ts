@@ -337,10 +337,10 @@ export const createDevRunnerEnv = Effect.fn("dev-runner.createDevRunnerEnv")(fun
   delete output.T3_SERVICE_LAUNCHER_CONTEXT;
   delete output.T3_BOOT_SERVICE_UNIT;
 
-  // Shells started from a workspace run the free mock agent CLI unless the developer picks one.
+  // A state folder with no starting scripts gets the free mock agent CLI as its first one.
   const path = yield* Path.Path;
-  output.PROBE_AGENT_COMMAND =
-    baseEnv.PROBE_AGENT_COMMAND ??
+  output.PROBE_SEED_MOCK_AGENT =
+    baseEnv.PROBE_SEED_MOCK_AGENT ??
     `node ${path.join(path.dirname(import.meta.dirname), "scripts/mock-agent/mock-agent.ts")}`;
 
   // Each worktree has its own state, so a dev server would count as a new
