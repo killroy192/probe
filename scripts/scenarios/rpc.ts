@@ -18,10 +18,26 @@ export const environmentId = async (origin: string): Promise<string> =>
   decodeDescriptor(await (await fetch(`${origin}/.well-known/t3/environment`)).json())
     .environmentId;
 
-async function rpcProtocol(origin: string, page: PointerPage) {
-  const response = await page.request.post(`${origin}/api/auth/websocket-ticket`);
+/** Signs the ticket request in as the browser `page` (its cookie) or with a bearer token. */
+export type RpcAuth = PointerPage | { readonly bearerToken: string };
+
+async function websocketTicket(origin: string, auth: RpcAuth): Promise<string> {
+  const url = `${origin}/api/auth/websocket-ticket`;
+  if ("bearerToken" in auth) {
+    const response = await fetch(url, {
+      method: "POST",
+      headers: { authorization: `Bearer ${auth.bearerToken}` },
+    });
+    if (!response.ok) throw new Error(`WebSocket ticket request failed: ${response.status}`);
+    return decodeTicket(await response.json()).ticket;
+  }
+  const response = await auth.request.post(url);
   if (!response.ok()) throw new Error(`WebSocket ticket request failed: ${response.status()}`);
-  const { ticket } = decodeTicket(await response.json());
+  return decodeTicket(await response.json()).ticket;
+}
+
+async function rpcProtocol(origin: string, auth: RpcAuth) {
+  const ticket = await websocketTicket(origin, auth);
   const socket = Socket.layerWebSocket(
     `${origin.replace("http:", "ws:")}/ws?orchestrationProtocol=${ORCHESTRATION_PROTOCOL_VERSION}&wsTicket=${encodeURIComponent(ticket)}`,
   ).pipe(Layer.provide(Socket.layerWebSocketConstructorGlobal));
@@ -33,12 +49,12 @@ async function rpcProtocol(origin: string, page: PointerPage) {
 
 export type WsClient = RpcClient.FromGroup<typeof WsRpcGroup, RpcClientError.RpcClientError>;
 
-/** A WS RPC client signed in as the browser `page`, for driving the server where no UI exists yet. */
+/** A WS RPC client signed in as the browser `page` or a bearer token, for driving the server where no UI exists yet. */
 export async function connectRpc(
   origin: string,
-  page: PointerPage,
+  auth: RpcAuth,
 ): Promise<{ readonly client: WsClient; readonly close: () => Promise<void> }> {
-  const protocol = await rpcProtocol(origin, page);
+  const protocol = await rpcProtocol(origin, auth);
   const scope = Scope.makeUnsafe();
   const client: WsClient = await Effect.runPromise(
     Effect.gen(function* () {
