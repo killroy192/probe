@@ -14,6 +14,7 @@ import { gone, pageFrames } from "../support.ts";
 import {
   addProject,
   addStartingScript,
+  leaveAgent,
   cancelModal,
   check,
   createShellButton,
@@ -182,7 +183,8 @@ export const worktrees: Scenario = {
 
       stage = "AC-26, AC-27";
       await shellRow(page, shellA!.shellId).click();
-      await typeLine(page, "exit");
+      // Typed before the agent has left, the next line's first keys would go to the agent.
+      await leaveAgent(page, rpc.client, shellA!.shellId);
       await tabs(page)
         .filter({ hasText: /^Shell 1 · repo$/ })
         .waitFor();
