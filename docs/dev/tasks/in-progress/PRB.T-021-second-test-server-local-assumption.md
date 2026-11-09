@@ -3,7 +3,7 @@ id: PRB.T-021
 type: story
 parent: PRB.E-003
 phase: 2
-labels: [remote, mobile-impact, plan]
+labels: [remote, mobile-impact, implement]
 created: 2026-11-09
 updated: 2026-11-09
 ---
