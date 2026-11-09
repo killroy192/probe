@@ -22,11 +22,10 @@ it is verified or decided; settled decisions go to `roadmap.md`.
 - Claude Code's terminal title (spinner while working, `✳` otherwise) is undocumented: whether it is
   stable across versions, and whether the user can turn it off. The UI status depends on it
   (`research/claude-code-hooks-spike.md`).
-- Phase 2, shared by PRB.E-003 and PRB.E-004 (2026-11-09), all unverified until PRB.E-004 story 1 (the spike) and PRB.E-003 story 1 run:
+- Phase 2, shared by PRB.E-003 and PRB.E-004 (2026-11-09), all unverified until PRB.E-004 story 1 (the spike) runs (PRB.E-003 story 1 has run):
   - PRB.E-004 A-1/A-2/A-3: the server builds and runs in a stock Linux container; `node-pty`, the shell host and the `probe` wrapper work there; the `packages/ssh` install and launch logic runs under plain `sh` inside the target. PRB.E-003's verification depends on a server installed this way.
   - PRB.E-004 A-7/A-9: a server bound to a non-loopback address is reachable through a published port, and the shell host socket and database work on a mounted state folder (topology 1), also shared with a host server. Decides what PRB.E-003 story 8 can verify against a real remote.
   - PRB.E-003 U-7 (also PRB.E-002 U-4): how a start request for a workspace on another server gets its command, and where the removed-or-disabled check runs. Settled in PRB.E-003 story 2; PRB.E-002 closes without it.
-  - PRB.E-003 A-1/A-8: the connection registry can hold the default and several remote servers at once, and a server can list all its workspaces and signal changes. PRB.E-003 story 1.
 - Paradev CLA terms (not read; irrelevant unless we contribute).
 
 ## Decisions pending
