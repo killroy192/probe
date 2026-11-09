@@ -224,7 +224,10 @@ export function WorkspaceSidebar() {
             }}
             workspace={view.shown}
             loadGit={view.projectGit}
-            onStart={(project, worktree) => view.startShell(project, worktree, null)}
+            loadScripts={view.startingScripts}
+            onStart={(project, worktree, script) =>
+              view.startShell(project, worktree, script, null)
+            }
           />
           <AddProjectDialog
             key={`add:${view.shown.name}`}

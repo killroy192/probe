@@ -1,8 +1,10 @@
-import type { WorkspaceProjectGit, WorkspaceLastStart } from "@t3tools/contracts";
+import type { StartingScript, WorkspaceProjectGit, WorkspaceLastStart } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
 import {
   existingWorktrees,
+  PLAIN_SHELL,
+  preselectedScript,
   resolvePlace,
   startingPoints,
   toChoice,
@@ -40,7 +42,6 @@ const resolve = (
   });
 
 const fromOther: WorkspaceLastStart = {
-  project: "/repo",
   worktree: { kind: "new", startingPoint: { kind: "branch", name: "other" } },
 };
 
@@ -111,24 +112,18 @@ describe("worktree choice", () => {
     [
       "a starting point that is gone",
       {
-        project: "/repo",
         worktree: { kind: "new", startingPoint: { kind: "branch", name: "gone" } },
       },
       { mode: "new", worktree: "/repo", startingPoint: "branch:main" },
     ],
     [
       "a linked worktree",
-      { project: "/repo", worktree: { kind: "existing", path: "/wt/topic" } },
+      { worktree: { kind: "existing", path: "/wt/topic" } },
       { mode: "existing", worktree: "/wt/topic", startingPoint: "branch:main" },
     ],
     [
       "a worktree removed from disk",
-      { project: "/repo", worktree: { kind: "existing", path: "/wt/removed" } },
-      { mode: "existing", worktree: "/repo", startingPoint: "branch:main" },
-    ],
-    [
-      "another project",
-      { ...fromOther, project: "/other" },
+      { worktree: { kind: "existing", path: "/wt/removed" } },
       { mode: "existing", worktree: "/repo", startingPoint: "branch:main" },
     ],
   ] as const)("preselects after %s", (_name, lastStart, expected) => {
@@ -171,5 +166,20 @@ describe("worktree choice", () => {
         { mode: "new", worktree: null, startingPoint: null },
       ),
     ).toBeNull();
+  });
+
+  const scripts: ReadonlyArray<StartingScript> = [
+    { id: "a", name: "mock agent", command: "mock" },
+    { id: "b", name: "renamed", command: "claude" },
+  ];
+  const checkout = { kind: "checkout" } as const;
+
+  it.each([
+    ["no earlier start", null, PLAIN_SHELL],
+    ["a plain start", { worktree: checkout }, PLAIN_SHELL],
+    ["a script still in the list, renamed since", { worktree: checkout, script: "b" }, "b"],
+    ["a script no longer in the list", { worktree: checkout, script: "gone" }, PLAIN_SHELL],
+  ] as const)("preselects the starting script after %s", (_name, lastStart, expected) => {
+    expect(preselectedScript(lastStart, scripts)).toBe(expected);
   });
 });

@@ -10,6 +10,8 @@ import {
   AuthOrchestrationReadScope,
   type EnvironmentId,
   type ShellId,
+  type StartingScript,
+  type StartingScriptChoice,
   type WorkspaceDetail,
   type WorkspaceProjectGit,
   type WorkspaceSummary,
@@ -163,10 +165,13 @@ export interface WorkspacesView {
   readonly projectGit: (
     project: string,
   ) => Promise<{ readonly git: WorkspaceProjectGit } | { readonly error: string }>;
-  /** Adds and shows a tab only once the server has a running shell. */
+  /** The user's starting scripts, read anew on each call; a damaged list reads as empty. */
+  readonly startingScripts: () => Promise<ReadonlyArray<StartingScript>>;
+  /** Adds and shows a tab only once the server has a running shell; a null script is a plain shell. */
   readonly startShell: (
     project: string,
     worktree: WorkspaceWorktreeChoice | null,
+    script: StartingScriptChoice | null,
     size: { readonly cols: number; readonly rows: number } | null,
   ) => WorkspaceActionResult;
   /** Opens the shell's tab, or switches to it. */
@@ -207,6 +212,9 @@ export function useWorkspaces(): WorkspacesView {
     reportFailure: false,
   });
   const projectGitCommand = useAtomCommand(workspaceEnvironment.projectGit, {
+    reportFailure: false,
+  });
+  const startingScriptsCommand = useAtomCommand(workspaceEnvironment.startingScripts, {
     reportFailure: false,
   });
   const startShellCommand = useAtomCommand(workspaceEnvironment.startShell, {
@@ -327,7 +335,7 @@ export function useWorkspaces(): WorkspacesView {
           showDetail(id, {
             name: created.name,
             projects: [],
-            lastStart: null,
+            lastStarts: {},
             tabs: { shellIds: [], active: null },
           }),
       ),
@@ -377,7 +385,18 @@ export function useWorkspaces(): WorkspacesView {
         ? { error: error ?? "The project's worktrees could not be read." }
         : { git };
     },
-    startShell: (project, worktree, size) => {
+    // The list lives on the server that serves the UI; today that is also the workspace's server.
+    startingScripts: async () => {
+      let scripts: ReadonlyArray<StartingScript> = [];
+      await run(
+        (id) => startingScriptsCommand({ environmentId: id, input: {} }),
+        (list) => {
+          scripts = list.scripts;
+        },
+      );
+      return scripts;
+    },
+    startShell: (project, worktree, script, size) => {
       if (shown === null) return Promise.resolve("Open a workspace first.");
       const name = shown.name;
       return run(
@@ -388,6 +407,7 @@ export function useWorkspaces(): WorkspacesView {
               name,
               project,
               ...(worktree === null ? {} : { worktree }),
+              ...(script === null ? {} : { script }),
               ...(size === null ? {} : size),
             },
           }),
@@ -403,14 +423,17 @@ export function useWorkspaces(): WorkspacesView {
                   ...current,
                   detail: {
                     ...current.detail,
-                    lastStart: {
-                      project,
-                      worktree:
-                        worktree === null
-                          ? { kind: "checkout" }
-                          : worktree.kind === "new"
-                            ? { kind: "new", startingPoint: worktree.startingPoint }
-                            : worktree,
+                    lastStarts: {
+                      ...current.detail.lastStarts,
+                      [project]: {
+                        worktree:
+                          worktree === null
+                            ? { kind: "checkout" }
+                            : worktree.kind === "new"
+                              ? { kind: "new", startingPoint: worktree.startingPoint }
+                              : worktree,
+                        ...(script === null ? {} : { script: script.id }),
+                      },
                     },
                   },
                 },
