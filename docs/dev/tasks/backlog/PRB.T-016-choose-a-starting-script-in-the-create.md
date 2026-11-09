@@ -33,7 +33,7 @@ updated: 2026-11-08
   - NFR-5: pick and start work with the pointer alone.
   - NFR-6: each shell start is logged with the script name and program, or "plain".
   - NFR-7: docs updated in the same PR.
-- **One deployable outcome:** A user opens the modal, chooses Plain shell or a script from their saved list, and the shell starts accordingly in the chosen worktree; the next start on that project preselects the same choice. This puts the per-start choice in place that every other story and phase 2 build on.
+- **One deployable outcome:** A user opens the modal, chooses Plain shell or a script from their saved list, and the shell starts accordingly in the chosen worktree; the next start on that project preselects the same choice. This puts the per-start choice in place that every other story and phase 3 build on.
 
 ## Current Behavior
 

@@ -17,9 +17,9 @@ A Probe user starts any agent CLI or script on their `PATH` (for example Claude 
 ## Why and why now
 
 - Today every shell runs one server-wide command from a server setting (the mock agent in the harness), and the modal's "Starting script" dropdown is disabled with "mock agent" as its only item. A user cannot start Claude Code, a plain shell, or anything else from Probe.
-- Phase 2 (agent state from Claude Code hooks) needs real Claude Code running in Probe shells. Without this epic there is nothing for hooks to report on.
+- Phase 3 (agent state from Claude Code hooks) needs real Claude Code running in Probe shells. Without this epic there is nothing for hooks to report on.
 - Scope decision 4 in `roadmap.md` (tabs are a terminal or a terminal + script, user-configurable) has no owner; this epic delivers it in the narrowed form decided in the interview (name and command, no env, no folder).
-- If skipped: phase 2 is blocked, and the author keeps using plain terminal tabs instead of Probe.
+- If skipped: phase 3 is blocked, and the author keeps using plain terminal tabs instead of Probe.
 
 ## KPI
 
@@ -55,7 +55,7 @@ Vocabulary: a **starting script** is a name and a command line. Starting a shell
 **Out (non-goals, with a reason):**
 
 - Env vars and a folder per script: user decision 2026-11-08; the command line can set env (`FOO=1 claude`) and the shell starts in the chosen worktree.
-- Re-running the script on Restore, and resuming agents: later, with agent state (phase 2); Restore stays as PRB.T-008 built it.
+- Re-running the script on Restore, and resuming agents: later, with agent state (phase 3); Restore stays as PRB.T-008 built it.
 - Per-project scripts kept in the repository (such as `t3.json`): user and workspace levels only for now; team-shared files are a later epic.
 - Separate script tabs (a dev server or test runner as its own tab kind next to a shell): one shell per start; a second tab kind is later.
 - Several user profiles: there is one user level.
@@ -150,7 +150,7 @@ Stories 2 and 3 do not depend on each other and can run in parallel after story 
 - Phase 1 of `roadmap.md` (the "Next" item: configurable launch command and script tabs). Builds on PRB.E-001: the "Create shell" modal, the workspace file and its remembered last start, Restore (PRB.T-008) and typing after the first prompt (PRB.T-011).
 - PRB.E-001 should close first (it is still in progress).
 - PRB.T-012 (fish) and PRB.T-014 (mobile replay of terminal text) are independent; fish users still see the command twice until T-012 lands.
-- Blocks phase 2 (agent state and agents sidebar): real Claude Code runs in Probe only after this epic.
+- Blocks phase 3 (agent state and agents sidebar): real Claude Code runs in Probe only after this epic.
 
 ## Risks
 

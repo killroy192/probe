@@ -14,6 +14,8 @@ Principle: **add the terminal path first, delete chat later**, keeping the app r
 | 6 | Agent status comes from a per-CLI adapter, starting with Claude Code: the UI reads the terminal title the CLI sets, and hooks added per session feed the probe CLI that agents read (2026-11-08). Other CLIs run as plain terminals until they get an adapter. |
 | 7 | Agents sidebar tree: workspace > project > worktree (labelled with its current branch) > shell, built from live PTY sessions (PRB.E-001). There is no subagent level and no subagent visualization (dropped 2026-11-07, user). No enforcement of how worktrees or agents are created. |
 | 8 | The UI is mouse-first: every action works with a mouse or touchpad; hotkeys are optional extras, never the only path (user, 2026-11-02). |
+| 9 | Probe's UI is a client of a **remote** server that runs everything: shells, git, worktrees, agents and files. A devcontainer is such a remote, not a special mode: Probe offers a nice way to start a container and connect to it, and nothing else about the container is Probe's business (decided 2026-11-08, user). Isolation, egress rules, credentials and mounts belong to the devcontainer configuration and to the remote server's own environment, not to Probe. |
+| 10 | Local UI, remote server (decided 2026-11-08, user): every feature from here on works when the UI runs on one machine and the server on another. No feature may assume the UI can read the server's files, run its commands or reach its loopback; anything the UI needs from the server's machine goes through the server. Phase order: phase 2 (remote server and devcontainer) comes after phase 1 and before agent state. |
 
 ## Phases
 
@@ -22,16 +24,17 @@ the agents sidebar come before review.
 
 0. **Run it**: toolchain installed, app runs in the browser with a working terminal (PRB.T-001).
 1. **Terminal-first workspace** (first feature, PRB.E-001): workspaces, a shell tree (project > worktree > shell), standalone shells started in an existing worktree or a new forked one, running a mock agent CLI, with the scenario harness. Next: starting scripts (PRB.E-002); separate script tabs are deferred.
-2. **Agent state and agents sidebar**: Claude Code adapter (terminal title for the UI, per-session hooks for the CLI), status model, notifications, status on the shell tree from PRB.E-001, probe CLI for worktrees and agents.
-3. **Review**: CodeMirror pane, comments on any file, batches, MCP tools, expand window.
-4. **Context to terminal**: stage a reference into the active PTY without Enter.
-5. **Remove chat** in slices: UI, then providers, then orchestration.
-6. **Trim**: web mode, marketing, unused providers and source-control packages.
-7. **Desktop app**: build, launch and verify Electron, only after the browser functionality is done.
-8. **Mobile port** (frozen until desktop settles).
-9. **Hygiene**: full local checks baseline and recording it (PRB.T-002), after features land.
+2. **Remote server and devcontainer** (scope decision 9): the terminal-first UI works against a remote server (workspaces, shell tree and "+" all served by that server), then a devcontainer helper starts a container, puts a Linux server in it and connects. First step: a spike that runs the built server in a stock container by hand (`research/devcontainer-attach.md`), which is also how Probe gets developed with Probe.
+3. **Agent state and agents sidebar**: Claude Code adapter (terminal title for the UI, per-session hooks for the CLI), status model, notifications, status on the shell tree from PRB.E-001, probe CLI for worktrees and agents.
+4. **Review**: CodeMirror pane, comments on any file, batches, MCP tools, expand window.
+5. **Context to terminal**: stage a reference into the active PTY without Enter.
+6. **Remove chat** in slices: UI, then providers, then orchestration.
+7. **Trim**: web mode, marketing, unused providers and source-control packages.
+8. **Desktop app**: build, launch and verify Electron, only after the browser functionality is done.
+9. **Mobile port** (frozen until desktop settles).
+10. **Hygiene**: full local checks baseline and recording it (PRB.T-002), after features land.
 
-Chat is removed late, but agent state must not depend on it: the terminal and hooks are the sources from phase 2.
+Chat is removed late, but agent state must not depend on it: the terminal and hooks are the sources from phase 3.
 
 ## Other decisions
 
@@ -55,6 +58,7 @@ Recorded from 2026-11-01; each entry carries its own date where it has one.
 - PRB.E-001 close and kill (2026-11-06, user, PRB.T-006 planning): closing a tab only hides the shell's terminal; the shell keeps running and reopens from the tree. A kill (the tree's "x" after a confirmation, or `probe kill` run inside the shell) force-ends the shell and everything it started, and never deletes a worktree. Removing a workspace kills every running shell in its projects' folders, also when another workspace shares a folder; removing one project from a workspace (a hover action on its row, after a confirmation) does the same for that project and keeps the folder on disk (user, after the PRB.T-006 manual pass).
 - PRB.E-001 restart survival (2026-11-06, user, PRB.T-007 planning): one shell host per Probe server (per state folder), a detached helper that owns every shell's terminal wherever the shell's folder or worktree is, keeps shells running while the server is stopped, and lets the next server reattach to the same processes with their output. A workspace file saves its open tabs and selected tab; the shown workspace is remembered per browser. A Probe kill or an exit without a signal (any status) removes the shell for good; a signal exit, or a shell lost with its host, stays listed as ended until removed (the user restores or removes those, PRB.T-008). A project, worktree or shell whose folder is gone is marked "moved"; a shell still running there keeps running, and a project whose folder is gone leaves the workspace once no shell is in it (user, 2026-11-07, PRB.T-007 manual pass).
 - PRB.E-002 starting scripts (2026-11-08, user, epic interview): one user level (no profiles), stored in Probe's state folder; a workspace overrides a user script's command, removes it, or adds its own, saved in the workspace file and merged only there. Plain shell is built in; "mock agent" is the default user script where it can run. A script's program must be found on `PATH`; env and folder fields are out (the command line can set env). Restore starts a plain shell; running shells are untouched by script edits. Per-project files in the repository (`t3.json`) are later.
+- Remote and devcontainer (2026-11-08, user, after `research/devcontainer-attach.md`): treat a container as a remote server and connect the Probe UI to it, using the existing environment, pairing and route code and its protocol-version check; no extra version policy and no auto-update of the injected server is decided. Probe does not own container safety, backends (Docker Sandboxes and others), or credentials: they come from the devcontainer configuration. Repositories are bind-mounted and worktrees live in a volume, as far as the devcontainer configuration says; Probe supports what it configures. A workspace belongs to the server it is created on (its file lives in that server's state folder). Consequences to carry into the epics: a host `git worktree prune` would drop the metadata of worktrees that exist only in the volume, so they need locking (see `ideas/devcontainer-attachment.md`), and git hooks in a bind-mounted repo run on the host.
 - UI is mouse-first (2026-11-02, user): epics, stories and scenarios never require keyboard-only paths or hotkeys; shortcuts such as Enter in a modal are optional extras.
 - Several agents may share a worktree. Probe creates worktrees and agents through its own CLI; how this is enforced is open.
 - First agent integration: Claude Code. Other CLIs run as plain terminals.

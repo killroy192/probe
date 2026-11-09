@@ -118,7 +118,7 @@ The most common defect in this repo is a change that works on the path you teste
 - **Contracts.** Anything crossing the wire is typed in `packages/contracts`. Change the schema and the server, web, mobile, and desktop all follow.
 - **Reverse states.** If you added a way in, add the way out and the way to see it. Close needs reopen; kill needs a way to see what ended; an ended shell needs Restore or remove. A one-way door is a bug.
 - **Lifetimes.** Shells outlive the browser tab, the server process and the client. Check a change after a reload, a server restart, and with a second client connected.
-- **Connection modes.** Local, remote/relay, and tunnel behave differently. Multi-device and multi-environment cases are real.
+- **Connection modes.** Local, remote/relay, and tunnel behave differently. Multi-device and multi-environment cases are real. The UI may run on a different machine than the server ([roadmap](docs/dev/roadmap.md) decision 10): never assume the UI can read the server's files, run its commands or reach its loopback.
 - **Docs.** Check whether the change makes existing guidance inaccurate. Apply the [documentation rules](#documentation) before adding anything.
 
 ## Dev servers

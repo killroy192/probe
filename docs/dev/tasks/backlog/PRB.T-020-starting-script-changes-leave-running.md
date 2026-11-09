@@ -82,7 +82,7 @@ Once PRB.T-016, PRB.T-018 and PRB.T-019 exist, this story makes the following ho
 
 ## Out Of Scope
 
-- Re-running the script on Restore and resuming agents: later, with agent state (phase 2); stays as the epic's Out list says.
+- Re-running the script on Restore and resuming agents: later, with agent state (phase 3); stays as the epic's Out list says.
 - Editing, removing, disabling, enabling or adding scripts, Settings and the workspace dialog themselves: PRB.T-018 and PRB.T-019. This story adds no editing screen.
 - The modal's dropdown, the remembered choice and following a rename: PRB.T-016 (this story only adds the fallback when the script is gone).
 - Naming a missing program and exiting commands: PRB.T-017.
@@ -94,7 +94,7 @@ Once PRB.T-016, PRB.T-018 and PRB.T-019 exist, this story makes the following ho
 ## Technical Scope
 
 - **Layers:** server (making Restore and shell names independent of later script edits, refusing a start of a script that is gone; broadcasting list changes), contracts (the shape in which list changes reach clients), web client (modal fallback, Settings, dialog and open modal following live changes), scenario harness (E2-S5, and E2-S2 with a second page open). Names areas only; the plan decides how.
-- **Docs impact:** `docs/user/` "Starting scripts" section (from the epic's NFR-7): add that running shells are unaffected by changes, that a missing remembered script falls back to Plain shell, that Restore starts a plain shell, and that other open clients update live. `docs/internals/terminal-runtime.md`: Restore paragraph states that it starts a plain shell and why (agent state is phase 2). Same PR.
+- **Docs impact:** `docs/user/` "Starting scripts" section (from the epic's NFR-7): add that running shells are unaffected by changes, that a missing remembered script falls back to Plain shell, that Restore starts a plain shell, and that other open clients update live. `docs/internals/terminal-runtime.md`: Restore paragraph states that it starts a plain shell and why (agent state is phase 3). Same PR.
 - **Mobile impact:** the contract change must still compile in `apps/mobile` (`vp run check:changed` type-checks it). No mobile UI. Add the `mobile-impact` label at hand-off.
 
 Hit-every-surface decisions: entry points (Settings, workspace dialog and modal; the command palette and keybindings start no shell today and are out of scope for this epic, see Out Of Scope); providers and agents-through-MCP: not applicable (terminal shells only); reverse states: enabling a disabled script and removing a workspace script come from PRB.T-019, the fallback here reverses by itself (EC-3); connection modes: local, remote/relay and tunnel all use the same websocket streams, so live updates must work over them and a dropped connection is covered by EC-7 and ER-3.

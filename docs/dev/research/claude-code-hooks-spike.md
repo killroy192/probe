@@ -1,6 +1,6 @@
 # Spike: Claude Code hooks for agent status
 
-2026-11-08, before the phase 2 epic. Claude Code 2.1.318, model Haiku, in the dev container. Hooks
+2026-11-08, before the phase 3 epic. Claude Code 2.1.318, model Haiku, in the dev container. Hooks
 were loaded only through a throwaway `--settings` file (the user's `~/.claude/settings.json` was not
 touched), and the interactive runs were driven through a real PTY with scripted keys. Paradev was
 re-read at commit `b77bc046` (2026-11-07); behavioral reference only (ELv2, see `paradev.md`).

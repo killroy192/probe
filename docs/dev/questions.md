@@ -18,7 +18,7 @@ it is verified or decided; settled decisions go to `roadmap.md`.
   chat view, which PRB.T-003 hides; the user wants it back once shells and folders exist (2026-11-05).
   PRB.T-002 builds it inside the ws layer (`apps/server/src/ws.ts`); deferred by the user.
 - PRB.E-002 A-2: Claude Code typed into a ready Probe shell starts and works like in a plain terminal
-  (input, resize, exit back to the prompt). Checked by hand in PRB.E-002 story 1 or 2; phase 2 depends on it.
+  (input, resize, exit back to the prompt). Checked by hand in PRB.E-002 story 1 or 2; phase 3 depends on it.
 - Claude Code's terminal title (spinner while working, `✳` otherwise) is undocumented: whether it is
   stable across versions, and whether the user can turn it off. The UI status depends on it
   (`research/claude-code-hooks-spike.md`).
@@ -32,5 +32,6 @@ it is verified or decided; settled decisions go to `roadmap.md`.
 - Whether to keep source-control packages (GitHub only vs. all hosts).
 - Repo visibility (public/private) and what that implies for docs and the analysis of Paradev.
 - Product name and bundle id (currently `probe`).
+- Phase 2 spike (2026-11-08), unverified until it runs: whether the built server, `node-pty`, the shell host and the `probe` shell wrapper run in a stock Linux container; where a Linux server artifact comes from for this fork (no release archives); whether the `packages/ssh` install and start scripts run under `docker exec`; how a published port is chosen and how dev-server ports inside are reached.
 
 - PRB.E-006 removes "hosted/browser runtime mode" while we now build browser first (2026-11-02). Unverified how the two differ: the locally served `apps/web` stays as the dev and test surface, only the hosted `app.t3.codes` mode is meant to go. Decide before starting PRB.E-006.

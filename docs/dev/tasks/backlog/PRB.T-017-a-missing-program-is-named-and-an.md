@@ -71,7 +71,7 @@ Once a script is chosen per start (PRB.T-016), the check and the log apply to th
 - Choosing a script per start, the user list and the remembered choice: PRB.T-016.
 - Managing user scripts in Settings: PRB.T-018. Disabling user scripts and workspace scripts: PRB.T-019. Running shells and live updates after a change: PRB.T-020.
 - Running the U-1 spike itself: PRB.T-016 owns it; this story consumes its result.
-- Re-running the script on Restore, and detecting that a command failed after the shell started (exit code, "command not found" printed by the shell): later, with agent state (phase 2).
+- Re-running the script on Restore, and detecting that a command failed after the shell started (exit code, "command not found" printed by the shell): later, with agent state (phase 3).
 - Validating the command when a script is saved in Settings or the workspace dialog (a save-time hint): only the start is checked here; whether to add a hint is TBD (user, 2026-11-15) and not decided.
 - Detecting a failure after the shell started is the late-failure item above; whether to ever do it is TBD (user, 2026-11-15).
 - Desktop and mobile UI.
