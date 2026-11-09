@@ -48,7 +48,7 @@ Verified by reading the code on 2026-11-09 (the code search index was unavailabl
 ## Expected Behavior
 
 - The scenario harness can start a second Probe server alongside the first. It has its own state folder, its own port, and no folder in common with the UI's own server or the UI process. A scenario can seed saved workspaces on it before the UI looks.
-- A test-only seam makes the UI know the second server without the connect flow. It is removed or replaced by the connect flow in PRB.T-023 and is not a product feature.
+- A test-only seam makes the UI know the second server without the connect flow: the harness saves the second server and its credential in the browser's saved-server storage. It adds no product code, and PRB.T-023 replaces it with the connect flow. The workspace screens still use only the default server; showing the second server's workspaces in them is PRB.T-022 (its AC-1).
 - The author runs the UI against the second server alongside the default server and writes one audit, kept in `docs/dev` as a finding (the exact place is a plan decision). It has two parts and answers every item below.
   1. **Local assumptions.** A list of every place a screen or service assumes the UI's own server, files, loopback or one environment, each with file path, what breaks, and which later story fixes it (A-1, A-4, A-9, U-1). It includes the scheduled tasks, MCP tools and the `probe` command started inside a shell (U-4).
   2. **Settings sort.** Every Settings page route sorted as client-owned or server-owned, or a question for the author, with where each page keeps its values today (U-6) and how `settingsScope.ts` relates. Pages that exist only for chat stay hidden and are sorted too. The epic's starting guess in "Notes for stories" is checked, not trusted.
@@ -57,8 +57,8 @@ Verified by reading the code on 2026-11-09 (the code search index was unavailabl
 ### User Flow
 
 1. The author runs a scenario that starts the UI's server and a second server, seeds workspaces on the second, and opens the UI.
-2. The UI shows the second server to the screens that choose a server (the seam).
-3. The author walks the terminal-first screens with a second-server workspace in view and records what works, what reads the wrong server and what fails.
+2. The UI connects to the second server through the seam; the harness checks the connection and that the credential the UI holds can list the seeded workspaces.
+3. The author walks the screens that already take a server (Settings > Environments, the folder browser, Settings pages) against the second server, and reads the code of the workspace screens, which use only the default server until PRB.T-022, and records what works, what reads the wrong server and what fails.
 4. The author reads the code for the named assumptions and writes the audit.
 5. The author sets each assumption row's status in the epic and lists any new unknown. The reviewer reads the audit.
 
@@ -107,7 +107,7 @@ Verified by reading the code on 2026-11-09 (the code search index was unavailabl
 | --- | --- | --- | --- |
 | AC-1 | Given a scenario that starts two servers, when both are ready, then each has its own origin and its own state folder, and the second server's folder is not inside the first's or the UI process's working folder | auto | FR-5, NFR-4, EC-1 |
 | AC-2 | Given workspaces seeded on the second server before the UI looks, when the scenario reads that server directly, then it lists exactly those workspaces and the default server lists none of them | auto | FR-3 (harness), EC-4 |
-| AC-3 | Given the seam, when the UI loads, then the workspace menu lists the seeded workspace of the second server and opening it shows its tree, with no connect flow used | auto | FR-5 (harness) |
+| AC-3 | Given the seam, when the UI loads, then the browser opens a connection to the second server's origin that the server answers, and with the credential the seam stored, the second server's workspace list returns exactly the seeded workspaces; no connect flow is used. (Listing them in the workspace menu is PRB.T-022 AC-1.) | auto | FR-5 (harness) |
 | AC-4 | Given a scenario that ends or fails, when it finishes, then the second server and its shell host started by the harness are stopped by their captured pids | auto | EC-2 |
 | AC-5 | Given a second server that never becomes ready, when the scenario waits, then it fails with that server's log | auto | ER-1 |
 | AC-6 | Given the audit, when read, then it lists every local assumption with file path, what breaks, and the later story that fixes it, including scheduled tasks, MCP tools and the `probe` command in a shell, and which screens would confuse same-named workspaces on two servers | manual (author) | FR-5, EC-4 |
