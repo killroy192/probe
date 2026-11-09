@@ -54,7 +54,7 @@ Non-Claude CLIs: plain terminals with no status.
 
 ## Risks
 
-- Removing chat means deleting the `orchestration-v2` code (about 165 entries in `apps/server/src/orchestration-v2`; its docs are already deleted) and everything that depends on it. We do not reimplement it. Mitigation: add the terminal path first, delete in slices (PRB.E-005).
+- Removing chat means deleting the `orchestration-v2` code (about 165 entries in `apps/server/src/orchestration-v2`; its docs are already deleted) and everything that depends on it. We do not reimplement it. Mitigation: add the terminal path first, delete in slices (the chat-removal epics, phase 6).
 - Effect-TS conventions and a ~29k-file monorepo.
 - Claude Code's terminal title is undocumented and may change between versions.
 - Paradev is source-available (ELv2): behavioral reference only, no copied code.
