@@ -63,7 +63,7 @@ const alert = (page: PointerPage, text: string) =>
   page.getByRole("alert").filter({ hasText: text });
 
 const lastStartOf = async (client: WsClient, name: string) =>
-  JSON.stringify((await Effect.runPromise(client["workspace.open"]({ name }))).lastStart);
+  JSON.stringify((await Effect.runPromise(client["workspace.open"]({ name }))).lastStarts);
 
 /** Removes an ended shell with the tree's "x" and waits for its row to leave. */
 const removeFromTree = killFromTree;
