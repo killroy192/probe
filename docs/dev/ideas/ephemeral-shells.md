@@ -1,0 +1,1 @@
+run workspace level shell so it can operate over all folders in the workspace. The questions is how to enforce this. For instance claude has some settings for that but buypass permission unlocks it. maybe 'permissions.additionalDirectories'? 
