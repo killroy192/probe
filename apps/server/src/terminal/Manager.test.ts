@@ -2208,23 +2208,21 @@ it.layer(
   };
   const nodeDir = process.execPath.replace(/[\\/][^\\/]*$/, "");
 
-  it.effect("refuses to start an agent shell when the agent command cannot be found", () => {
+  it.effect("refuses to start a script whose program cannot be found", () => {
     const logs = captureLogs();
     return Effect.gen(function* () {
       const { manager, ptyAdapter } = yield* createManager();
-      const missing = yield* makeShells(manager, {
-        agentCommand: "no-such-agent-cli --resume",
-        searchPath: nodeDir,
-      });
-      const unset = yield* makeShells(manager, { agentCommand: null });
-      const events = yield* collectList(missing);
+      const shells = yield* makeShells(manager, { searchPath: nodeDir });
+      const events = yield* collectList(shells);
+      const start = (command: string) =>
+        Effect.flip(shells.open({ cwd: process.cwd() }, { script: { name: "agent", command } }));
 
-      const notFound = yield* Effect.flip(missing.open({ cwd: process.cwd(), agent: true }));
-      const notConfigured = yield* Effect.flip(unset.open({ cwd: process.cwd(), agent: true }));
+      const notFound = yield* start("no-such-agent-cli --resume");
+      const empty = yield* start("   ");
 
       assert.equal(notFound._tag, "ShellLaunchError");
       expect(notFound.message).toContain("no-such-agent-cli");
-      expect(notConfigured.message).toContain("No agent command is configured.");
+      expect(empty.message).toContain("not found");
       expect(ptyAdapter.spawnInputs).toHaveLength(0);
       expect((yield* events).filter((e) => e.type === "upsert")).toEqual([]);
       expect(logs.lines.filter((line) => line.message === "shell failed to start")).toEqual([
@@ -2306,7 +2304,13 @@ it.layer(
       expect((yield* events).length).toBe(count + 3);
       expect(logs.lines).toContainEqual({
         message: "shell started",
-        fields: { shellId: other.shellId, cwd: linked, worktree: linked, branch: "topic" },
+        fields: {
+          shellId: other.shellId,
+          cwd: linked,
+          worktree: linked,
+          branch: "topic",
+          script: "plain",
+        },
       });
 
       // A shell that ended is never sent as running again by a later refresh.
@@ -2374,7 +2378,8 @@ it.layer(
     }),
   );
 
-  // The agent command is typed in the background, once the shell is ready; these wait for the write.
+  // A starting script is typed in the background, once the shell is ready; these wait for the write.
+  const AGENT = { name: "agent", command: "node agent.ts" };
   {
     const MARK = "\u001b]133;B\u0007";
 
@@ -2386,12 +2391,8 @@ it.layer(
         });
         const wrote = yield* Deferred.make<void>();
         ptyAdapter.onWrite = () => Deferred.doneUnsafe(wrote, Effect.void);
-        const shells = yield* makeShells(manager, {
-          agentCommand: "node agent.ts",
-          searchPath: nodeDir,
-          ...options,
-        });
-        yield* shells.open({ cwd: process.cwd(), agent: true });
+        const shells = yield* makeShells(manager, { searchPath: nodeDir, ...options });
+        yield* shells.open({ cwd: process.cwd() }, { script: AGENT });
         return { wrote, pty: ptyAdapter.processes[0]! };
       });
 
@@ -2415,11 +2416,8 @@ it.layer(
         });
         const wrote = yield* Deferred.make<void>();
         ptyAdapter.onWrite = () => Deferred.doneUnsafe(wrote, Effect.void);
-        const shells = yield* makeShells(manager, {
-          agentCommand: "node agent.ts",
-          searchPath: nodeDir,
-        });
-        const opened = yield* shells.open({ cwd: process.cwd(), agent: true });
+        const shells = yield* makeShells(manager, { searchPath: nodeDir });
+        const opened = yield* shells.open({ cwd: process.cwd() }, { script: AGENT });
         const pty = ptyAdapter.processes[0]!;
         // A line typed before the prompt would reach the bare shell ahead of the agent.
         const typing = yield* shells
@@ -2453,26 +2451,32 @@ it.layer(
     );
   }
 
-  it.effect("types the agent command into an agent shell and logs its start and end", () => {
+  it.effect("types a script into its own shell only and logs starts without the command line", () => {
     const logs = captureLogs();
     return Effect.gen(function* () {
       const { manager, ptyAdapter } = yield* createManager();
-      const shells = yield* makeShells(manager, {
-        agentCommand: "node agent.ts",
-        searchPath: nodeDir,
-      });
-      const agent = yield* shells.open({ cwd: process.cwd(), agent: true });
-      yield* shells.open({ cwd: process.cwd() });
+      const shells = yield* makeShells(manager, { searchPath: nodeDir });
+      const secret = { name: "agent", command: "API_TOKEN=s3cret node agent.ts --key s3cret" };
+      const agent = yield* shells.open({ cwd: process.cwd() }, { script: secret });
+      const plain = yield* shells.open({ cwd: process.cwd() });
 
-      expect(ptyAdapter.processes[0]?.writes).toEqual(["node agent.ts\r"]);
+      expect(ptyAdapter.processes[0]?.writes).toEqual([`${secret.command}\r`]);
       expect(ptyAdapter.processes[1]?.writes).toEqual([]);
       ptyAdapter.processes[0]!.emitExit({ exitCode: 0, signal: 9 });
       yield* liveStatus(shells, agent.shellId);
 
-      expect(logs.lines.filter((line) => line.message.startsWith("shell "))).toContainEqual({
-        message: "shell started",
-        fields: { shellId: agent.shellId, cwd: process.cwd() },
-      });
+      const started = logs.lines.filter((line) => line.message === "shell started");
+      expect(started).toEqual([
+        {
+          message: "shell started",
+          fields: { shellId: agent.shellId, cwd: process.cwd(), script: "agent", program: "node" },
+        },
+        {
+          message: "shell started",
+          fields: { shellId: plain.shellId, cwd: process.cwd(), script: "plain" },
+        },
+      ]);
+      expect(JSON.stringify(logs.lines)).not.toContain("s3cret");
       expect(logs.lines).toContainEqual({
         message: "shell ended",
         fields: {

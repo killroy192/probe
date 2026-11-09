@@ -9,6 +9,8 @@ import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
+import * as Logger from "effect/Logger";
+import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 import * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
@@ -18,11 +20,13 @@ import {
   ShellLaunchError,
   type ShellOpenInput,
   type ShellSummary,
+  type StartingScript,
   VcsProcessSpawnError,
 } from "@t3tools/contracts";
 
 import * as ServerConfig from "../config.ts";
 import * as ProjectService from "../project/ProjectService.ts";
+import * as StartingScripts from "../startingScripts/StartingScripts.ts";
 import * as Shells from "../terminal/Shells.ts";
 import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
 import * as VcsDriverRegistry from "../vcs/VcsDriverRegistry.ts";
@@ -40,7 +44,8 @@ type Env =
 
 interface Fakes {
   readonly registered: string[];
-  readonly opened: ShellOpenInput[];
+  /** What each start opened; `script` is the typed command, absent for a plain shell. */
+  readonly opened: Array<ShellOpenInput & { readonly script?: string }>;
   readonly titles: Array<string | undefined>;
   readonly worktrees?: Array<string | undefined>;
   /** Shells the fake started and has not killed. */
@@ -48,6 +53,8 @@ interface Fakes {
   readonly killed?: string[];
   initFails?: boolean;
   launchFails?: boolean;
+  /** The user's starting scripts as saved now. */
+  scripts?: StartingScript[];
   listingFails?: "worktrees" | "branches";
 }
 
@@ -96,7 +103,9 @@ const layerDependencies = (fakes: Fakes) =>
         fakes.launchFails
           ? Effect.fail(new ShellLaunchError({ reason: "No agent command is configured." }))
           : Effect.sync(() => {
-              fakes.opened.push(input);
+              fakes.opened.push(
+                options?.script === undefined ? input : { ...input, script: options.script.command },
+              );
               fakes.titles.push(options?.title);
               fakes.worktrees?.push(options?.worktree);
               const shell: ShellSummary = {
@@ -146,6 +155,10 @@ const layerDependencies = (fakes: Fakes) =>
           : VcsProvisioningService.layer.pipe(Layer.provide(layerRegistry)),
       ),
     ),
+    Layer.mock(StartingScripts.StartingScripts)({
+      find: (id) =>
+        Effect.sync(() => Option.fromNullishOr(fakes.scripts?.find((script) => script.id === id))),
+    }),
     layerRegistry,
     layerGit(fakes),
     WorkspacePaths.layer,
@@ -196,7 +209,7 @@ it.layer(NodeServices.layer)("saved workspaces", (it) => {
         assert.deepStrictEqual(yield* workspaces.open({ name: "sparta" }), {
           name: "sparta",
           projects: [],
-          lastStart: null,
+          lastStarts: {},
           tabs: { shellIds: [], active: null },
         });
       }),
@@ -301,8 +314,8 @@ it.layer(NodeServices.layer)("saved workspaces", (it) => {
           const detail = yield* workspaces.removeProject({ name: "sparta", project: gone });
 
           expect(detail.projects.map((project) => project.path)).toEqual([kept]);
-          // The last start was in the removed project, so nothing is preselected any more.
-          assert.isNull(detail.lastStart);
+          // The removed project's remembered start leaves with it; the other's stays.
+          assert.deepStrictEqual(detail.lastStarts, { [kept]: { worktree: { kind: "checkout" } } });
           assert.deepStrictEqual(yield* workspaces.open({ name: "sparta" }), detail);
           expect(fakes.killed?.toSorted()).toEqual(
             [inGone.shellId, athensInGone.shellId].toSorted(),
@@ -345,7 +358,7 @@ it.layer(NodeServices.layer)("saved workspaces", (it) => {
           expect(inBusy.project).toBe(busy);
           const after = yield* workspaces.open({ name: "sparta" });
           expect(after.projects.map((project) => project.path)).toEqual([kept]);
-          assert.isNull(after.lastStart);
+          assert.deepStrictEqual(after.lastStarts, {});
         }),
       { registered: [], opened: [], titles: [], running: [], killed: [] },
     ),
@@ -460,7 +473,7 @@ it.layer(NodeServices.layer)("saved workspaces", (it) => {
             { path: plain, isGitRepository: false, exists: true },
             { path: `${dir}/fresh`, isGitRepository: true, exists: true },
           ],
-          lastStart: null,
+          lastStarts: {},
           tabs: { shellIds: [], active: null },
         });
         assert.isTrue(yield* fs.exists(`${dir}/fresh/.git`));
@@ -532,7 +545,7 @@ it.layer(NodeServices.layer)("saved workspaces", (it) => {
     ),
   );
 
-  it.effect("starts an agent shell in a workspace project and remembers it while it exists", () =>
+  it.effect("starts a shell in a workspace project and remembers it while it exists", () =>
     withWorkspaces(
       { "sparta.json": '{"version":1}' },
       (dir, fakes) =>
@@ -546,10 +559,10 @@ it.layer(NodeServices.layer)("saved workspaces", (it) => {
           const shell = yield* workspaces.startShell({ name: "sparta", project: app, cols: 90 });
           assert.strictEqual(shell.cwd, app);
           assert.strictEqual(shell.title, "Shell 1");
-          assert.deepStrictEqual(fakes.opened, [{ cwd: app, agent: true, cols: 90 }]);
-          assert.deepStrictEqual((yield* workspaces.open({ name: "sparta" })).lastStart, {
-            project: app,
-            worktree: { kind: "checkout" },
+          // No script asked for is a plain shell (ER-4).
+          assert.deepStrictEqual(fakes.opened, [{ cwd: app, cols: 90 }]);
+          assert.deepStrictEqual((yield* workspaces.open({ name: "sparta" })).lastStarts, {
+            [app]: { worktree: { kind: "checkout" } },
           });
 
           const outside = yield* Effect.flip(
@@ -560,7 +573,7 @@ it.layer(NodeServices.layer)("saved workspaces", (it) => {
           assert.deepStrictEqual(yield* workspaces.open({ name: "sparta" }), {
             name: "sparta",
             projects: [{ path: app, isGitRepository: false, exists: false }],
-            lastStart: null,
+            lastStarts: {},
             tabs: { shellIds: [], active: null },
           });
           const gone = yield* Effect.flip(workspaces.startShell({ name: "sparta", project: app }));
@@ -592,7 +605,7 @@ it.layer(NodeServices.layer)("saved workspaces", (it) => {
             workspaces.startShell({ name: "sparta", project: `${dir}/app` }),
           );
           assert.strictEqual(error._tag, "ShellLaunchError");
-          assert.strictEqual((yield* workspaces.open({ name: "sparta" })).lastStart, null);
+          assert.deepStrictEqual((yield* workspaces.open({ name: "sparta" })).lastStarts, {});
           // The failed start gives its number back.
           fakes.launchFails = false;
           const shell = yield* workspaces.startShell({ name: "sparta", project: `${dir}/app` });
@@ -601,6 +614,101 @@ it.layer(NodeServices.layer)("saved workspaces", (it) => {
       { registered: [], opened: [], titles: [], launchFails: true },
     ),
   );
+
+  const mockAgent: StartingScript = { id: "script-1", name: "mock agent", command: "mock --go" };
+  const echoAgent: StartingScript = { id: "script-2", name: "echo agent", command: "echo hi" };
+
+  it.effect("types the chosen starting script and remembers it per project and workspace", () =>
+    withWorkspaces(
+      { "sparta.json": '{"version":1}', "athens.json": '{"version":1}' },
+      (dir, fakes) =>
+        Effect.gen(function* () {
+          const workspaces = yield* service;
+          const fs = yield* FileSystem.FileSystem;
+          const [app, api] = [`${dir}/app`, `${dir}/api`];
+          for (const project of [app, api]) {
+            yield* fs.makeDirectory(project);
+            yield* workspaces.addProject({ mode: "import", name: "sparta", path: project });
+          }
+          yield* workspaces.addProject({ mode: "import", name: "athens", path: app });
+
+          yield* workspaces.startShell({ name: "sparta", project: app, script: mockAgent });
+          yield* workspaces.startShell({ name: "sparta", project: api });
+          yield* workspaces.startShell({ name: "athens", project: app, script: echoAgent });
+
+          assert.deepStrictEqual(
+            fakes.opened.map((input) => input.script),
+            ["mock --go", undefined, "echo hi"],
+          );
+          // Starting another project leaves this one's choice alone (EC-6).
+          assert.deepStrictEqual((yield* workspaces.open({ name: "sparta" })).lastStarts, {
+            [app]: { worktree: { kind: "checkout" }, script: "script-1" },
+            [api]: { worktree: { kind: "checkout" } },
+          });
+          assert.deepStrictEqual((yield* workspaces.open({ name: "athens" })).lastStarts, {
+            [app]: { worktree: { kind: "checkout" }, script: "script-2" },
+          });
+        }),
+      { registered: [], opened: [], titles: [], scripts: [mockAgent, echoAgent] },
+    ),
+  );
+
+  it.effect("refuses a starting script that is not in the list, naming it", () =>
+    withWorkspaces(
+      { "sparta.json": '{"version":1}' },
+      (dir, fakes) =>
+        Effect.gen(function* () {
+          const workspaces = yield* service;
+          const fs = yield* FileSystem.FileSystem;
+          const app = `${dir}/app`;
+          yield* fs.makeDirectory(app);
+          yield* workspaces.addProject({ mode: "import", name: "sparta", path: app });
+
+          const error = yield* Effect.flip(
+            workspaces.startShell({ name: "sparta", project: app, script: echoAgent }),
+          );
+
+          assert.strictEqual(error._tag, "WorkspaceProjectError");
+          expect(error.message).toContain('"echo agent"');
+          assert.deepStrictEqual(fakes.opened, []);
+          assert.deepStrictEqual((yield* workspaces.open({ name: "sparta" })).lastStarts, {});
+          const shell = yield* workspaces.startShell({ name: "sparta", project: app });
+          assert.strictEqual(shell.title, "Shell 1");
+        }),
+      { registered: [], opened: [], titles: [], scripts: [mockAgent] },
+    ),
+  );
+
+  it.effect("starts the shell when its start cannot be remembered, and logs why", () => {
+    const warnings: Array<string> = [];
+    const logger = Logger.make(({ logLevel, message }) => {
+      const [text] = Array.isArray(message) ? message : [message];
+      if (logLevel === "Warn") warnings.push(String(text));
+    });
+    return withWorkspaces(
+      { "sparta.json": '{"version":1}' },
+      (dir, fakes) =>
+        Effect.gen(function* () {
+          const workspaces = yield* service;
+          const fs = yield* FileSystem.FileSystem;
+          const app = `${dir}/app`;
+          yield* fs.makeDirectory(app);
+          yield* workspaces.addProject({ mode: "import", name: "sparta", path: app });
+          yield* fs.chmod(dir, 0o555);
+
+          const shell = yield* workspaces.startShell({
+            name: "sparta",
+            project: app,
+            script: mockAgent,
+          });
+
+          assert.strictEqual(shell.cwd, app);
+          assert.deepStrictEqual(fakes.opened.map((input) => input.script), ["mock --go"]);
+          expect(warnings).toContain("could not remember the workspace's last start");
+        }),
+      { registered: [], opened: [], titles: [], scripts: [mockAgent] },
+    ).pipe(Effect.provide(Logger.layer([logger], { mergeWithExisting: false })));
+  });
 
   // Git fixtures: a repository with two branches, a linked and a detached worktree, and the shells'
   // worktrees folder of the test home.
@@ -768,11 +876,12 @@ it.layer(NodeServices.layer)("saved workspaces", (it) => {
             git(`${dir}/detached`, "rev-parse", "HEAD"),
           );
           assert.deepStrictEqual(fakes.worktrees, [first.cwd, second.cwd]);
-          assert.deepStrictEqual((yield* workspaces.open({ name: "sparta" })).lastStart, {
-            project: repo,
-            worktree: {
-              kind: "new",
-              startingPoint: { kind: "worktree", path: `${dir}/detached` },
+          assert.deepStrictEqual((yield* workspaces.open({ name: "sparta" })).lastStarts, {
+            [repo]: {
+              worktree: {
+                kind: "new",
+                startingPoint: { kind: "worktree", path: `${dir}/detached` },
+              },
             },
           });
         }),
@@ -812,9 +921,10 @@ it.layer(NodeServices.layer)("saved workspaces", (it) => {
           );
           assert.deepStrictEqual(fakes.worktrees, [repo, `${dir}/linked`, undefined]);
           expect(notOurs.message).toContain("not a worktree of");
-          assert.deepStrictEqual((yield* workspaces.open({ name: "sparta" })).lastStart, {
-            project: plain,
-            worktree: { kind: "checkout" },
+          // Each project keeps its own last start.
+          assert.deepStrictEqual((yield* workspaces.open({ name: "sparta" })).lastStarts, {
+            [repo]: { worktree: { kind: "existing", path: `${dir}/linked` } },
+            [plain]: { worktree: { kind: "checkout" } },
           });
         }),
       { registered: [], opened: [], titles: [], worktrees: [] },
@@ -853,7 +963,7 @@ it.layer(NodeServices.layer)("saved workspaces", (it) => {
         expect(blocked.message).toMatch(/^The worktree could not be created/);
         assert.deepStrictEqual(gitState(repo, worktrees), before);
         assert.deepStrictEqual(fakes.opened, []);
-        assert.strictEqual((yield* workspaces.open({ name: "sparta" })).lastStart, null);
+        assert.deepStrictEqual((yield* workspaces.open({ name: "sparta" })).lastStarts, {});
       }),
     ),
   );
@@ -883,7 +993,7 @@ it.layer(NodeServices.layer)("saved workspaces", (it) => {
           expect(offered.worktrees.map((worktree) => worktree.path)).toContain(
             `${worktrees}/${name}`,
           );
-          assert.strictEqual((yield* workspaces.open({ name: "sparta" })).lastStart, null);
+          assert.deepStrictEqual((yield* workspaces.open({ name: "sparta" })).lastStarts, {});
         }),
       { registered: [], opened: [], titles: [], launchFails: true },
     ),
@@ -903,9 +1013,29 @@ it.layer(NodeServices.layer)("saved workspaces", (it) => {
             lastFolder: `${dir}/app`,
           }),
         );
-        assert.deepStrictEqual((yield* workspaces.open({ name: "old" })).lastStart, {
-          project: `${dir}/app`,
-          worktree: { kind: "checkout" },
+        assert.deepStrictEqual((yield* workspaces.open({ name: "old" })).lastStarts, {
+          [`${dir}/app`]: { worktree: { kind: "checkout" } },
+        });
+      }),
+    ),
+  );
+
+  it.effect("reads the one remembered start a workspace kept before as its project's", () =>
+    withWorkspaces({}, (dir) =>
+      Effect.gen(function* () {
+        const workspaces = yield* service;
+        const fs = yield* FileSystem.FileSystem;
+        for (const project of ["app", "api"]) yield* fs.makeDirectory(`${dir}/${project}`);
+        yield* fs.writeFileString(
+          `${dir}/old.json`,
+          JSON.stringify({
+            version: 1,
+            projects: [{ path: `${dir}/app` }, { path: `${dir}/api` }],
+            lastStart: { project: `${dir}/app`, worktree: { kind: "existing", path: dir } },
+          }),
+        );
+        assert.deepStrictEqual((yield* workspaces.open({ name: "old" })).lastStarts, {
+          [`${dir}/app`]: { worktree: { kind: "existing", path: dir } },
         });
       }),
     ),
@@ -930,20 +1060,21 @@ it.layer(NodeServices.layer)("saved workspaces", (it) => {
           opened.projects.map((project) => project.path),
           [`${dir}/app`],
         );
-        assert.deepStrictEqual(opened.lastStart, {
-          project: `${dir}/app`,
-          worktree: { kind: "checkout" },
+        assert.deepStrictEqual(opened.lastStarts, {
+          [`${dir}/app`]: { worktree: { kind: "checkout" } },
         });
         // The next save writes only the new keys.
         yield* workspaces.saveTabs({ name: "old", tabs: { shellIds: [], active: null } });
         const saved = JSON.parse(yield* fs.readFileString(`${dir}/old.json`));
         assert.deepStrictEqual(Object.keys(saved).toSorted(), [
-          "lastStart",
+          "lastStarts",
           "projects",
           "tabs",
           "version",
         ]);
-        assert.deepStrictEqual(Object.keys(saved.lastStart).toSorted(), ["project", "worktree"]);
+        assert.deepStrictEqual(saved.lastStarts, {
+          [`${dir}/app`]: { worktree: { kind: "checkout" } },
+        });
       }),
     ),
   );

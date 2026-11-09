@@ -164,7 +164,7 @@ const EnvServerConfig = Config.all({
     Config.option,
     Config.map(Option.getOrUndefined),
   ),
-  agentCommand: Config.String("PROBE_AGENT_COMMAND").pipe(
+  seedMockAgent: Config.String("PROBE_SEED_MOCK_AGENT").pipe(
     Config.option,
     Config.map(Option.getOrUndefined),
   ),
@@ -509,7 +509,7 @@ export const resolveServerConfig = Effect.fn("config.resolveServerConfig")(funct
     logWebSocketEvents,
     tailscaleServeEnabled,
     tailscaleServePort,
-    ...(env.agentCommand === undefined ? {} : { agentCommand: env.agentCommand }),
+    ...(env.seedMockAgent === undefined ? {} : { seedMockAgent: env.seedMockAgent }),
   };
 
   return config;

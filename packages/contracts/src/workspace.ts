@@ -1,5 +1,6 @@
 import * as Schema from "effect/Schema";
 import { TrimmedNonEmptyString, TrimmedString } from "./baseSchemas.ts";
+import { StartingScriptChoice } from "./startingScripts.ts";
 import { TerminalOpenInput } from "./terminal.ts";
 
 // A workspace is saved as one file named after it, so its name must be a portable file name.
@@ -100,14 +101,17 @@ export const WorkspaceWorktreeChoice = Schema.Union([
 ]);
 export type WorkspaceWorktreeChoice = typeof WorkspaceWorktreeChoice.Type;
 
-/** The last successful start; a new worktree is remembered by its starting point, not its name. */
+/**
+ * A project's last successful start in a workspace; a new worktree is remembered by its starting
+ * point, not its name. `script` is the starting script's id; absent for a plain shell.
+ */
 export const WorkspaceLastStart = Schema.Struct({
-  project: Schema.String,
   worktree: Schema.Union([
     CheckoutChoice,
     ExistingWorktreeChoice,
     Schema.Struct({ kind: Schema.Literal("new"), startingPoint: WorkspaceStartingPoint }),
   ]),
+  script: Schema.optional(Schema.String),
 });
 export type WorkspaceLastStart = typeof WorkspaceLastStart.Type;
 
@@ -121,7 +125,8 @@ export type WorkspaceTabs = typeof WorkspaceTabs.Type;
 export const WorkspaceDetail = Schema.Struct({
   name: WorkspaceName,
   projects: Schema.Array(WorkspaceProject),
-  lastStart: Schema.NullOr(WorkspaceLastStart),
+  /** Keyed by project path; only projects still in the workspace and on disk. */
+  lastStarts: Schema.Record(Schema.String, WorkspaceLastStart),
   /** Saved with the workspace, so the same tabs come back after a reload or a restart. */
   tabs: WorkspaceTabs,
 });
@@ -156,6 +161,8 @@ export const WorkspaceStartShellInput = Schema.Struct({
   project: TrimmedNonEmptyString,
   /** Absent for a project that is not a git repository, and the same as its own checkout. */
   worktree: Schema.optional(WorkspaceWorktreeChoice),
+  /** Absent for a plain shell. */
+  script: Schema.optional(StartingScriptChoice),
   cols: TerminalOpenInput.fields.cols,
   rows: TerminalOpenInput.fields.rows,
 });

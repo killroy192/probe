@@ -196,6 +196,7 @@ export const RPC_REQUIRED_SCOPES = {
   [WS_METHODS.workspaceStartShell]: AuthTerminalOperateScope,
   [WS_METHODS.workspaceSaveTabs]: AuthTerminalOperateScope,
   [WS_METHODS.subscribeWorkspaces]: AuthOrchestrationReadScope,
+  [WS_METHODS.startingScriptsList]: AuthOrchestrationReadScope,
   [WS_METHODS.previewOpen]: AuthPreviewOperateScope,
   [WS_METHODS.previewResize]: AuthPreviewOperateScope,
   [WS_METHODS.previewAdjust]: AuthPreviewOperateScope,

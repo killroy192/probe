@@ -218,6 +218,13 @@ const runUnderWrapper = (
     );
   }).pipe(Effect.scoped, Effect.provide(NodeServices.layer));
 
+/** A command line typed at the mark, as a starting script is, runs once, after the mark (A-1). */
+const assertRanOnceAfterMark = (result: { readonly output: string; readonly markAt: number }) => {
+  const runs = [...result.output.matchAll(/RESULT\[rc\]\[unset\]/g)];
+  assert.lengthOf(runs, 1);
+  assert.isAbove(runs[0]!.index, result.markAt);
+};
+
 // These run the real shell; where it is not installed they show as skipped, not as passed.
 const installed = (shell: string) => NodeChildProcess.spawnSync(shell, ["--version"]).status === 0;
 const zsh = it.live.skipIf(!installed("zsh"));
@@ -276,6 +283,7 @@ describe("shell ready wrapper in a real shell", () => {
       yield* fs.writeFileString(`${home}/.zshrc`, "export PROBE_TEST_USER_RC=rc\n");
       const result = yield* runUnderWrapper("zsh", home, {});
       assert.include(result.output, "RESULT[rc][unset]");
+      assertRanOnceAfterMark(result);
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
   );
 
@@ -317,6 +325,7 @@ describe("shell ready wrapper in a real shell", () => {
       const result = yield* runUnderWrapper("bash", home, {});
       assert.isAbove(result.markAt, 0);
       assert.include(result.output, "RESULT[rc][unset]");
+      assertRanOnceAfterMark(result);
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
   );
 });

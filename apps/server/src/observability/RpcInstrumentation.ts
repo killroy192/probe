@@ -206,6 +206,7 @@ const RPC_AGGREGATES = {
   [WS_METHODS.workspaceStartShell]: "terminal",
   [WS_METHODS.workspaceSaveTabs]: "workspace",
   [WS_METHODS.subscribeWorkspaces]: "workspace",
+  [WS_METHODS.startingScriptsList]: "workspace",
   [WS_METHODS.previewOpen]: "preview",
   [WS_METHODS.previewResize]: "preview",
   [WS_METHODS.previewAdjust]: "preview",
