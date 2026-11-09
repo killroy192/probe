@@ -39,9 +39,8 @@ button. The shell opens in a new tab and appears in the tree under its project.
 Git projects also ask where the shell runs (see [Worktrees](#worktrees)).
 Shells are named by their number in the workspace, their project and the
 program running in them, such as "Shell 2 · repo · node".
-The **Starting script** is the server's agent command (see
-[Agent command](#agent-command)); it can't be changed yet. Leaving the agent
-leaves the shell open.
+Pick what the shell runs under **Starting script** (see
+[Starting scripts](#starting-scripts)). Leaving the agent leaves the shell open.
 
 To add a project, click the **Add project** icon at the top of the sidebar.
 Adding a project starts no shell:
@@ -139,12 +138,18 @@ started in it; if its tab was open when it ended, the tab comes back.
 When a shell's folder or worktree is gone from disk, its row is marked "moved".
 A shell still running there keeps working; an ended one can only be removed, not restored.
 
-## Agent command
+## Starting scripts
 
-The server types the command in its `PROBE_AGENT_COMMAND` environment variable
-into each shell started from a workspace. Its first word must be a file or a
-program on the server's `PATH`. When it is not set or not found, the shell does
-not start and the dialog shows why.
+**Plain shell** opens a shell at its prompt and types nothing. Any other entry
+is one of your starting scripts: the shell opens, and once its prompt shows the
+script's command is typed into it. Each project remembers the script of its
+last start, and **Create shell** preselects it; if that script is gone, it
+preselects Plain shell.
+
+Your scripts can't be edited in Probe yet, so a new server offers Plain shell
+only. The program a script runs must be a file or a program on the server's
+`PATH`; when it is not, the shell does not start and the dialog says which
+program was not found.
 
 ## Names
 

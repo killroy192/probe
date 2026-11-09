@@ -18,12 +18,23 @@ or recreate sessions by key, which a shell id must not do. Server code that call
 directly with a shell owner key bypasses that check, so it should go through the `Shells`
 service. A shell that cannot start is closed again, and `shell.open` fails with the launch reason.
 
-`shell.open` with `agent: true` (used by `workspace.startShell`) checks that the first word of
-`PROBE_AGENT_COMMAND` resolves to a file or a program on the server's `PATH`, then starts the
-normal interactive shell and types the command into it. The check runs before spawning so a
-missing CLI fails the start instead of leaving a shell that only printed "command not found".
-Typing the command, rather than spawning the CLI directly, keeps the shell open when the CLI
-exits. `Shells` logs each start, failed start (with the cwd) and end at info level.
+What a new shell runs is chosen per start. `workspace.startShell` names a starting script by id,
+or none for a plain shell; `SavedWorkspaces` looks the id up in the user's list as saved at that
+moment and refuses one that is gone, then passes the script to `Shells.open` as an option (it is
+not part of the `shell.open` wire input, so a client cannot type a command through it). The user's
+list is `starting-scripts.json` in the state folder of the server that serves the UI, read on every
+use; a state folder with no file gets the mock agent only when `PROBE_SEED_MOCK_AGENT` is set (dev
+and the scenario harness), and an existing file, even an empty one, is never rewritten. The
+project's last start, worktree and script id, is saved per project in the workspace file.
+
+For a script, `Shells` checks that its program (the first word after any `NAME=value`
+assignments) is a file or a program on the server's `PATH`, then starts the normal interactive
+shell and types the command into it. The check runs before spawning so a missing CLI fails the
+start instead of leaving a shell that only printed "command not found". It does not see the
+shell's own `PATH`, aliases or functions; PRB.T-017 replaces it. Typing the command, rather than
+spawning the CLI directly, keeps the shell open when the CLI exits. `Shells` logs each start with
+the script's name and program, or `plain`, never the command line (it may carry a secret), each
+failed start with the cwd, and each end, at info level.
 
 The command is typed only once the shell is ready. Typed at once, the terminal driver echoes it
 before the prompt and the shell's line editor draws it again after, so it shows twice. zsh and bash
