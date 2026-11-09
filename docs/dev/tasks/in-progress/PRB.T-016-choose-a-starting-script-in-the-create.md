@@ -3,9 +3,9 @@ id: PRB.T-016
 type: story
 parent: PRB.E-002
 phase: 1
-labels: [terminal-first]
+labels: [terminal-first, implement]
 created: 2026-11-08
-updated: 2026-11-08
+updated: 2026-11-09
 ---
 
 # Choose a starting script in the Create shell modal
