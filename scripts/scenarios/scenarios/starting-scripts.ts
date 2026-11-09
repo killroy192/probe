@@ -195,10 +195,11 @@ export const userScripts: Scenario = {
       const [agent] = await shellsIn(shells.lists, repo, 1);
       check(agent !== undefined, "The mock agent shell did not start.");
       await output.until("the mock agent's banner", (frame) => frame.includes("Mock Agent v1"));
+      // Typed twice, the second line would reach the agent; S2 checks how the line is shown.
       const agentShown = withoutOsc(await history(rpc.client, agent.shellId));
       check(
-        count(agentShown, "scripts/mock-agent/mock-agent") === 1 && !agentShown.startsWith("node "),
-        `The mock agent is not typed once, after the prompt (AC-3): ${JSON.stringify(agentShown.slice(0, 400))}`,
+        count(agentShown, "session: mock-") === 1 && !agentShown.includes("echo: node"),
+        `The mock agent did not start exactly once (AC-3): ${JSON.stringify(agentShown.slice(0, 400))}`,
       );
 
       stage = "AC-4";
