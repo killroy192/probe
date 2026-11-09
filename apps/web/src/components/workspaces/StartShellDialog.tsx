@@ -198,7 +198,7 @@ export function StartShellDialog({
                 />
               </Field>
               {!isGit ? null : result === null ? (
-                <p className="text-sm text-muted-foreground">Reading worktrees…</p>
+                <WorktreesLoading fork={lastStart?.worktree.kind === "new"} />
               ) : "error" in result ? (
                 <p className="text-sm text-destructive-foreground">{result.error}</p>
               ) : place === null ? null : (
@@ -352,6 +352,34 @@ function ScriptSelect({
         ))}
       </SelectPopup>
     </Select>
+  );
+}
+
+/**
+ * The worktree controls as they will show, disabled, so the dialog keeps its height while the
+ * project's worktrees load.
+ */
+function WorktreesLoading({ fork }: { readonly fork: boolean }) {
+  const label = fork ? "Fork from" : "Start in";
+  return (
+    <>
+      <ToggleGroup className="w-full *:flex-1" value={[fork ? "new" : "existing"]}>
+        <Toggle value="existing" disabled>
+          Existing
+        </Toggle>
+        <Toggle value="new" disabled>
+          Fork
+        </Toggle>
+      </ToggleGroup>
+      <Field label={label}>
+        <Select value={null} disabled>
+          <SelectTrigger size="sm" aria-label={label}>
+            <SelectValue>{() => "Reading worktrees…"}</SelectValue>
+          </SelectTrigger>
+        </Select>
+        {fork ? <p className="text-sm">&nbsp;</p> : null}
+      </Field>
+    </>
   );
 }
 
