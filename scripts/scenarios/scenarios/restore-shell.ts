@@ -117,7 +117,17 @@ export const restoreShell: Scenario = {
       shells = shellList(rpc.client);
       await shells.lists.until("the shell list after the restart", () => true);
       await endedRow(page, first.shellId).waitFor();
+      // The ended shell keeps its number, so a new one does not take it (PRB.T-015).
+      const next = await startShell(page, shells, plain);
+      check(
+        first.title === "Shell 1" && next.title === "Shell 2",
+        `A shell started after the restart is "${next.title}", next to "${first.title}".`,
+      );
       await restoreFromTree(page, first.shellId);
+      for (const shell of [first, next]) {
+        const row = (await shellRow(page, shell.shellId).textContent()) ?? "";
+        check(row.includes(shell.title!), `The tree shows "${row}" for ${shell.title}.`);
+      }
       await openFromTree(page, first.shellId);
       await typeLine(page, "echo rebooted-s8-$((40+2))");
       await frames.until("the shell after the restart", (frame) =>

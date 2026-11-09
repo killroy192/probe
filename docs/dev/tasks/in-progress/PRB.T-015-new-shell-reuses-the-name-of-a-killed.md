@@ -41,4 +41,7 @@ so its first restart can still repeat one once.
 
 - `SavedWorkspaces.test.ts` "keeps numbering after a restart, past a killed shell that can be
   restored": fails on `main` ("Shell 1"), passes with the fix ("Shell 2").
-- Not yet checked in a real client: restoring the ended "Shell 1" next to "Shell 2".
+- Scenario S8 (`vp run test:scenarios -- --only S8`), stage "restore after a restart": after a
+  server and shell host restart, a new shell is "Shell 2" next to the ended "Shell 1", and
+  restoring "Shell 1" shows both in the tree. Passes with the fix; on `main` it fails with
+  `A shell started after the restart is "Shell 1", next to "Shell 1".`
