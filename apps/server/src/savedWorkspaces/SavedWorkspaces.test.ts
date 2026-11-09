@@ -167,15 +167,15 @@ const withWorkspaces = <A, E>(
     }
     // Restore permissions so the scoped temp dir can be removed after a fault test.
     yield* Effect.addFinalizer(() => fs.chmod(dir, 0o755).pipe(Effect.ignore));
-    return yield* body(dir, fakes).pipe(
-      Effect.provide(
-        SavedWorkspaces.layer.pipe(
-          Layer.provide(layerDependencies(fakes)),
-          Layer.provideMerge(ServerConfig.layerTest(process.cwd(), baseDir)),
-        ),
-      ),
-    );
+    return yield* body(dir, fakes).pipe(Effect.provide(layerAt(baseDir, fakes)));
   }).pipe(Effect.scoped);
+
+// A fresh service over the same state folder, as after a server restart.
+const layerAt = (baseDir: string, fakes: Fakes) =>
+  SavedWorkspaces.layer.pipe(
+    Layer.provide(layerDependencies(fakes)),
+    Layer.provideMerge(ServerConfig.layerTest(process.cwd(), baseDir)),
+  );
 
 const service = SavedWorkspaces.SavedWorkspaces;
 const names = Effect.gen(function* () {
@@ -576,6 +576,33 @@ it.layer(NodeServices.layer)("saved workspaces", (it) => {
         }),
       // The started shell is listed, so its project stays while its folder is gone.
       { registered: [], opened: [], titles: [], running: [] },
+    ),
+  );
+
+  it.effect("keeps numbering after a restart, past a killed shell that can be restored", () =>
+    withWorkspaces(
+      { "sparta.json": '{"version":1}' },
+      (dir, fakes) =>
+        Effect.gen(function* () {
+          const workspaces = yield* service;
+          const fs = yield* FileSystem.FileSystem;
+          const path = yield* Path.Path;
+          const app = `${dir}/app`;
+          yield* fs.makeDirectory(app);
+          yield* workspaces.addProject({ mode: "import", name: "sparta", path: app });
+          yield* workspaces.startShell({ name: "sparta", project: app });
+          // The signal-killed "Shell 1" stays listed as ended, and restoring it keeps its title.
+          const second = yield* service.pipe(
+            Effect.flatMap((restarted) => restarted.startShell({ name: "sparta", project: app })),
+            Effect.provide(
+              Layer.fresh(layerAt(path.dirname(path.dirname(dir)), fakes)).pipe(
+                Layer.provide(NodeServices.layer),
+              ),
+            ),
+          );
+          assert.strictEqual(second.title, "Shell 2");
+        }),
+      { registered: [], opened: [], titles: [] },
     ),
   );
 
