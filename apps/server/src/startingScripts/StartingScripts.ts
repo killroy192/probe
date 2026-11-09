@@ -40,11 +40,17 @@ const make = Effect.gen(function* () {
   const filePath = path.join(stateDir, FILE_NAME);
 
   // A saved list, even an empty one, is the user's: only a state folder with none gets the default.
-  if (seedMockAgent !== undefined && !(yield* fs.exists(filePath).pipe(Effect.orElseSucceed(() => true)))) {
+  if (
+    seedMockAgent !== undefined &&
+    !(yield* fs.exists(filePath).pipe(Effect.orElseSucceed(() => true)))
+  ) {
     const id = yield* crypto.randomUUIDv4().pipe(Effect.orDie);
     yield* writeFileStringAtomically({
       filePath,
-      contents: encodeFile({ version: 1, scripts: [{ id, name: "mock agent", command: seedMockAgent }] }),
+      contents: encodeFile({
+        version: 1,
+        scripts: [{ id, name: "mock agent", command: seedMockAgent }],
+      }),
     }).pipe(
       Effect.provideService(FileSystem.FileSystem, fs),
       Effect.provideService(Path.Path, path),

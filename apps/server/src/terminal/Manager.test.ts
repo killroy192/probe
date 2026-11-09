@@ -2451,44 +2451,52 @@ it.layer(
     );
   }
 
-  it.effect("types a script into its own shell only and logs starts without the command line", () => {
-    const logs = captureLogs();
-    return Effect.gen(function* () {
-      const { manager, ptyAdapter } = yield* createManager();
-      const shells = yield* makeShells(manager, { searchPath: nodeDir });
-      const secret = { name: "agent", command: "API_TOKEN=s3cret node agent.ts --key s3cret" };
-      const agent = yield* shells.open({ cwd: process.cwd() }, { script: secret });
-      const plain = yield* shells.open({ cwd: process.cwd() });
+  it.effect(
+    "types a script into its own shell only and logs starts without the command line",
+    () => {
+      const logs = captureLogs();
+      return Effect.gen(function* () {
+        const { manager, ptyAdapter } = yield* createManager();
+        const shells = yield* makeShells(manager, { searchPath: nodeDir });
+        const secret = { name: "agent", command: "API_TOKEN=s3cret node agent.ts --key s3cret" };
+        const agent = yield* shells.open({ cwd: process.cwd() }, { script: secret });
+        const plain = yield* shells.open({ cwd: process.cwd() });
 
-      expect(ptyAdapter.processes[0]?.writes).toEqual([`${secret.command}\r`]);
-      expect(ptyAdapter.processes[1]?.writes).toEqual([]);
-      ptyAdapter.processes[0]!.emitExit({ exitCode: 0, signal: 9 });
-      yield* liveStatus(shells, agent.shellId);
+        expect(ptyAdapter.processes[0]?.writes).toEqual([`${secret.command}\r`]);
+        expect(ptyAdapter.processes[1]?.writes).toEqual([]);
+        ptyAdapter.processes[0]!.emitExit({ exitCode: 0, signal: 9 });
+        yield* liveStatus(shells, agent.shellId);
 
-      const started = logs.lines.filter((line) => line.message === "shell started");
-      expect(started).toEqual([
-        {
-          message: "shell started",
-          fields: { shellId: agent.shellId, cwd: process.cwd(), script: "agent", program: "node" },
-        },
-        {
-          message: "shell started",
-          fields: { shellId: plain.shellId, cwd: process.cwd(), script: "plain" },
-        },
-      ]);
-      expect(JSON.stringify(logs.lines)).not.toContain("s3cret");
-      expect(logs.lines).toContainEqual({
-        message: "shell ended",
-        fields: {
-          shellId: agent.shellId,
-          cwd: process.cwd(),
-          exitCode: 0,
-          exitSignal: 9,
-          reason: "signal",
-        },
-      });
-    }).pipe(Effect.provide(logs.layer));
-  });
+        const started = logs.lines.filter((line) => line.message === "shell started");
+        expect(started).toEqual([
+          {
+            message: "shell started",
+            fields: {
+              shellId: agent.shellId,
+              cwd: process.cwd(),
+              script: "agent",
+              program: "node",
+            },
+          },
+          {
+            message: "shell started",
+            fields: { shellId: plain.shellId, cwd: process.cwd(), script: "plain" },
+          },
+        ]);
+        expect(JSON.stringify(logs.lines)).not.toContain("s3cret");
+        expect(logs.lines).toContainEqual({
+          message: "shell ended",
+          fields: {
+            shellId: agent.shellId,
+            cwd: process.cwd(),
+            exitCode: 0,
+            exitSignal: 9,
+            reason: "signal",
+          },
+        });
+      }).pipe(Effect.provide(logs.layer));
+    },
+  );
 
   it.effect("kills a shell with everything it started, and forgets one already gone", () => {
     const logs = captureLogs();

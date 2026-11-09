@@ -157,7 +157,8 @@ export function StartShellDialog({
     if (path === null || !canStart) return;
     const worktree = isGit ? (choice ?? { kind: "checkout" as const }) : null;
     const picked = scripts?.find((entry) => entry.id === script);
-    const chosen = picked === undefined ? null : { id: picked.id, name: startingScriptLabel(picked) };
+    const chosen =
+      picked === undefined ? null : { id: picked.id, name: startingScriptLabel(picked) };
     if (await action.run(() => onStart(path, worktree, chosen))) {
       reset();
       onOpenChange(false);

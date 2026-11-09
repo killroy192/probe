@@ -104,7 +104,9 @@ const layerDependencies = (fakes: Fakes) =>
           ? Effect.fail(new ShellLaunchError({ reason: "No agent command is configured." }))
           : Effect.sync(() => {
               fakes.opened.push(
-                options?.script === undefined ? input : { ...input, script: options.script.command },
+                options?.script === undefined
+                  ? input
+                  : { ...input, script: options.script.command },
               );
               fakes.titles.push(options?.title);
               fakes.worktrees?.push(options?.worktree);
@@ -703,7 +705,10 @@ it.layer(NodeServices.layer)("saved workspaces", (it) => {
           });
 
           assert.strictEqual(shell.cwd, app);
-          assert.deepStrictEqual(fakes.opened.map((input) => input.script), ["mock --go"]);
+          assert.deepStrictEqual(
+            fakes.opened.map((input) => input.script),
+            ["mock --go"],
+          );
           expect(warnings).toContain("could not remember the workspace's last start");
         }),
       { registered: [], opened: [], titles: [], scripts: [mockAgent] },

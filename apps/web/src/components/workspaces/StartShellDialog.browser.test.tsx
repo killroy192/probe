@@ -58,7 +58,9 @@ describe("StartShellDialog", () => {
     await expect.element(createButton()).toBeEnabled();
     // Playwright never sees the dialog's footer as stable here; a DOM click submits the same form.
     (createButton().element() as HTMLButtonElement).click();
-    await vi.waitFor(() => expect(onStart).toHaveBeenCalledWith("/repo", { kind: "checkout" }, null));
+    await vi.waitFor(() =>
+      expect(onStart).toHaveBeenCalledWith("/repo", { kind: "checkout" }, null),
+    );
   });
 
   it("does not create a worktree while its origins cannot be listed", async () => {

@@ -87,9 +87,7 @@ it.layer(NodeServices.layer)("starting scripts", (it) => {
         return yield* (yield* StartingScripts.StartingScripts).find("c");
       }).pipe(
         Effect.provide(
-          StartingScripts.layer.pipe(
-            Layer.provide(ServerConfig.layerTest(process.cwd(), baseDir)),
-          ),
+          StartingScripts.layer.pipe(Layer.provide(ServerConfig.layerTest(process.cwd(), baseDir))),
         ),
       );
       assert.deepStrictEqual(found, Option.some(scripts[2]!));

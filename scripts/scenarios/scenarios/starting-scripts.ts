@@ -166,7 +166,11 @@ export const userScripts: Scenario = {
     let rpc = await connectRpc(server.origin, page);
     const shells = shellList(rpc.client);
     let stage = "setup";
-    const echo: StartingScript = { id: "echo", name: "echo agent", command: "echo probe-$((40+2))" };
+    const echo: StartingScript = {
+      id: "echo",
+      name: "echo agent",
+      command: "echo probe-$((40+2))",
+    };
     try {
       // AC-4, AC-21: a second command line, an entry with no name, a repeated name.
       const [mock] = await readStartingScripts(server.home);
@@ -229,7 +233,10 @@ export const userScripts: Scenario = {
       stage = "AC-5";
       const listBefore = await NodeFSP.readFile(startingScriptsFile(server.home), "utf8");
       await openModal(page, repo, { script: null });
-      check((await selectedScriptKey(page)) === mock.id, "The mock agent is not preselected (AC-5).");
+      check(
+        (await selectedScriptKey(page)) === mock.id,
+        "The mock agent is not preselected (AC-5).",
+      );
       await cancelModal(page);
       rpc = await restartAndReload(page, server, rpc);
       for (const [project, id] of [
@@ -249,14 +256,23 @@ export const userScripts: Scenario = {
       stage = "AC-22";
       await writeStartingScripts(server.home, [mock, { ...echo, name: "renamed" }]);
       await openModal(page, plain, { script: null });
-      check((await selectedScriptKey(page)) === "echo", "A renamed script is not preselected (AC-22).");
+      check(
+        (await selectedScriptKey(page)) === "echo",
+        "A renamed script is not preselected (AC-22).",
+      );
       await cancelModal(page);
 
       stage = "AC-7";
       await writeStartingScripts(server.home, [mock]);
       await openModal(page, plain, { script: null });
-      check((await selectedScriptKey(page)) === "plain", "A removed script is still preselected (AC-7).");
-      check((await dialog(page).getByRole("alert").count()) === 0, "A removed script shows an error (AC-7).");
+      check(
+        (await selectedScriptKey(page)) === "plain",
+        "A removed script is still preselected (AC-7).",
+      );
+      check(
+        (await dialog(page).getByRole("alert").count()) === 0,
+        "A removed script shows an error (AC-7).",
+      );
       await cancelModal(page);
 
       stage = "AC-23";
@@ -322,6 +338,9 @@ async function expectOnlyPlain(page: PointerPage, project: string, message: stri
   await openModal(page, project, { script: null });
   await selectedScriptKey(page);
   const offered = await scriptItems(page);
-  check(JSON.stringify(offered) === JSON.stringify(["Plain shell"]), `${message} ${JSON.stringify(offered)}`);
+  check(
+    JSON.stringify(offered) === JSON.stringify(["Plain shell"]),
+    `${message} ${JSON.stringify(offered)}`,
+  );
   await cancelModal(page);
 }
