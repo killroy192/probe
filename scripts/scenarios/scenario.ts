@@ -7,6 +7,11 @@ export interface ScenarioContext {
   readonly openPage: () => Promise<PointerPage>;
   /** A fresh browser context with no session. */
   readonly openAnonymousPage: () => Promise<PointerPage>;
+  /**
+   * Starts another Probe server on its own throwaway home and port, stopped with the scenario.
+   * `serverBin` exists for the harness self-test of a server that never starts.
+   */
+  readonly startSecondServer: (options?: { readonly serverBin?: string }) => Promise<ServerHandle>;
 }
 
 export interface Scenario {

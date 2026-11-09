@@ -3,7 +3,7 @@ id: PRB.T-021
 type: story
 parent: PRB.E-003
 phase: 2
-labels: [remote, mobile-impact, plan]
+labels: [remote, mobile-impact, implement]
 created: 2026-11-09
 updated: 2026-11-09
 ---
@@ -48,7 +48,7 @@ Verified by reading the code on 2026-11-09 (the code search index was unavailabl
 ## Expected Behavior
 
 - The scenario harness can start a second Probe server alongside the first. It has its own state folder, its own port, and no folder in common with the UI's own server or the UI process. A scenario can seed saved workspaces on it before the UI looks.
-- A test-only seam makes the UI know the second server without the connect flow. It is removed or replaced by the connect flow in PRB.T-023 and is not a product feature.
+- A test-only seam makes the UI know the second server without the connect flow: the harness saves the second server and its credential in the browser's saved-server storage. It adds no product code, and PRB.T-023 replaces it with the connect flow. The workspace screens still use only the default server; showing the second server's workspaces in them is PRB.T-022 (its AC-1).
 - The author runs the UI against the second server alongside the default server and writes one audit, kept in `docs/dev` as a finding (the exact place is a plan decision). It has two parts and answers every item below.
   1. **Local assumptions.** A list of every place a screen or service assumes the UI's own server, files, loopback or one environment, each with file path, what breaks, and which later story fixes it (A-1, A-4, A-9, U-1). It includes the scheduled tasks, MCP tools and the `probe` command started inside a shell (U-4).
   2. **Settings sort.** Every Settings page route sorted as client-owned or server-owned, or a question for the author, with where each page keeps its values today (U-6) and how `settingsScope.ts` relates. Pages that exist only for chat stay hidden and are sorted too. The epic's starting guess in "Notes for stories" is checked, not trusted.
@@ -57,8 +57,8 @@ Verified by reading the code on 2026-11-09 (the code search index was unavailabl
 ### User Flow
 
 1. The author runs a scenario that starts the UI's server and a second server, seeds workspaces on the second, and opens the UI.
-2. The UI shows the second server to the screens that choose a server (the seam).
-3. The author walks the terminal-first screens with a second-server workspace in view and records what works, what reads the wrong server and what fails.
+2. The UI connects to the second server through the seam; the harness checks the connection and that the credential the UI holds can list the seeded workspaces.
+3. The author walks the screens that already take a server (Settings > Environments, the folder browser, Settings pages) against the second server, and reads the code of the workspace screens, which use only the default server until PRB.T-022, and records what works, what reads the wrong server and what fails.
 4. The author reads the code for the named assumptions and writes the audit.
 5. The author sets each assumption row's status in the epic and lists any new unknown. The reviewer reads the audit.
 
@@ -107,7 +107,7 @@ Verified by reading the code on 2026-11-09 (the code search index was unavailabl
 | --- | --- | --- | --- |
 | AC-1 | Given a scenario that starts two servers, when both are ready, then each has its own origin and its own state folder, and the second server's folder is not inside the first's or the UI process's working folder | auto | FR-5, NFR-4, EC-1 |
 | AC-2 | Given workspaces seeded on the second server before the UI looks, when the scenario reads that server directly, then it lists exactly those workspaces and the default server lists none of them | auto | FR-3 (harness), EC-4 |
-| AC-3 | Given the seam, when the UI loads, then the workspace menu lists the seeded workspace of the second server and opening it shows its tree, with no connect flow used | auto | FR-5 (harness) |
+| AC-3 | Given the seam, when the UI loads, then the browser opens a connection to the second server's origin that the server answers, and with the credential the seam stored, the second server's workspace list returns exactly the seeded workspaces; no connect flow is used. (Listing them in the workspace menu is PRB.T-022 AC-1.) | auto | FR-5 (harness) |
 | AC-4 | Given a scenario that ends or fails, when it finishes, then the second server and its shell host started by the harness are stopped by their captured pids | auto | EC-2 |
 | AC-5 | Given a second server that never becomes ready, when the scenario waits, then it fails with that server's log | auto | ER-1 |
 | AC-6 | Given the audit, when read, then it lists every local assumption with file path, what breaks, and the later story that fixes it, including scheduled tasks, MCP tools and the `probe` command in a shell, and which screens would confuse same-named workspaces on two servers | manual (author) | FR-5, EC-4 |
@@ -137,8 +137,16 @@ Blocks:
 
 | ID | Statement | Kind (assumption / unknown) | Status (unverified / verified / false) | How and when to verify | Owner |
 | --- | --- | --- | --- | --- | --- |
-| SA-1 | `startServer` can be called twice in one scenario process, each with its own home and port | assumption | unverified | Read `scripts/scenarios/server.ts` and `run.ts` at plan time | author |
-| SA-2 | A scenario can make the browser use a server other than the one it was paired with, through the existing saved-server storage or a similar seam | assumption | unverified | Read `apps/web/src/connection/catalog.ts` at plan time; this is the test-only seam | author |
+| SA-1 | `startServer` can be called twice in one scenario process, each with its own home and port | assumption | verified: R1 runs two `startServer` children in one runner process | Read `scripts/scenarios/server.ts` and `run.ts` at plan time | author |
+| SA-2 | A scenario can make the browser use a server other than the one it was paired with, through the existing saved-server storage or a similar seam | assumption | verified: `scripts/scenarios/seam.ts` writes the browser's connection catalog (IndexedDB) and reloads | Read `apps/web/src/connection/catalog.ts` at plan time; this is the test-only seam | author |
 | SA-3 | A server with no chat state starts and answers the workspace requests on a fresh home (the harness already does this for the first server) | assumption | verified | PRB.E-001 scenarios pass against it | author |
-| SU-1 | Where the audit finding lives in `docs/dev` (a research page or the ticket's own handoff) | unknown | unverified | TBD (author, 2026-11-15) at plan time | author |
-| SU-2 | Whether labs, beta, diffs, threads, chat, snapshots, about and the licenses page are client-owned or server-owned | unknown | unverified | The audit; the author decides what the code does not (TBD author, 2026-11-15) | author |
+| SU-1 | Where the audit finding lives in `docs/dev` (a research page or the ticket's own handoff) | unknown | answered: `docs/dev/research/remote-local-assumptions-audit.md` | TBD (author, 2026-11-15) at plan time | author |
+| SU-2 | Whether labs, beta, diffs, threads, chat, snapshots, about and the licenses page are client-owned or server-owned | unknown | partly answered: Diffs, Threads, Chat and Snap Shot sorted; Labs, About, licenses and Browser are Q-A to Q-C in the audit | The audit; the author decides what the code does not (TBD author, 2026-11-15) | author |
+
+## Handoff
+
+- **Audit:** [`docs/dev/research/remote-local-assumptions-audit.md`](../../research/remote-local-assumptions-audit.md) holds the local-assumption list, the settings sort and the result for every story-1 row; the epic's assumption table points to it. Open for the author: Q-A to Q-D there, and the epic's new U-8 (where client-owned settings live).
+- **Harness:** `startSecondServer()` on the scenario context, `scripts/scenarios/seam.ts` (catalog seam, harness-only, replaced by PRB.T-023), `connectRpc(origin, { bearerToken })`. Scenario R1 (`--only R1`) is the second-server check; self-test T3 (`--selftest --only T3`) runs only when picked.
+- **What later stories inherit:** the workspace screens use only the default server (T-022). Settings writes fan out to every connected server, and Sharing & access ignores the scope (T-025). Pairing errors collapse to `invalid_credential` and plain http to a public host is not refused (T-023). Reconnect backoff can exceed 60 s (T-026). Two servers on one host share a label (T-022/T-023).
+- **A-15 recipe:** a `node:https` proxy on loopback with an `openssl` self-signed cert, Chromium with `ignoreHTTPSErrors`; it paired and connected over `wss://` in the walk.
+

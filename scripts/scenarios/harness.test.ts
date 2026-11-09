@@ -131,6 +131,21 @@ describe("scenario runner", () => {
     }),
   );
 
+  it.live("fails with a second server's output and still stops the one that started", () =>
+    Effect.promise(async () => {
+      const { code, output } = await spawnRunner(["--selftest", "--only", "T3"]).done;
+      assert.strictEqual(code, 1);
+      assert.match(output, /FAIL\s+T3 second server cannot start: Probe server could not start/);
+      assert.include(output, "Cannot find module");
+      const started = [...output.matchAll(/T3 (?:second )?server pid=(\d+) home=(\S+)/g)];
+      assert.lengthOf(started, 2);
+      for (const [, pid, home] of started) {
+        assert.isFalse(alive(Number(pid)));
+        assert.isFalse(NodeFS.existsSync(home!));
+      }
+    }),
+  );
+
   it.live("passes twice in a row beside a running server and leaves it alone", () =>
     Effect.promise(async () => {
       const home = scratch("scenario-bystander-");
@@ -154,14 +169,22 @@ describe("scenario runner", () => {
 
   it.live("stops what it started and removes its data when interrupted", () =>
     Effect.promise(async () => {
-      const run = spawnRunner([]);
-      const started = await run.line(/server pid=(\d+) home=(\S+)/);
-      const pid = Number(started[1]);
-      const home = started[2]!;
-      run.child.kill("SIGINT");
-      await run.done;
-      assert.isFalse(alive(pid));
-      assert.isFalse(NodeFS.existsSync(home));
+      // The second row is interrupted once R1 runs both of its servers.
+      for (const [args, last] of [
+        [[], /S1 server pid=(\d+) home=(\S+)/],
+        [["--only", "R1"], /R1 second server pid=(\d+) home=(\S+)/],
+      ] as const) {
+        const run = spawnRunner(args);
+        await run.line(last);
+        run.child.kill("SIGINT");
+        const { output } = await run.done;
+        const started = [...output.matchAll(/server pid=(\d+) home=(\S+)/g)];
+        assert.isNotEmpty(started);
+        for (const [, pid, home] of started) {
+          assert.isFalse(alive(Number(pid)));
+          assert.isFalse(NodeFS.existsSync(home!));
+        }
+      }
     }),
   );
 });

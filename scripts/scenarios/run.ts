@@ -16,9 +16,14 @@ import {
   removeThrowawayHome,
   type RunOptions,
 } from "./environment.ts";
-import { scenarios, selftestScenarios, storyScenarios } from "./registry.ts";
+import {
+  pickedSelftestScenarios,
+  scenarios,
+  selftestScenarios,
+  storyScenarios,
+} from "./registry.ts";
 import type { Scenario } from "./scenario.ts";
-import { REPO_ROOT, startServer } from "./server.ts";
+import { REPO_ROOT, startServer, type ServerHandle } from "./server.ts";
 
 const WEB_INDEX = NodePath.join(REPO_ROOT, "apps/web/dist/index.html");
 const TOTAL = 8;
@@ -67,16 +72,25 @@ async function runScenario(
   browser: Browser,
   options: RunOptions,
 ): Promise<void> {
-  const home = await createThrowawayHome();
-  const server = await startServer({ home, serverBin: options.serverBin });
-  const stopServer = async () => {
-    await server.stop();
-    // Shells outlive the server in its shell host; this home's host goes with the home.
-    await server.stopShellHost();
-    await removeThrowawayHome(home);
+  const ownedServers: Array<() => Promise<void>> = [];
+  const startOwnedServer = async (label: string, serverBin: string | undefined) => {
+    const home = await createThrowawayHome();
+    let started: ServerHandle | undefined;
+    const stopOwned = async () => {
+      await started?.stop();
+      // Shells outlive the server in its shell host; this home's host goes with the home.
+      await started?.stopShellHost();
+      await removeThrowawayHome(home);
+    };
+    cleanups.push(stopOwned);
+    ownedServers.push(stopOwned);
+    started = await startServer({ home, serverBin });
+    NodeProcess.stdout.write(
+      `scenarios: ${scenario.id} ${label} pid=${started.pid()} home=${home}\n`,
+    );
+    return started;
   };
-  cleanups.push(stopServer);
-  NodeProcess.stdout.write(`scenarios: ${scenario.id} server pid=${server.pid()} home=${home}\n`);
+  const server = await startOwnedServer("server", options.serverBin);
   try {
     const newPage = async (signedIn: boolean): Promise<PointerPage> => {
       const context = await browser.newContext();
@@ -93,10 +107,14 @@ async function runScenario(
       server,
       openPage: () => newPage(true),
       openAnonymousPage: () => newPage(false),
+      startSecondServer: (secondOptions) =>
+        startOwnedServer("second server", secondOptions?.serverBin ?? options.serverBin),
     });
   } finally {
-    cleanups.splice(cleanups.indexOf(stopServer), 1);
-    await stopServer();
+    for (const stopOwned of ownedServers.reverse()) {
+      cleanups.splice(cleanups.indexOf(stopOwned), 1);
+      await stopOwned();
+    }
   }
 }
 
@@ -114,7 +132,11 @@ async function main(): Promise<number> {
   cleanups.push(() => browser.close());
   NodeProcess.stdout.write("scenarios: ready\n");
 
-  const all = options.selftest ? selftestScenarios : [...scenarios, ...storyScenarios];
+  const all = !options.selftest
+    ? [...scenarios, ...storyScenarios]
+    : options.only === undefined
+      ? selftestScenarios
+      : [...selftestScenarios, ...pickedSelftestScenarios];
   const selected = options.only === undefined ? all : all.filter(({ id }) => id === options.only);
   if (selected.length === 0) {
     NodeProcess.stderr.write(`scenarios: no scenario has the id ${options.only}.\n`);

@@ -5,10 +5,12 @@ import { manyShells } from "./scenarios/many-shells.ts";
 import { plusModal } from "./scenarios/plus-modal.ts";
 import { restartSurvival } from "./scenarios/restart.ts";
 import { restoreShell } from "./scenarios/restore-shell.ts";
+import { secondServer } from "./scenarios/second-server.ts";
 import { standaloneShell } from "./scenarios/standalone-shell.ts";
 import { worktrees } from "./scenarios/worktrees.ts";
 import { deliberateFailure } from "./selftest/deliberate-failure.ts";
 import { restartPersistence } from "./selftest/restart-persistence.ts";
+import { secondServerFailure } from "./selftest/second-server-failure.ts";
 import type { Scenario } from "./scenario.ts";
 
 // S1..S8 from PRB.E-001. A scenario without `run` is pending until its story builds it.
@@ -24,6 +26,9 @@ export const scenarios: ReadonlyArray<Scenario> = [
 ];
 
 /** Checks a story owns that are not epic scenarios; they run after S1..S8 and do not count toward 8. */
-export const storyScenarios: ReadonlyArray<Scenario> = [standaloneShell];
+export const storyScenarios: ReadonlyArray<Scenario> = [standaloneShell, secondServer];
 
 export const selftestScenarios: ReadonlyArray<Scenario> = [restartPersistence, deliberateFailure];
+
+/** Self-tests that run only when picked with `--only`, so one `--selftest` run stays short. */
+export const pickedSelftestScenarios: ReadonlyArray<Scenario> = [secondServerFailure];
