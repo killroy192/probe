@@ -137,8 +137,16 @@ Blocks:
 
 | ID | Statement | Kind (assumption / unknown) | Status (unverified / verified / false) | How and when to verify | Owner |
 | --- | --- | --- | --- | --- | --- |
-| SA-1 | `startServer` can be called twice in one scenario process, each with its own home and port | assumption | unverified | Read `scripts/scenarios/server.ts` and `run.ts` at plan time | author |
-| SA-2 | A scenario can make the browser use a server other than the one it was paired with, through the existing saved-server storage or a similar seam | assumption | unverified | Read `apps/web/src/connection/catalog.ts` at plan time; this is the test-only seam | author |
+| SA-1 | `startServer` can be called twice in one scenario process, each with its own home and port | assumption | verified: R1 runs two `startServer` children in one runner process | Read `scripts/scenarios/server.ts` and `run.ts` at plan time | author |
+| SA-2 | A scenario can make the browser use a server other than the one it was paired with, through the existing saved-server storage or a similar seam | assumption | verified: `scripts/scenarios/seam.ts` writes the browser's connection catalog (IndexedDB) and reloads | Read `apps/web/src/connection/catalog.ts` at plan time; this is the test-only seam | author |
 | SA-3 | A server with no chat state starts and answers the workspace requests on a fresh home (the harness already does this for the first server) | assumption | verified | PRB.E-001 scenarios pass against it | author |
-| SU-1 | Where the audit finding lives in `docs/dev` (a research page or the ticket's own handoff) | unknown | unverified | TBD (author, 2026-11-15) at plan time | author |
-| SU-2 | Whether labs, beta, diffs, threads, chat, snapshots, about and the licenses page are client-owned or server-owned | unknown | unverified | The audit; the author decides what the code does not (TBD author, 2026-11-15) | author |
+| SU-1 | Where the audit finding lives in `docs/dev` (a research page or the ticket's own handoff) | unknown | answered: `docs/dev/research/remote-local-assumptions-audit.md` | TBD (author, 2026-11-15) at plan time | author |
+| SU-2 | Whether labs, beta, diffs, threads, chat, snapshots, about and the licenses page are client-owned or server-owned | unknown | partly answered: Diffs, Threads, Chat and Snap Shot sorted; Labs, About, licenses and Browser are Q-A to Q-C in the audit | The audit; the author decides what the code does not (TBD author, 2026-11-15) | author |
+
+## Handoff
+
+- **Audit:** [`docs/dev/research/remote-local-assumptions-audit.md`](../../research/remote-local-assumptions-audit.md) holds the local-assumption list, the settings sort and the result for every story-1 row; the epic's assumption table points to it. Open for the author: Q-A to Q-D there, and the epic's new U-8 (where client-owned settings live).
+- **Harness:** `startSecondServer()` on the scenario context, `scripts/scenarios/seam.ts` (catalog seam, harness-only, replaced by PRB.T-023), `connectRpc(origin, { bearerToken })`. Scenario R1 (`--only R1`) is the second-server check; self-test T3 (`--selftest --only T3`) runs only when picked.
+- **What later stories inherit:** the workspace screens use only the default server (T-022). Settings writes fan out to every connected server, and Sharing & access ignores the scope (T-025). Pairing errors collapse to `invalid_credential` and plain http to a public host is not refused (T-023). Reconnect backoff can exceed 60 s (T-026). Two servers on one host share a label (T-022/T-023).
+- **A-15 recipe:** a `node:https` proxy on loopback with an `openssl` self-signed cert, Chromium with `ignoreHTTPSErrors`; it paired and connected over `wss://` in the walk.
+
