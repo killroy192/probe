@@ -197,7 +197,7 @@ Stories that follow and depend on this one (not a dependency of this story):
 | SA-11 | The harness can start a server without the mock-agent default, so the no-default case can be tested (the real rule for other installs is SU-2) | assumption | unverified | Plan stage; AC-8 | author |
 | SU-1 | Which `PATH` decides "not found" (the server's or the shell's after startup files), and how aliases, functions, env assignments and builtins are treated (epic U-1) | unknown | resolved 2026-11-09 (see Handoff: U-1 finding) | AC-15a to AC-15e, the spike in this story; owner decides before PRB.T-017 is planned | author |
 | SU-2 | Whether "mock agent" can be a default user script outside the repository, or only in dev and the harness (epic U-2) | unknown | unverified | Plan stage; until then the default is dev and harness only | author |
-| SU-3 | The plain-shell click-to-prompt time today, and whether it is within 700 ms (epic U-3) | unknown | unverified | AC-2b: measured before any change in this story; 700 ms applies only if the baseline is at or below it, otherwise the author resets the target before PRB.T-017 | author |
+| SU-3 | The plain-shell click-to-prompt time today, and whether it is within 700 ms (epic U-3) | unknown | resolved 2026-11-09 (see Handoff: plain-shell time) | AC-2b: measured before any change in this story; 700 ms applies only if the baseline is at or below it, otherwise the author resets the target before PRB.T-017 | author |
 | SU-4 | Whether a workspace file with the remembered script written by this story must stay readable by older servers (a downgrade) | unknown | unverified | TBD (author, 2026-11-15); Probe has no released versions yet, so recommendation is no | author |
 | SU-5 | How a start for a workspace on another server gets the command (carried by the request, or resolved from the default server) and so how a script "not in the list at start time" (AC-10b) is judged there (epic U-4, cross-epic: E-003 U-7) | unknown | unverified | Settled by PRB.E-003 story 2; AC-24 and AC-25 follow its answer and are verified by PRB.E-003 story 8. Not a gate for this story | PRB.E-003 story 2, 2026-11-15 |
 
@@ -211,3 +211,17 @@ Tested with zsh 5.9 and bash on Linux in this container, using throwaway startup
 - **Alias, function, builtin as first word:** all run in zsh and bash (`whence -w` / `type -t`: alias, function, builtin). The server check refuses an alias or function name, and cannot see a builtin on any `PATH`.
 - **Leading env assignment (`FOO=1 rctool`):** runs in both shells. Today `programOf` returns `FOO=1` as the program, so the start is refused with "not found: FOO=1".
 - **Consequence for PRB.T-017:** the server-side `PATH` lookup cannot decide "not found" for aliases, functions, builtins or rc-added `PATH`. The workable rule is to ask the shell itself (`command -v` / `whence` in the shell about to run the command, after its first prompt), skipping leading env assignments to find the program. That makes the check run after the shell exists, so "no shell left in the tree" needs the shell closed on a miss. This story keeps today's lookup unchanged.
+
+### Plain-shell time (SU-3, AC-2b; 2026-11-09)
+
+Measured by E2-S3 (click on the up-arrow to the first OSC 133;B prompt mark the page receives) in this dev container, which three other agents share (load 3 to 4 on 10 cores).
+
+- Baseline on the code before this story (commit d120d0bbf, first start on a fresh server, in the project's checkout): 604, 606, 615 ms; later, under heavier load: 619, 634, 644, 726, 851 ms.
+- With this story, plain shell, same setup: 635, 647, 653, 655, 700 ms.
+- The baseline is under 700 ms, so E2-S3 asserts at most 700 ms. One timed start is noisy under load, on the old code and the new code alike; the author's machine is the reference (NFR-1).
+
+### Decisions made while implementing
+
+- The program check skips leading `NAME=value` words. Before, `TOKEN=x claude` was refused with "not found: TOKEN=x", which put the secret in the error and the log (NFR-3). Which `PATH` is searched is unchanged (PRB.T-017).
+- `agent` left the `shell.open` wire input: a script reaches `Shells.open` only as a server-side option from `workspace.startShell`.
+- The scenario helper `openModal` picks "mock agent" by default, so PRB.E-001's S1 to S8 still start the mock agent.
