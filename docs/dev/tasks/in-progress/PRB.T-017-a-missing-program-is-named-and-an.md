@@ -3,9 +3,9 @@ id: PRB.T-017
 type: story
 parent: PRB.E-002
 phase: 1
-labels: [terminal-first]
+labels: [terminal-first, implement]
 created: 2026-11-08
-updated: 2026-11-08
+updated: 2026-11-09
 ---
 
 # A missing program is named and an exiting command keeps the shell
@@ -54,7 +54,7 @@ Once a script is chosen per start (PRB.T-016), the check and the log apply to th
 
 - **EC-1.** A program that is a path (contains a separator) is found or not found relative to the chosen worktree, as today.
 - **EC-2.** A command with leading env assignments (`FOO=1 claude`) is checked on the program after the assignments, per the U-1 result.
-- **EC-3.** A program that the user's interactive shell can run but the server's `PATH` lacks (an alias, a function, a program on a `PATH` set by startup files) is not refused, per the U-1 result. What exactly counts is TBD (author, 2026-11-15, set by the U-1 spike in PRB.T-016).
+- **EC-3.** A program that the user's interactive shell can run but the server's `PATH` lacks (an alias, a function, a builtin, a program on a `PATH` set by startup files) is not refused, per the U-1 result: the shell itself is asked at its first prompt (user, 2026-11-09).
 - **EC-4.** Plain shell has no command and is never refused.
 - **EC-5.** A command that exits non-zero leaves the shell open at its prompt just like one that exits cleanly; the shell is not marked ended.
 - **EC-6.** A refused start leaves no saved shell entry: after a server restart the shell list is unchanged.
@@ -65,8 +65,8 @@ Once a script is chosen per start (PRB.T-016), the check and the log apply to th
 ### Error Handling
 
 - **ER-1.** Program not found: the alert names the program (the word checked, not the whole command line). With one server the alert names only the program; the server name is required only in the second-server case (AC-15), where it is the name the UI shows for that server; the start does not create a shell; the modal remains usable for another attempt.
-- **ER-2.** The workspace's server logs the refusal with the script name, the program and the working folder, and never an env assignment or an argument of the command line (a leading `TOKEN=...` must not leak) (NFR-3). The log level is TBD (user, 2026-11-15); the first draft proposed warning and nothing is decided.
-- **ER-3.** If the check itself cannot decide (the U-1 result may allow this; for example the shell's `PATH` cannot be read), the behavior is TBD (user, 2026-11-15); it must not refuse a program the interactive shell can run. It has no acceptance criterion yet: see the note under the Acceptance Criteria table.
+- **ER-2.** The workspace's server logs the refusal with the script name, the program and the working folder, and never an env assignment or an argument of the command line (a leading `TOKEN=...` must not leak) (NFR-3). The log level is warning (user, 2026-11-09).
+- **ER-3.** If the check cannot decide (a shell Probe does not wrap, such as fish; a config that replaced the wrapper; no prompt within the timeout), the start is not refused and the command is typed as before (user, 2026-11-09). Covered by AC-17.
 
 ## Out Of Scope
 
@@ -99,13 +99,13 @@ Once a script is chosen per start (PRB.T-016), the check and the log apply to th
 | ID | Criterion (Given / When / Then) | Check (auto / manual) | Covers (FR / NFR / EC / ER) |
 | --- | --- | --- | --- |
 | AC-1 | Given a script whose program is not available, when the user starts it from the modal, then the modal shows an alert that names that program (with one server, the program only) | auto (scenario E2-S4) | FR-7, ER-1 |
-| AC-2 | Given the refused start of AC-1, when the shell tree and the shell list are read, then neither holds a new shell and no shell process was spawned | auto (scenario E2-S4; server test for the process) | FR-7, ER-1 |
+| AC-2 | Given the refused start of AC-1, when the shell tree and the shell list are read, then neither holds a new shell and no shell process is left running (the check runs in the shell, so one is spawned and killed within the start; user, 2026-11-09) | auto (scenario E2-S4; server test for the process) | FR-7, ER-1 |
 | AC-3 | Given the refused start of AC-1, when the server restarts, then the shell list is unchanged | auto (server test) | EC-6 |
 | AC-4 | Given the refused start of AC-1, when the user picks Plain shell and starts, then a shell opens normally | auto (scenario E2-S4) | ER-1, EC-4 |
 | AC-5 | Given the refused start of AC-1 with a command that begins with an env assignment (`TOKEN=secret missing-cli --flag`), when the server log is read, then it holds a line with the script name, the missing program and the working folder, and no env assignment and no argument of the command line appears in any log line | auto (scenario E2-S4 reads the log) | NFR-6, NFR-3, ER-2 |
 | AC-6 | Given a script whose command starts with an env assignment and whose program exists, when it is started, then the start is not refused | auto (server test) | FR-7, EC-2 |
 | AC-7 | Given a script whose program is a path inside the chosen worktree, when it is started, then it is found or refused by that path | auto (server test) | EC-1 |
-| AC-8 | Given a program that the user's interactive shell can run, as defined by the U-1 result (for example one only on the shell's `PATH`), when it is started, then it is not refused | auto (server test; gated on the U-1 spike result of PRB.T-016 (its AC-15); the exact case is TBD (author, 2026-11-15)) | FR-7, EC-3 |
+| AC-8 | Given a program that the user's interactive shell can run: one only on a `PATH` its startup file sets, an alias, a function or a builtin, in zsh and in bash, when it is started, then it is not refused | auto (real-shell test) | FR-7, EC-3 |
 | AC-9 | Given a script whose command exits at once, when it is started, then a shell is listed in the tree and is still running at its prompt after the command ended | auto (scenario E2-S4) | FR-8 |
 | AC-10 | Given the shell of AC-9, when the user types a line, then the shell runs it | auto (scenario E2-S4) | FR-8 |
 | AC-11 | Given a command that exits with a non-zero code, when it is started, then the shell stays open and is not shown as ended | auto (server test) | FR-8, EC-5 |
@@ -114,8 +114,7 @@ Once a script is chosen per start (PRB.T-016), the check and the log apply to th
 | AC-14 | Given two scripts with the same name and different programs, one available and one missing, when each is started, then the missing one is refused with an alert naming its program and the other opens a shell | auto (server test) | EC-7 |
 | AC-15 | Given the harness has a second server (PRB.E-003) and a workspace of it is open, and a script whose program exists on the default server but not on the second server, when the user starts it, then the alert names the program and the second server, and no shell is created on the second server | auto (second-server check: verified by PRB.E-003 story 8, does not gate this story; PRB.E-003 adds and runs it) | FR-7, EC-8, ER-1 |
 | AC-16 | Given the same two servers and a script whose program exists on the second server but not on the default server, when the user starts it in the workspace of the second server, then the start is not refused and the command runs there | auto (second-server check: verified by PRB.E-003 story 8, does not gate this story) | FR-7, EC-9 |
-
-ER-3 and AC-8's exact case are gated on the U-1 spike result (PRB.T-016 AC-15): TBD (author, 2026-11-15). ER-3 has no criterion until U-1 says whether the check can fail to decide; the story is not ready to plan until both are filled.
+| AC-17 | Given a shell that gives no answer on the program (not wrapped, wrapper replaced, or no prompt in time), when a script is started, then it is not refused and its command is typed | auto (server test) | ER-3, R-1 |
 
 ## Dependencies
 
@@ -131,11 +130,30 @@ Sequencing: this story can run in parallel with PRB.T-018 (Settings management).
 
 | ID | Statement | Kind (assumption / unknown) | Status (unverified / verified / false) | How and when to verify | Owner |
 | --- | --- | --- | --- | --- | --- |
-| SA-1 | The existing "program not found" check can be applied to a per-start command (epic A-5) | assumption | unverified | Plan stage, after the PRB.T-016 plan fixes how the command reaches the server | author |
-| SU-1 | The "not found" rule (epic U-1) | unknown | unverified | Settled by the epic's U-1 row (PRB.T-016 spike); must be done before this story is planned | author |
-| SA-2 | The refusal reaches the modal as the same alert as today, so no new error display is needed | assumption | unverified | Plan stage: the alert at `StartShellDialog.tsx` shows launch errors today | author |
-| SA-3 | A command that exits leaves the shell open today, because the shell, not the command, is tracked (no test was found that proves it) | assumption | verified | Read in `Shells.ts` on 2026-11-08: the command is typed into the shell; only `removeExited` on the shell's own exit removes it. The behavior test is still absent. Plan stage: write the scenario case first; it should pass on `main`. If it fails, FR-8 becomes a change and this note is wrong | author |
-| SU-2 | The behavior when the check cannot decide (ER-3) | unknown | unverified | TBD (user, 2026-11-15, decide with the U-1 result) | author |
-| SA-4 | The existing launch error carries a program name and a script name, so contracts do not change; if they must, server, web and mobile follow and mobile must still compile | assumption | unverified | Plan stage: read `ShellLaunchError` in `packages/contracts/src/shell.ts` against the message needed | author |
-| SU-3 | Refusal log level, save-time hint in Settings, late failure detection: open decisions | unknown | unverified | TBD (user, 2026-11-15) | user |
+| SA-1 | The existing "program not found" check can be applied to a per-start command (epic A-5) | assumption | false (2026-11-09: it cannot see the shell's `PATH`, aliases, functions or builtins; replaced by asking the shell) | Plan stage, after the PRB.T-016 plan fixes how the command reaches the server | author |
+| SU-1 | The "not found" rule (epic U-1) | unknown | verified (2026-11-09: the shell decides at its first prompt; see Handoff) | Settled by the epic's U-1 row (PRB.T-016 spike); must be done before this story is planned | author |
+| SA-2 | The refusal reaches the modal as the same alert as today, so no new error display is needed | assumption | verified (2026-11-09, scenario E2-S4) | Plan stage: the alert at `StartShellDialog.tsx` shows launch errors today | author |
+| SA-3 | A command that exits leaves the shell open today, because the shell, not the command, is tracked (no test was found that proves it) | assumption | verified (2026-11-09: E2-S4 and a server test; no behavior change) | Read in `Shells.ts` on 2026-11-08: the command is typed into the shell; only `removeExited` on the shell's own exit removes it. The behavior test is still absent. Plan stage: write the scenario case first; it should pass on `main`. If it fails, FR-8 becomes a change and this note is wrong | author |
+| SU-2 | The behavior when the check cannot decide (ER-3) | unknown | verified (2026-11-09, user: not refused) | Decided with the U-1 result | author |
+| SA-4 | The existing launch error carries a program name and a script name, so contracts do not change; if they must, server, web and mobile follow and mobile must still compile | assumption | verified (2026-11-09: `reason` names the program; the script name is in the log only; contracts unchanged) | Plan stage: read `ShellLaunchError` in `packages/contracts/src/shell.ts` against the message needed | author |
+| SU-3 | Refusal log level, save-time hint in Settings, late failure detection: open decisions | unknown | unverified (log level decided 2026-11-09: warning; the other two stay open) | TBD (user, 2026-11-15) | user |
 | SU-4 | How the command reaches the workspace's server for a workspace on another server (epic U-4, cross-epic: E-003 U-7); the check needs it there, and the "not found" rule (SU-1) is judged on that server's shell | unknown | unverified | Settled by PRB.E-003 story 2; AC-15 and AC-16 follow its answer and are verified by PRB.E-003 story 8. Not a gate for this story | PRB.E-003 story 2, 2026-11-15 |
+
+## Handoff
+
+### Decisions made while planning (user, 2026-11-09)
+
+- D1: the shell decides "not found". `Shells.open` passes the program in `PROBE_START_PROGRAM`; the zsh and bash wrappers take it out of the environment, ask the shell at the first prompt and print `OSC 6973;start;found|missing` before the ready mark. A script start returns at that prompt; until then the shell is unsaved and input to it waits. AC-2 reworded to "no shell process left running".
+- D1 amended (user, 2026-11-10): the shell is listed as soon as it spawns, not at the first prompt, because PRB.E-001 S2 AC-3 needs its tree node within 1 s of the click (hidden, it took 2 to 4 s). On a refusal the node shows briefly and is removed; the modal still waits for the check.
+- D2: no answer means not refused (ER-3, AC-17).
+- D3: the refusal is logged at warning, as "shell failed to start" with cwd, reason, script and program.
+- D4: planned before PRB.T-016 AC-15a to 15e were repeated with the author's real startup files; the rule does not depend on the files, and AC-13 (manual, author) confirms it with real Claude Code.
+
+### Notes
+
+- The wrappers now print the command-start mark (OSC 133;C). Without it a resize after the command started erased the prompt row and the command's output from the server's screen copy (libghostty-vt clears `redraw=1` prompt rows on resize). On `main` the browser's first resize came before the command was typed, which hid it; here the command is typed first, so S3 and S8 failed on it.
+- The scenario harness gives the server `LANG=C.UTF-8` when no locale is set. Without it zsh counts the prompt's "➜" as three columns and its redraw at the wrap erases the prompt row; S2's PRB.T-011 check now joins the screen's rows before counting.
+- Flaky, not from this story: `Manager.test.ts` "removes a shell that exits on its own, and keeps one a signal ended" failed 1 run in 4. The two end handlers persist the registry concurrently, so a stale write can drop the `ended` entry. Needs its own ticket.
+
+- A path program (`./bin/tool`) now needs the executable bit, as running it does; the old check accepted any file.
+- The scenario harness shell is zsh, so S2 (AC-16) and S3 (AC-22) with `no-such-agent-cli` go through the shell check.
