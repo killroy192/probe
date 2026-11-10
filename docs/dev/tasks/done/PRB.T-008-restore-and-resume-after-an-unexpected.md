@@ -3,7 +3,7 @@ id: PRB.T-008
 type: story
 parent: PRB.E-001
 phase: 1
-labels: [terminal-first, implement]
+labels: [terminal-first]
 created: 2026-11-02
 updated: 2026-11-07
 ---

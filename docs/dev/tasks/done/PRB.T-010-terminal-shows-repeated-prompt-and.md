@@ -3,7 +3,7 @@ id: PRB.T-010
 type: bug
 parent: PRB.E-001
 phase: 1
-labels: [terminal-first, debug]
+labels: [terminal-first]
 created: 2026-11-07
 updated: 2026-11-08
 ---

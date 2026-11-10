@@ -3,7 +3,7 @@ id: PRB.T-009
 type: story
 parent: PRB.E-001
 phase: 1
-labels: [tech-debt, implement]
+labels: [tech-debt]
 created: 2026-11-06
 updated: 2026-11-07
 ---

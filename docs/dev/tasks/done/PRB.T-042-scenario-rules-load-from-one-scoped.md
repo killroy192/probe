@@ -3,7 +3,7 @@ id: PRB.T-042
 type: story
 parent: PRB.E-005
 phase: 1
-labels: [testing, verify]
+labels: [testing]
 created: 2026-11-10
 updated: 2026-11-10
 ---

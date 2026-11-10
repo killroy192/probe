@@ -3,7 +3,7 @@ id: PRB.T-003
 type: story
 parent: PRB.E-001
 phase: 1
-labels: [terminal-first, chat-removal, plan, implement, verify]
+labels: [terminal-first, chat-removal]
 created: 2026-11-02
 updated: 2026-11-05
 ---
