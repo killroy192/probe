@@ -109,6 +109,8 @@ export class ServerConfig extends Context.Service<
     readonly tailscaleServePort: number;
     /** `PROBE_SEED_MOCK_AGENT`: the "mock agent" command a state folder with no user list starts with. */
     readonly seedMockAgent?: string | undefined;
+    /** `PROBE_RAW_OUTPUT_DIR`: where the scenario harness reads each shell's raw output. */
+    readonly rawOutputDir?: string | undefined;
   }
 >()("t3/config/ServerConfig") {
   static readonly layerTest = (

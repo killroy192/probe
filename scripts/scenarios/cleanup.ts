@@ -110,11 +110,27 @@ function readNumber(file: string): number | null {
   }
 }
 
-/** Pids the home's shell host wrote: the host and the shells it runs. */
+/** The processes whose parent is `pid`, from the process table by parent pid, never by name. */
+export function childPids(pid: number): ReadonlyArray<number> {
+  try {
+    return NodeChildProcess.execFileSync("ps", ["-A", "-o", "pid=,ppid="], { encoding: "utf8" })
+      .split("\n")
+      .map((line) => line.trim().split(/\s+/).map(Number))
+      .filter(([, parent]) => parent === pid)
+      .map(([child]) => child!);
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * The home's shell host, from the pid file it wrote, and the shells it runs: its children, plus
+ * the shell list, which a runner killed early may not have written yet.
+ */
 function pidsInHome(home: string): ReadonlyArray<number> {
   const found: Array<number> = [];
   const host = readNumber(NodePath.join(home, "userdata", "shell-host-v1.pid"));
-  if (host !== null) found.push(host);
+  if (host !== null) found.push(host, ...childPids(host));
   try {
     const registry = JSON.parse(
       NodeFS.readFileSync(NodePath.join(home, "userdata", "shells", "registry.json"), "utf8"),
@@ -123,9 +139,9 @@ function pidsInHome(home: string): ReadonlyArray<number> {
       if (typeof shell.pid === "number" && shell.pid > 0) found.push(shell.pid);
     }
   } catch {
-    // No shell list: the server never started a shell.
+    // No shell list: no shell was saved.
   }
-  return found;
+  return [...new Set(found)];
 }
 
 const kill = (pid: number, group = false) => {

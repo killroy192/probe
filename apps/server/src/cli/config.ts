@@ -168,6 +168,10 @@ const EnvServerConfig = Config.all({
     Config.option,
     Config.map(Option.getOrUndefined),
   ),
+  rawOutputDir: Config.String("PROBE_RAW_OUTPUT_DIR").pipe(
+    Config.option,
+    Config.map(Option.getOrUndefined),
+  ),
 });
 
 const DevAuthTokenConfig = Config.Redacted("T3CODE_DEV_AUTH_TOKEN").pipe(
@@ -510,6 +514,7 @@ export const resolveServerConfig = Effect.fn("config.resolveServerConfig")(funct
     tailscaleServeEnabled,
     tailscaleServePort,
     ...(env.seedMockAgent === undefined ? {} : { seedMockAgent: env.seedMockAgent }),
+    ...(env.rawOutputDir === undefined ? {} : { rawOutputDir: env.rawOutputDir }),
   };
 
   return config;

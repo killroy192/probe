@@ -251,6 +251,8 @@ interface ShellsOptions {
   readonly registryPath?: string | null;
   /** The shell host whose shells this server takes over at start. */
   readonly host?: Pick<ShellHost["Service"], "list" | "forget"> | null;
+  /** Appends each shell's output, as the process wrote it, to `<dir>/<shellId>.log`; tests only. */
+  readonly rawOutputDir?: string | null;
 }
 
 export interface ShellOpenOptions {
@@ -475,8 +477,7 @@ export const makeShells = Effect.fn("Shells.make")(function* (
   /** Reads every tracked shell's branch, folder and home once and sends the shells that changed. */
   const refreshLocations = Effect.gen(function* () {
     const tracked = [...records].filter(
-      ([shellId, record]) =>
-        record.home !== null && (terminals.has(shellId) || saved.has(shellId)),
+      ([shellId, record]) => record.home !== null && (terminals.has(shellId) || saved.has(shellId)),
     );
     if (tracked.length === 0) return;
     const branches = new Map<string, string | null>();
@@ -584,6 +585,22 @@ export const makeShells = Effect.fn("Shells.make")(function* (
     );
   });
   yield* Effect.addFinalizer(() => Effect.sync(stopEndHandling));
+
+  const rawOutputDir = options.rawOutputDir ?? null;
+  if (rawOutputDir !== null) {
+    yield* fs.makeDirectory(rawOutputDir, { recursive: true });
+    // Listeners run in publish order, so each file keeps its shell's output in order.
+    const stopRawOutput = yield* manager.subscribe((event) => {
+      const shellId = event.type === "output" ? shellIdFromOwnerId(event.threadId) : null;
+      if (event.type !== "output" || shellId === null) return Effect.void;
+      return fs
+        .writeFileString(path.join(rawOutputDir, `${shellId}.log`), event.data, { flag: "a" })
+        .pipe(
+          Effect.catch((error) => Effect.logWarning("raw output not saved", { shellId, error })),
+        );
+    });
+    yield* Effect.addFinalizer(() => Effect.sync(stopRawOutput));
+  }
 
   /**
    * Force-ends a shell and everything it started, and forgets it. A shell that already ended or
@@ -849,9 +866,7 @@ export const makeShells = Effect.fn("Shells.make")(function* (
       const requestedAt = yield* Clock.currentTimeMillis;
       const script = options?.script ?? null;
       const started =
-        script === null
-          ? null
-          : { script: script.name, program: programOf(script.command) };
+        script === null ? null : { script: script.name, program: programOf(script.command) };
       if (started !== null && started.program.length === 0) {
         return yield* failToStart(input.cwd, "The script has no command.", started);
       }
@@ -887,8 +902,7 @@ export const makeShells = Effect.fn("Shells.make")(function* (
       const tokenHash = token === null ? null : hashToken(token);
       if (tokenHash !== null) tokens.set(tokenHash, shellId);
       const base = envOf(shellId, token, input.env);
-      const env =
-        started === null ? base : { ...base, [START_PROGRAM_ENV]: started.program };
+      const env = started === null ? base : { ...base, [START_PROGRAM_ENV]: started.program };
       // Listens from before the shell starts, so its first prompt cannot slip past. The scan ends at
       // the first prompt mark, so a shell costs nothing once it is ready.
       const output = yield* Queue.unbounded<ShellOutputEvent>();
@@ -951,22 +965,17 @@ export const makeShells = Effect.fn("Shells.make")(function* (
             shellId,
           });
         }
-        yield* manager
-          .write({ ...owner, data: `${script.command}\r` })
-          .pipe(
-            Effect.onError(() => discard(shellId, snapshot.pid)),
-            Effect.ensuring(settle),
-          );
+        yield* manager.write({ ...owner, data: `${script.command}\r` }).pipe(
+          Effect.onError(() => discard(shellId, snapshot.pid)),
+          Effect.ensuring(settle),
+        );
       } else {
         // A plain shell is not held up: its first prompt is awaited in the background, only to log it.
         yield* Effect.gen(function* () {
           if (!(yield* manager.printsPromptMark(owner.threadId, owner.terminalId))) return;
           const ready = yield* waitForPromptMark(Stream.fromQueue(output), promptTimeout);
           if (ready.outcome === "mark") yield* logPromptReady;
-        }).pipe(
-          Effect.ensuring(Effect.sync(stopOutput)),
-          Effect.forkIn(scope),
-        );
+        }).pipe(Effect.ensuring(Effect.sync(stopOutput)), Effect.forkIn(scope));
       }
       const record = recordOf(shellId);
       saved.set(shellId, {
@@ -1104,7 +1113,7 @@ export const layer = Layer.effect(
   Effect.gen(function* () {
     const manager = yield* TerminalManager;
     const crypto = yield* Crypto.Crypto;
-    const { stateDir } = yield* ServerConfig.ServerConfig;
+    const { stateDir, rawOutputDir } = yield* ServerConfig.ServerConfig;
     const path = yield* Path.Path;
     const host = yield* Effect.serviceOption(ShellHost);
     const shells = yield* makeShells(manager, crypto.randomUUIDv4().pipe(Effect.orDie), {
@@ -1115,6 +1124,7 @@ export const layer = Layer.effect(
         Effect.orDie,
       ),
       selfKill: yield* prepareSelfKill(yield* HostProcess.Platform),
+      rawOutputDir: rawOutputDir ?? null,
     });
     // Costs one HEAD read per worktree and one folder read per shell, and nothing without shells.
     yield* shells.refreshLocations.pipe(

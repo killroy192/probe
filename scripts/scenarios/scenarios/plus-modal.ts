@@ -14,7 +14,6 @@ import type { Scenario } from "../scenario.ts";
 import {
   agentTypedOnceAfterPrompt,
   expectLogged,
-  shellOutput,
   metric,
   MOCK_AGENT_LINES,
   unlessRoot,
@@ -271,7 +270,7 @@ export const plusModal: Scenario = {
       );
       // PRB.T-011: the agent command is typed once, after the shell's first prompt. The output runs
       // on through the typed lines above, so a second typing would show by now.
-      const raw = shellOutput(frames.seen.slice(framesBefore), first.shellId);
+      const raw = server.rawOutput(first.shellId);
       const problem = agentTypedOnceAfterPrompt(raw, MOCK_AGENT_COMMAND, MOCK_AGENT_LINES);
       check(
         problem === null,

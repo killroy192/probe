@@ -12,7 +12,7 @@ import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
 
 import { bundleState } from "./bundle.ts";
-import { cleanLeftovers, processStartTime } from "./cleanup.ts";
+import { childPids, cleanLeftovers, processStartTime } from "./cleanup.ts";
 import { refusalReason } from "./environment.ts";
 import { agentTypedOnceAfterPrompt, MOCK_AGENT_LINES } from "./fixtures.ts";
 import { connectRpc } from "./rpc.ts";
@@ -234,24 +234,18 @@ describe("scenario runner", () => {
 
   it.live("cleans up after a runner killed with SIGKILL, by the pids it recorded", () =>
     Effect.promise(async () => {
-      // Killed once S2's first shell runs, so a server, a shell host and a shell are left.
+      // Killed once S2's first shell runs its agent, so a server, a shell host and a shell are left.
       const run = spawnRunner(["--only", "S2"]);
       const [, pid, home] = await run.line(/S2 server pid=(\d+) home=(\S+)/);
-      await run.line(/METRIC\s+S2 tree-node/);
+      await run.line(/METRIC\s+S2 start-to-banner/);
       const runnerPid = run.child.pid!;
       run.child.kill("SIGKILL");
       await run.done;
-      const userdata = NodePath.join(home!, "userdata");
       const hostPid = Number(
-        NodeFS.readFileSync(NodePath.join(userdata, "shell-host-v1.pid"), "utf8"),
+        NodeFS.readFileSync(NodePath.join(home!, "userdata", "shell-host-v1.pid"), "utf8"),
       );
-      const shellPids = (
-        JSON.parse(
-          NodeFS.readFileSync(NodePath.join(userdata, "shells", "registry.json"), "utf8"),
-        ) as {
-          readonly shells: ReadonlyArray<{ readonly pid: number }>;
-        }
-      ).shells.map((shell) => shell.pid);
+      // The host's children, not the shell list: the runner may die before the server saves it.
+      const shellPids = childPids(hostPid);
       const leftovers = [Number(pid), hostPid, ...shellPids];
       assert.isNotEmpty(shellPids);
       for (const leftover of leftovers)

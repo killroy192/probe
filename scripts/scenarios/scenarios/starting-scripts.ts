@@ -15,7 +15,6 @@ import {
   restartAndReload,
   serverPromptMs,
   setUp,
-  shellOutput,
 } from "../fixtures.ts";
 import { connectRpc } from "../rpc.ts";
 import type { Scenario } from "../scenario.ts";
@@ -201,7 +200,7 @@ export const userScripts: Scenario = {
         (frame) => frame.includes("session: mock-"),
         agentFrom,
       );
-      const agentRaw = shellOutput(output.seen.slice(agentFrom), agent.shellId);
+      const agentRaw = server.rawOutput(agent.shellId);
       const problem = agentTypedOnceAfterPrompt(agentRaw, MOCK_AGENT_COMMAND, MOCK_AGENT_LINES);
       check(
         problem === null,
