@@ -19,13 +19,16 @@ import {
   dialog,
   gitOk,
   history,
+  openFromTree,
   openModal,
   pickItem,
+  pickScript,
   readStartingScripts,
   reloadShowing,
   scriptDropdown,
   scriptItems,
   shellList,
+  shellNodes,
   shellRow,
   shellsIn,
   startButton,
@@ -344,3 +347,102 @@ async function expectOnlyPlain(page: PointerPage, project: string, message: stri
   );
   await cancelModal(page);
 }
+
+export const startFailures: Scenario = {
+  id: "E2-S4",
+  title: "a missing program is named and an exiting command keeps the shell",
+  run: async ({ server, openPage }) => {
+    const { repo } = await projects(server);
+    const page = await openPage();
+    const output = pageFrames(page);
+    const rpc = await connectRpc(server.origin, page);
+    const shells = shellList(rpc.client);
+    let stage = "setup";
+    try {
+      const [mock] = await readStartingScripts(server.home);
+      check(mock !== undefined, "The harness state folder has no mock agent.");
+      await writeStartingScripts(server.home, [
+        mock,
+        { id: "missing", name: "missing agent", command: "TOKEN=secret missing-cli --flag" },
+        { id: "quick", name: "quick exit", command: "sh -c 'echo quick-exit; exit 3'" },
+      ]);
+      await setUp(page, [repo]);
+
+      // AC-1, AC-12: every step below is a click; the alert names the program only.
+      stage = "AC-1";
+      await openModal(page, repo, { script: "missing agent" });
+      await startButton(page).click();
+      const alert = await dialog(page).getByRole("alert").textContent();
+      check(
+        alert?.includes("missing-cli") === true &&
+          !alert.includes("--flag") &&
+          !alert.includes("TOKEN"),
+        `The alert does not name only the program: ${alert} (AC-1).`,
+      );
+
+      // The shell is listed while it starts; the refusal removes it.
+      stage = "AC-2";
+      await shellNodes(page).first().waitFor({ state: "detached" });
+      await shells.lists.until(
+        "the refused shell to go",
+        (list) => list.length === 0,
+        Math.max(0, shells.lists.seen.length - 1),
+      );
+      check(
+        shells.current().length === 0 && (await shellNodes(page).count()) === 0,
+        "A refused start left a shell or a tree node (AC-2).",
+      );
+
+      stage = "AC-5";
+      const logLines = server.logs().split(/\n(?=\S)/);
+      check(
+        logLines.some(
+          (line) =>
+            line.includes("shell failed to start") &&
+            line.includes("missing agent") &&
+            line.includes("missing-cli") &&
+            line.includes(repo),
+        ),
+        "The log has no refusal line with the script, the program and the folder (AC-5).",
+      );
+      check(
+        logLines.every((line) => !line.includes("TOKEN=") && !line.includes("--flag")),
+        "A log line carries an env assignment or an argument of the command line (AC-5).",
+      );
+
+      // AC-4: the modal stays open for another try.
+      stage = "AC-4";
+      await pickScript(page, "Plain shell");
+      await startModal(page);
+      const [plain] = await shellsIn(shells.lists, repo, 1);
+      check(plain?.status === "running", "Plain shell did not start after the refusal (AC-4).");
+
+      // AC-9 to AC-11: the command ends with code 3; its shell stays listed and running.
+      stage = "AC-9";
+      await openModal(page, repo, { script: "quick exit" });
+      await startModal(page);
+      const started = await shellsIn(shells.lists, repo, 2);
+      const quick = started.find((shell) => shell.shellId !== plain?.shellId);
+      check(quick !== undefined, "The quick exit shell is not listed (AC-9).");
+      await shellRow(page, quick.shellId).waitFor();
+      await openFromTree(page, quick.shellId);
+      await output.until("the quick command's output", (frame) => frame.includes("quick-exit"));
+
+      stage = "AC-10";
+      await typeLine(page, "echo typed-$((40+2))");
+      await output.until("the typed line's output", (frame) => frame.includes("typed-42"));
+      const after = shells.current().find((shell) => shell.shellId === quick.shellId);
+      check(
+        after?.status === "running" && after.ended === null,
+        `The shell is ${after?.status ?? "gone"} after its command exited (AC-9, AC-11).`,
+      );
+      await shellRow(page, quick.shellId).waitFor();
+    } catch (error) {
+      throw new Error(`${stage}: ${error instanceof Error ? error.message : String(error)}`, {
+        cause: error,
+      });
+    } finally {
+      await rpc.close();
+    }
+  },
+};

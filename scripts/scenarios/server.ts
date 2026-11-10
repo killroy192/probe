@@ -145,6 +145,9 @@ export async function startServer(options: {
   let child: NodeChildProcess.ChildProcess | undefined;
   let logs = "";
   const defaults: ServerEnv = {
+    // Without a UTF-8 locale zsh counts a prompt's "➜" as three columns and redraws over the
+    // prompt row where a typed line wraps.
+    ...(NodeProcess.env.LANG || NodeProcess.env.LC_ALL ? {} : { LANG: "C.UTF-8" }),
     PROBE_SEED_MOCK_AGENT: MOCK_AGENT_COMMAND,
     MOCK_AGENT_HOME: NodePath.join(options.home, "mock-agent"),
   };

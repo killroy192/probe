@@ -6,7 +6,7 @@ import { plusModal } from "./scenarios/plus-modal.ts";
 import { restartSurvival } from "./scenarios/restart.ts";
 import { restoreShell } from "./scenarios/restore-shell.ts";
 import { secondServer } from "./scenarios/second-server.ts";
-import { plainShell, userScripts } from "./scenarios/starting-scripts.ts";
+import { plainShell, startFailures, userScripts } from "./scenarios/starting-scripts.ts";
 import { standaloneShell } from "./scenarios/standalone-shell.ts";
 import { worktrees } from "./scenarios/worktrees.ts";
 import { deliberateFailure } from "./selftest/deliberate-failure.ts";
@@ -32,6 +32,7 @@ export const storyScenarios: ReadonlyArray<Scenario> = [
   secondServer,
   plainShell,
   userScripts,
+  startFailures,
 ];
 
 export const selftestScenarios: ReadonlyArray<Scenario> = [restartPersistence, deliberateFailure];
