@@ -181,4 +181,5 @@ Filled during implementation.
 
 - Baseline (AC-21): TBD (author, at implementation) - per-scenario times from one gate-style run, flake rate.
 - S2 on `main`, with and without isolation (SA-1): TBD (author, at implementation).
+- Open failures found in PRB.T-042's `check:changed` run (2026-11-10), owned here: S2 and E2-S1 fail the PRB.T-011 order check (the page attached after the first prompt; PRB.T-042 Handoff AC-14; FR-3), which blocks PRB.T-041's AC-24; `harness.test.ts` "cleans up after a runner killed with SIGKILL" fails with `ENOENT` on `userdata/shells/registry.json`; `Shells.ts` and `Manager.test.ts` are not formatted. A third failure, "reports a failing scenario by name and still runs the others" hitting its 60 s timeout under load, is a determinism defect for PRB.T-040's flake loop.
 - Failure triage order for this story (one story by decision): bundle (AC-1, AC-2), then isolation and the PRB.T-011 order (AC-3 to AC-5), then metrics and waits (AC-6 to AC-10), then readiness, login and teardown (AC-11 to AC-14), then root skips and artifacts (AC-15, AC-16), then baseline and docs (AC-21, AC-22).

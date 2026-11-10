@@ -63,6 +63,6 @@ Each line goes when its story lands.
 
 - No sandbox yet (PRB.T-037): iterate on a registered scenario with `--only <id>`.
 - No single library or direct setup yet (PRB.T-038): the helpers are spread over `support.ts`, `fixtures.ts`, `browser.ts`, `rpc.ts`, `seam.ts` and `scenarios/workspaceUi.ts`; setting up by clicking through dialogs is allowed. Scenario servers log at info level, and artifacts have no browser console.
-- No sets, composed scenarios, `.perf.ts` support or cap gate command yet (PRB.T-039): each scenario runs alone under its id; add no new timing to a check scenario (the existing `metric()` calls stay until then); the cap gate is one `--only <id>` run after the user's confirmation, reading the time on its `PASS` line.
+- No sets, composed scenarios, `.perf.ts` support or cap gate command yet (PRB.T-043): each scenario runs alone under its id; add no new timing to a check scenario (the existing `metric()` calls stay until then); the cap gate is one `--only <id>` run after the user's confirmation, reading the time on its `PASS` line.
 - No serial perf run or N-run loop command yet (PRB.T-040).
 - No prompt-ready, layout-saved or shell-ended signals yet (PRB.T-041): wait for the prompt mark in terminal frames, for the server's state, or with `gone()`; never type into a terminal or reload on a guess.

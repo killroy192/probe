@@ -22,7 +22,7 @@ updated: 2026-11-09
 - **Candidate story:** # 3 PRB.T-037 Scenario sandbox: keep a server up and run saved scenarios against it. It starts with the A-5 spike (moved from PRB.T-040's SA-1) and a check of A-4 for scenarios run one after another.
 - **Delivers:**
   - FR-8: one command starts a sandbox server on a throwaway home, optionally seeds a named fixture, prints origin, pairing URL, home and PIDs, and stays up until stopped by the printed PID.
-  - FR-9 (single scenarios and the refusals): a saved scenario runs by id against a live sandbox without a cold start; nothing else runs there (no entry point for an unsaved script); restart, pristine-home and second-server scenarios, and scenarios not yet converted for a shared server, are refused with a reason. Sets and composed scenarios on the sandbox come with FR-17 in PRB.T-039.
+  - FR-9 (single scenarios and the refusals): a saved scenario runs by id against a live sandbox without a cold start; nothing else runs there (no entry point for an unsaved script); restart, pristine-home and second-server scenarios, and scenarios not yet converted for a shared server, are refused with a reason. Sets and composed scenarios on the sandbox come with FR-17 in PRB.T-043.
   - FR-15 (sandbox part): the sandbox commands are written into the e2e rules file PRB.T-042 creates, in the same change.
   - FR-18 (enforcement part): the sandbox refuses unsaved scripts (epic FR-18 row).
   - NFR-3: loopback only, throwaway home, pairing URL never committed; the harness guard is not weakened.
@@ -66,7 +66,7 @@ Verified by reading the code on 2026-11-10 (the `cocoindex-code` MCP was not ava
 6. The agent runs one saved scenario by id against the sandbox with the rules file's one-line command, naming the sandbox by its printed sandbox PID. The scenario uses the sandbox's server and home, starts no server of its own, prints PASS or FAIL with its timing, and leaves the sandbox up.
 7. The agent runs a second saved scenario, or the same one again after changing the scenario or code the run loads itself (EC-7), against the same sandbox; it runs against whatever state earlier runs left (the sandbox is not reset between runs).
 8. Anything else is refused before the sandbox is touched: a path to a script, an id that is not registered, or a scenario that states it needs a restart, a pristine home or a second server, or that is not yet safe on a shared server. Every registered scenario this story does not make safe for a shared server (fixed names, server-wide state, or a process-table pattern) states that, and its refusal names the story that converts it (PRB.T-039). The message names the reason and, for a script or an unknown id, says that the sandbox runs saved scenarios only and points at the rules file's section on registering one.
-9. The agent stops the sandbox by stopping the printed sandbox PID. The server, the shell host and its shells end and the home is removed.
+9. The agent stops the sandbox by stopping the printed sandbox PID. The server, the shell host and its shells end and the home is removed, unless the sandbox was started with the keep-home option (SU-5): then the home stays for post-mortem reading, its path is the one printed at start, and the developer removes it.
 
 ### Edge Cases
 
@@ -97,12 +97,12 @@ Verified by reading the code on 2026-11-10 (the `cocoindex-code` MCP was not ava
 
 ## Out Of Scope
 
-- Sets and composed scenarios on the sandbox: PRB.T-039 (FR-17).
+- Sets and composed scenarios on the sandbox: PRB.T-043 (FR-17).
 - Ad-hoc use of the sandbox: attaching to a sandbox page from another process, driving one step, a page the sandbox keeps open for that, or any driver script (user decision, 2026-11-10; epic Out). The earlier draft of this story included them; they are dropped.
 - The shared e2e library, direct setup over the API for the existing scenarios, and the debug log level of scenario servers: PRB.T-038. This story defines only the named fixtures the sandbox seeds, in the shared fixtures module PRB.T-038 grows into the library.
 - Making every existing scenario sandbox-safe, and scoping every assertion to the scenario's own workspace (FR-14): PRB.T-039 and PRB.T-040. This story makes safe only the scenarios it accepts on the sandbox (at least two).
 - The Playwright Test runner, parallel workers, traces: PRB.T-040. Parallel runs on one sandbox: not in PRB.E-005 (no FR); the sandbox refuses a second concurrent run (EC-9). The A-5 spike only checks that the runner works with the existing browser.
-- The 15 s cap gate (FR-22): PRB.T-039. Timings printed on the sandbox are never compared to the cap.
+- The 15 s cap gate (FR-22): PRB.T-043. Timings printed on the sandbox are never compared to the cap.
 - Resetting, snapshotting or restoring a sandbox: not requested.
 - Running scenarios against a remote server or a dev server (`vp run dev`): refused (epic decision, local-only sandbox).
 - The prompt-ready and layout-saved signals: PRB.T-041.
@@ -139,7 +139,7 @@ Verified by reading the code on 2026-11-10 (the `cocoindex-code` MCP was not ava
 | AC-4  | Given the printed pairing URL, when an unpaired browser opens it, then it is signed in to the sandbox. | auto (harness test) | FR-8 |
 | AC-5  | Given each named fixture (`workspace`, a workspace with one git project; `shells`, the same with two running plain shells; more are added by later stories, SU-1), when the sandbox starts with it, then the server API lists that state, built with no dialog clicked. | auto (harness test per fixture) | FR-8 |
 | AC-6  | Given an unknown fixture name, when the sandbox command runs, then it exits non-zero, lists the known names and starts no server; given a fixture that fails while seeding, then the sandbox stops what it started, removes its home and exits non-zero with the error. | auto (harness test, both cases) | FR-8, EC-1, EC-2 |
-| AC-7  | Given a running sandbox with a shell running in it, when the printed sandbox PID is stopped, then the server, the shell host and its shells end and the home is removed, touching no other process; stopping a PID with no live process changes nothing. | auto (harness test checks the recorded pids; a stale-pid case) | FR-8, ER-3 |
+| AC-7  | Given a running sandbox with a shell running in it, when the printed sandbox PID is stopped, then the server, the shell host and its shells end and the home is removed, touching no other process; given a sandbox started with the keep-home option, then the same processes end and the home is left in place; stopping a PID with no live process changes nothing. | auto (harness test checks the recorded pids; a stale-pid case) | FR-8, ER-3 |
 | AC-8  | Given a running sandbox started with the `shells` fixture, when S5 and then S4 (or the two scenarios AC-2 used) are run by id against it with the rules file's command, then both pass, the server PID is the same before, between and after, no run starts a server of its own, each run prints its timing, and the sandbox is still up. | auto | FR-9, NFR-6, EC-6 |
 | AC-9  | Given a running sandbox, when S7 (restart), R1 (second server), S1 (pristine home), S6 (not yet safe on a shared server), the self-tests T1, T3 and T4, and a scenario that states no needs are each run against it, then each is refused before the sandbox is touched, with a message naming the need (for S6 also PRB.T-039; for the last, that no needs were stated); the server PID and the workspace list are unchanged afterwards. | auto | FR-9, EC-11, EC-12 |
 | AC-10 | Given a running sandbox, when a path to a script file, or an id that is not registered, is given to the run command, then it is refused before anything runs, saying that the sandbox runs saved scenarios only and naming the rules file's section on registering a scenario. | auto | FR-9, FR-18, ER-6 |
@@ -165,7 +165,7 @@ Verified by reading the code on 2026-11-10 (the `cocoindex-code` MCP was not ava
 | PRB.T-036 | The sandbox reuses the server handle, HTTP readiness, one login per server, the isolated shell, the manifest cleanup (which skips a live owner), the failure artifacts and the shared fixtures module. | code merged 2026-11-10; ticket in progress |
 | PRB.T-042 | The sandbox commands go into the e2e rules file it creates; it also writes the interim sandbox instruction this story replaces. | backlog |
 
-**Blocks:** PRB.T-038 (the library grows from the shared fixtures module and the named fixtures defined here); PRB.T-039 (sets and composed scenarios run on this sandbox, FR-17; it converts the scenarios refused here as not yet safe on a shared server); PRB.T-040 (keeps the sandbox working on the new runner, and depends on the A-5 result recorded here). PRB.T-038 and PRB.T-039 as written today still plan ad-hoc sandbox use (importable sandbox helpers, looking at a page, running one step of S3 without its restart); their rework must drop that, because this sandbox runs saved scenarios only.
+**Blocks:** PRB.T-038 (the library grows from the shared fixtures module and the named fixtures defined here); PRB.T-043 (sets and composed scenarios run on this sandbox, FR-17, and two new needs it refuses); PRB.T-039 (converts the scenarios refused here as not yet safe on a shared server); PRB.T-040 (keeps the sandbox working on the new runner, and depends on the A-5 result recorded here). PRB.T-038 and PRB.T-039 as written today still plan ad-hoc sandbox use (importable sandbox helpers, looking at a page, running one step of S3 without its restart); their rework must drop that, because this sandbox runs saved scenarios only.
 
 ## Assumptions
 
@@ -180,5 +180,5 @@ Verified by reading the code on 2026-11-10 (the `cocoindex-code` MCP was not ava
 | SU-1 | Fixtures beyond `workspace` and `shells`; later stories add what they need. | unknown | unverified | Plan stage, and later stories. | TBD (author, plan stage) |
 | SU-2 | The command names (the analysis proposes `scenarios:sandbox`), the run-against-sandbox form, and the printed format (one JSON line or key=value lines). | unknown | unverified | Plan stage; must be readable without scraping logs and be one line each in the rules file. | TBD (author, plan stage) |
 | SU-3 | Whether the A-5 spike's files are kept in the repo (as the seed of PRB.T-040) or only its transcript. | unknown | unverified | Decide at the spike, record in the handoff. | TBD (author, at the spike) |
-| SU-4 | If A-4 is false: whether the sandbox gives each scenario a fresh workspace or refuses scenarios that leave state behind (epic Fallback). | unknown | unverified | Decided from the AC-2 findings, before the sandbox is built. | TBD (developer, at the A-4 check) |
-| SU-5 | Whether stopping a sandbox can keep its home for post-mortem debugging. Failure artifacts are saved outside the home already. | unknown | unverified | Ask the developer; default is remove. | TBD (developer, 2026-11-16) |
+| SU-4 | If A-4 is false: whether the sandbox gives each scenario a fresh workspace or refuses scenarios that leave state behind (epic Fallback). | decision | decided (user, 2026-11-10): a fresh workspace per scenario | Applies only if AC-2 finds A-4 false. | user |
+| SU-5 | Whether stopping a sandbox can keep its home for post-mortem debugging. Failure artifacts are saved outside the home already. | decision | decided (user, 2026-11-10): yes, as an opt-in at start; the default removes the home | AC-7 | user |

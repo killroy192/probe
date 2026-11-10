@@ -85,7 +85,7 @@ Setup that is not the subject goes over the API; the subject still happens by th
 - **Waits.** Every library wait subscribes to an event (a frame, a shell-list change, a log entry, a page state) and races it against a deadline from one place in the library; a missed event fails with a message that names what was awaited and the deadline. A time-based check loop stays only where no event exists, with the missing event named next to it, or where the signals switch rule below leaves a wait for PRB.T-041, with a PRB.T-042 temporary suppression that names PRB.T-041. No fixed sleep. A scenario file sets no deadline of its own.
 - **Signals switch rule.** If PRB.T-041 has landed when this story lands, the library's typing, reload and process-end waits use its signals in this story. If not, they keep today's waits, and whichever of PRB.T-039 and PRB.T-041 lands last switches them (epic, Stories).
 - **Logging.** Every server the harness starts runs at debug level: a scenario's server, a second server, and the sandbox's server. A failure's artifacts carry the server's debug log lines from the failing stage's start to the failure, for each server the scenario started, and the browser console of every page it opened. The library records what each setup call asked for and what it got back (workspace names, project paths, shell ids and pids) where the artifacts include it. Product code may gain debug lines a scenario needs; none prints at the production default level.
-- **What the library offers PRB.T-039** (so atomic scenarios can be composed; the composition shape is PRB.T-039's):
+- **What the library offers PRB.T-043 and PRB.T-039** (so atomic scenarios can be composed; the composition shape is PRB.T-043's, the conversion PRB.T-039's):
   - **Needs, stated as inputs.** Each setup helper builds one precondition from what it is given (the server, a page, or an earlier helper's result) and nothing else. It never reads what another scenario left, and no state carries between scenarios through the library.
   - **Results, as values.** Each helper returns what it created (workspace name, project paths and kinds, worktree paths, shell ids and pids, the page showing the workspace, the shell-list and frame followers), so a composed scenario passes one step's result to the next.
   - **No collisions.** Names and folders are unique per call; the library never assumes an empty server. A scenario that needs a pristine server says so through PRB.T-037's declaration and does not get it from the library.
@@ -127,14 +127,14 @@ Setup that is not the subject goes over the API; the subject still happens by th
 
 ## Out Of Scope
 
-- Splitting scenarios into atomic ones, the check and perf kinds, `.perf.ts`, composed scenarios, named sets, the cap gate (FR-22) and the first-run diagnosis rules of FR-19: PRB.T-039. This story converts the setup of today's scenarios in place and offers the library interface above; it does not split anything or run the cap gate.
+- The check and perf kinds, `.perf.ts`, composed scenarios, named sets, the cap gate (FR-22) and the deliberate-failure self-tests of FR-19: PRB.T-043. Splitting scenarios into atomic ones: PRB.T-039. This story converts the setup of today's scenarios in place and offers the library interface above; it does not split anything or run the cap gate.
 - Cleaning up a scenario's state on a shared server, assertions scoped to a workspace, ports (FR-14): PRB.T-039 and PRB.T-040.
 - The prompt-ready, layout-saved and process-end signals: PRB.T-041 (this story only follows the switch rule).
 - The sandbox command, its refusals and the A-4 check: PRB.T-037.
 - The runner, traces, parallel workers and the serial perf run: PRB.T-040.
 - Info-level product logging (epic Out) and product performance budgets.
 - Changing what any scenario proves; the epic's must-not-change list holds.
-- S1's repeated chat URLs (an analysis small item): scenario content, not setup; proposed for PRB.T-039, TBD (epic owner, before PRB.T-039 is planned). R1's duplicate tokens are in scope here (AC-11).
+- S1's repeated chat URLs (an analysis small item): scenario content, not setup; PRB.T-039 (its AC-31). R1's duplicate tokens are in scope here (AC-11).
 - New scenarios for unbuilt features; mobile and desktop.
 
 ## Technical Scope
@@ -192,9 +192,8 @@ Setup that is not the subject goes over the API; the subject still happens by th
 | PRB.T-042 | The rules file this story updates (AC-24) and the lint rules on scenario files the library must pass. | backlog |
 | PRB.T-036 | The fixtures module, failure artifacts, offsets and isolated shell this story builds on; its baseline (AC-21) may give the "before" times (SU-3). | code merged 2026-11-10; in progress |
 
-PRB.T-039 as written today has not been reworked: it still leaves S1, S4, S5, S6 and S8 unsplit and does not mention composition or cleanup on a shared server. Its rework (epic, Stories) must take those over before anyone relies on this story's composition interface.
 
-**Blocks:** PRB.T-039 (atomic scenarios build their own world through the library and compose through its interface); PRB.T-040 through it. Independent of PRB.T-041 apart from the switch rule.
+**Blocks:** PRB.T-043 (composed scenarios hand over the library's results; perf scenarios use its setup); PRB.T-039 (atomic scenarios build their own world through the library); PRB.T-040 through it. Independent of PRB.T-041 apart from the switch rule.
 
 ## Assumptions
 
@@ -204,7 +203,7 @@ PRB.T-039 as written today has not been reworked: it still leaves S1, S4, S5, S6
 | SA-2 | A plain shell in the isolated shell config shows a first-prompt mark the library can wait for before typing. | assumption | unverified | Read which shell PRB.T-036's isolation selects (its SU-3) when planning; AC-3. | author |
 | SA-3 | A shell started over the API shows a tree row in a page already showing the workspace (the tree follows the server's shell list). | assumption | unverified | AC-5 at the start of implementation. | author |
 | SA-4 | The scenarios outside the coverage map do not assert dialog behavior in their setup, so converting it removes no check. | assumption | unverified (stage lists read, not every assertion) | Read each converted scenario's assertions against the map when planning. | author |
-| SA-5 | The coverage map is complete, including Restore (S8), the menu's open and remove (S7), the start screen's create (S1), project removal (S6), close tab (S5) and E2-S4's dropdown starts. | assumption | unverified | Epic owner confirms the map at human review. | epic owner |
+| SA-5 | The coverage map is complete, including Restore (S8), the menu's open and remove (S7), the start screen's create (S1), project removal (S6), close tab (S5) and E2-S4's dropdown starts. | assumption | verified (confirmed by the user, 2026-11-10) | – | epic owner |
 | SA-6 | Debug-level server output stays small enough that the harness keeps the failing stage's lines and the run time does not rise noticeably. | assumption | unverified | Measure one scenario's debug volume when planning; AC-18 and the after times of AC-22. | author |
 | SA-7 | API setup removes most per-shell round trips and a large part of the run time (epic A-7). | assumption | unverified | AC-22. | author |
 | SA-8 | A page already open on the start screen, or showing another workspace, can reach a workspace created over the API after it loaded (the Workspaces menu or start screen lists it). | assumption | unverified | AC-7 at the start of implementation. | author |
