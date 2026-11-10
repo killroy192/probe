@@ -36,7 +36,7 @@ updated: 2026-11-07
 
 Read from the code after PRB.T-002 to PRB.T-006 (2026-11-06).
 
-- **Shells** (`apps/server/src/terminal/Shells.ts`) are terminal-manager sessions owned by `shell:<id>`. They survive a browser reload, because the server owns them (PRB.T-002, A-6 verified). They do not survive the server: the manager's scope finalizer (`Manager.ts`, around line 2796) kills every PTY, and the PRB.T-002 spike found A-14 false (`docs/dev/research/t-002-standalone-shell-spike.md`).
+- **Shells** (`apps/server/src/terminal/Shells.ts`) are terminal-manager sessions owned by `shell:<id>`. They survive a browser reload, because the server owns them (PRB.T-002, A-6 verified). They do not survive the server: the manager's scope finalizer (`Manager.ts`, around line 2796) kills every PTY, and the PRB.T-002 spike found A-14 false.
 - **Shell records** (title, folder, worktree) and the per-shell `probe kill` tokens are in-memory maps in `Shells`, so a restart loses them.
 - **History** is a bounded buffer per session (5,000 lines, 8 MiB), written to `<state dir>/logs/terminals` with a debounce. An attach snapshot carries it, so a reopened tab shows it.
 - **Ends:** an ended shell, whatever the reason, stays in the manager's list with its exit code or signal. The web tree hides it (`isActiveShell`), but its tab stays until the server forgets it. A kill (`shell.kill`) forgets the shell and its history.
