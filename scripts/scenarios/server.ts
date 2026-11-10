@@ -260,14 +260,13 @@ export async function startServer(options: {
   let logs = "";
   const logWaiters = new Set<() => void>();
   let pairings = 0;
-  const rawOutputDir = NodePath.join(options.home, "raw-output");
   const defaults: ServerEnv = {
     // Without a UTF-8 locale zsh counts a prompt's "➜" as three columns and redraws over the
     // prompt row where a typed line wraps.
     ...(NodeProcess.env.LANG || NodeProcess.env.LC_ALL ? {} : { LANG: "C.UTF-8" }),
     PROBE_SEED_MOCK_AGENT: MOCK_AGENT_COMMAND,
     MOCK_AGENT_HOME: NodePath.join(options.home, "mock-agent"),
-    PROBE_RAW_OUTPUT_DIR: rawOutputDir,
+    PROBE_RAW_OUTPUT_DIR: rawOutputDirIn(options.home),
     ...(options.isolateShell === false ? {} : await isolatedShellEnv(options.home)),
   };
   const envFor = (env: ServerEnv = {}) => childEnv({ ...defaults, ...env }, options.ambient);
@@ -346,16 +345,22 @@ export async function startServer(options: {
     },
     pairings: () => pairings,
     cli,
-    rawOutput: (shellId) => {
-      try {
-        return NodeFS.readFileSync(NodePath.join(rawOutputDir, `${shellId}.log`), "utf8");
-      } catch {
-        return "";
-      }
-    },
+    rawOutput: (shellId) => rawOutputIn(options.home, shellId),
     shellHostPid,
     stopShellHost: (signal) => stopShellHostIn(options.home, signal),
   };
+}
+
+function rawOutputDirIn(home: string): string {
+  return NodePath.join(home, "raw-output");
+}
+
+function rawOutputIn(home: string, shellId: string): string {
+  try {
+    return NodeFS.readFileSync(NodePath.join(rawOutputDirIn(home), `${shellId}.log`), "utf8");
+  } catch {
+    return "";
+  }
 }
 
 /**
@@ -403,6 +408,7 @@ export function attachServer(
     },
     pairings: () => pairings,
     cli,
+    rawOutput: (shellId) => rawOutputIn(target.home, shellId),
     shellHostPid: () => shellHostPidIn(target.home),
     stopShellHost: refused("stopping the shell host"),
   };
