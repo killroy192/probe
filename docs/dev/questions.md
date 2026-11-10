@@ -26,9 +26,15 @@ it is verified or decided; settled decisions go to `roadmap.md`.
   - PRB.E-004 A-1/A-2/A-3: the server builds and runs in a stock Linux container; `node-pty`, the shell host and the `probe` wrapper work there; the `packages/ssh` install and launch logic runs under plain `sh` inside the target. PRB.E-003's verification depends on a server installed this way.
   - PRB.E-004 A-7/A-9: a server bound to a non-loopback address is reachable through a published port, and the shell host socket and database work on a mounted state folder (topology 1), also shared with a host server. Decides what PRB.E-003 story 8 can verify against a real remote.
   - PRB.E-003 U-7 (also PRB.E-002 U-4): how a start request for a workspace on another server gets its command, and where the removed-or-disabled check runs. Settled in PRB.E-003 story 2; PRB.E-002 closes without it.
-- Scenario suite (PRB.E-005, 2026-11-09, all unverified until the named story runs):
+- Scenario suite (PRB.E-005, 2026-11-09 and 2026-11-10, all unverified until the named story runs):
   - PRB.E-005 A-1: S2's PRB.T-011 check fails because the harness runs the developer's real shell config (oh-my-zsh prompt forks `git`; a resize redraws the typed command). Desk reading, not run; it fails the same on plain `main`. Checked in PRB.T-036.
-  - PRB.E-005 A-5: `@playwright/test` 1.60.0 runs with the cached headless Chromium shell. The first spike of PRB.T-040; the fallback is the current Node runner.
+  - PRB.E-005 A-5: `@playwright/test` 1.60.0 runs with the cached headless Chromium shell. The first spike of PRB.T-037 (moved from PRB.T-040); the fallback is the current Node runner.
+  - PRB.E-005 A-4: scenarios scoped to their own workspace can share one server, one after another (checked first in PRB.T-037, for the sandbox) and in parallel (PRB.T-039, PRB.T-040).
+  - PRB.E-005 A-9: the cold starts and UI-driven setup are most of the run time. Timing split in the PRB.T-036 baseline; acted on in PRB.T-038.
+  - PRB.E-005 A-11: parallel load exposes waits that are only guesses today. Run in parallel before and after PRB.T-041, in PRB.T-040.
+  - PRB.E-005 A-13: with direct setup and a shared server, atomic scenarios fit under the 15 s cap. The cap gate per scenario in PRB.T-039, and a whole-suite gate when PRB.T-040 closes.
+  - PRB.T-042 SA-6: what PRB.T-041 leaves of `gone()` polling (S6's background jobs, which the server does not list) has no exit event to subscribe to, so it may stay as a bounded check loop with the missing event named. Checked when PRB.T-042 is planned, against PRB.T-041 AC-13.
+  - PRB.E-005 U-1: per-scenario times and the flake rate today. One gate-style serial run in PRB.T-036 (its AC-21), after the user confirms the machine is quiet.
   - PRB.E-005 A-2 (PRB.T-041 SA-2): S4's tab-list flake comes from reloading with a layout save still in flight and reading the tab strip once with no wait. Desk reading; PRB.T-041 AC-9 tests it.
 - From the PRB.T-029 container spike (`research/t-029-container-spike.md`), for PRB.T-030 and PRB.T-031:
   - Whether the server should default the agent command when `PROBE_AGENT_COMMAND` is unset. Today no shell opens at all without it, in any install.

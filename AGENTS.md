@@ -96,8 +96,14 @@ machine. The checkout is at `/workspaces/<folder>`. Setup: [Dev container](docs/
   `.git/config` sets `core.hooksPath=/dev/null`, and the container's own git config turns them on.
 - `.devcontainer/` and the git config are read-only here; changes to them are the developer's, on the
   host.
-- Worktrees are created and removed only on the host, with `.devcontainer/worktree.sh`; you cannot see
-  the folders next to the checkout. Ask the developer when you need one.
+- Worktrees come in two kinds. Pick by whether the host must see it:
+  - **Host worktree, own container.** The developer creates it on the host with
+    `.devcontainer/worktree.sh`, and it opens in its own dev container. You cannot create or see it;
+    ask when the work needs its own container or the developer wants it on the host.
+  - **Container worktree.** You may create one here, under `~/worktrees/`, locked. The host cannot see
+    its files and that is accepted. A container rebuild deletes its files (commits survive in the
+    shared `.git`), so commit often. Remove it here with `git worktree remove`. Steps:
+    [Worktrees](docs/operations/development.md#worktrees).
 - Never run `git worktree prune` here. This container cannot see the other worktrees, so git takes
   them for deleted, and a prune would drop their metadata.
 - Never change hooks without explicit approval: git hooks (`.vite-hooks/`, `core.hooksPath`, the
@@ -129,8 +135,8 @@ The most common defect in this repo is a change that works on the path you teste
 - Sharing over the tailnet is three steps: run `vp run dev --share` in the background, wait for the `pairingUrl:` line in its output, then give that full URL to an unpaired browser. Do not wire up `tailscale serve` by hand, open the URL yourself, or consume the user's pairing link. A browser with the reusable dev cookie can use the bare origin. If a normal one-time token was consumed, mint a fresh one with `node apps/server/src/bin.ts pair`. It carries standard scopes, while the startup URL carries admin scopes needed for Connections settings.
 - To reuse web dev auth across worktrees, configure one fixed `T3CODE_DEV_AUTH_TOKEN` in the main checkout's gitignored `.env` and copy that file into each worktree (a copy, not a symlink: the container cannot follow a link to a host path). Never commit or publish the token or a startup URL. See [Reusable dev credential](docs/operations/development.md#reusable-dev-credential).
 - Stop what you started, by the PID you tracked. See rule 1.
-- Need a second checkout? Ask the developer for a worktree (`.devcontainer/worktree.sh`); it opens in
-  its own container. Steps: [Worktrees](docs/operations/development.md#worktrees).
+- Need a second checkout? Create a container worktree, or ask the developer for a host worktree when
+  it needs its own container or must be visible on the host (see Working in the devcontainer).
 
 ## Test data
 

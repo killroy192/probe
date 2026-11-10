@@ -68,8 +68,12 @@ pass its folder: `--workspace-folder ../<repo>-<branch>`.
 
 ### Worktrees
 
-Each worktree opens in its own container. Create and remove them on your machine; the container cannot
-see the folders next to its checkout:
+There are two kinds. A **host worktree** lives next to the checkout on your machine and opens in its
+own container. A **container worktree** lives inside one container only, for parallel work there;
+the host does not see it.
+
+Create and remove host worktrees on your machine; the container cannot see the folders next to its
+checkout:
 
 ```sh
 .devcontainer/worktree.sh add <branch>                  # ../<repo>-<branch>, new branch from main
@@ -81,6 +85,19 @@ Then open the new folder and reopen it in the container. `worktree.sh` creates w
 paths, so the container can mount the main checkout's `.git` without its files, and locks them, so a
 prune run from another container keeps them. Relative worktrees need git 2.48 or newer for every tool
 that opens the repository. Remove a worktree's branch yourself once it is merged.
+
+Container worktrees are created inside the container, under `~/worktrees/`, and locked so a prune run
+from the host or another container keeps their metadata:
+
+```sh
+git worktree add --lock --reason "container-only" -b <branch> ~/worktrees/probe-<branch> main
+cd ~/worktrees/probe-<branch> && vp i
+git worktree remove ~/worktrees/probe-<branch>      # from inside the same container
+```
+
+Their files are in the container's own filesystem: the host cannot see them, and rebuilding the
+container deletes them. Commits are safe, since they go to the main checkout's shared `.git`; commit
+before a rebuild. The host lists such a worktree with a path it cannot find, and the lock keeps it.
 
 ## GitCafe mirror (optional)
 

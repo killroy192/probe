@@ -32,7 +32,7 @@ updated: 2026-11-09
   - NFR-3: the throwaway-home guard and the clean child environment stay.
   - NFR-6: per-scenario timing printed on every run.
   - NFR-7 (shared fixtures half): one shared fixtures module, no duplicate helpers.
-  - KPI: the baseline cells (full-run time, flake rate) are filled from a run on a rebuilt bundle.
+  - KPI: the baseline cells (longest atomic check scenario, flake rate) are filled from a run on a rebuilt bundle (epic KPI amended 2026-11-10: a 15 s per-scenario cap, not a full-run time).
 - **One deployable outcome:** A developer or agent runs `vp run test:scenarios` and gets an answer that is about the current UI, does not depend on their shell config or machine speed, names where it failed with evidence, and comes with timings; the epic gets the baseline numbers it needs to set targets. Every later story in the epic builds on this honest suite.
 
 ## Current Behavior
@@ -66,7 +66,7 @@ Verified by reading `scripts/scenarios/` on 2026-11-09. The desk analysis was no
 7. A scenario that fails prints its id, stage and message, and the run output names where the screenshot, the server log tail and the last recorded values were saved.
 8. After a runner is killed with SIGKILL, the next run (or a documented cleanup command) stops the servers and shell hosts it left, by the pids recorded when they started, and removes their homes. A sandbox or another live run is never touched.
 9. Run as root, the checks that depend on file permissions print `SKIP <id> <check>: <reason>`.
-10. The maintainer records the baseline: per-scenario time and the total on a rebuilt bundle, serially, median of 3 runs, and the flake rate over N runs (N = 10 proposed), in this ticket's Handoff.
+10. The maintainer records the baseline: per-scenario times on a rebuilt bundle, serially, from one run after the user confirms nothing in the background slows the machine (no median, epic FR-22), and the flake rate over N runs (N = 10 proposed), in this ticket's Handoff.
 
 ### Edge Cases
 
@@ -100,7 +100,7 @@ Verified by reading `scripts/scenarios/` on 2026-11-09. The desk analysis was no
 - The Playwright Test runner, traces, parallel workers, per-scenario selection by name, the perf gate: PRB.T-040. The failure artifacts here are written by the current runner; the trace half of FR-6 is PRB.T-040.
 - The sandbox: PRB.T-037. The manifest this story writes must not break it (see Dependencies).
 - Smaller items from the analysis that have no owner yet (S1's repeated chat URLs, R1's duplicate tokens): TBD (author, before PRB.T-038 is planned).
-- Setting the full-run time target and N for the KPI: epic U-2, after the baseline.
+- Setting N for the KPI: epic U-2, after the baseline. The cap (15 s) is set (epic, 2026-11-10).
 - Making scenarios a CI gate; changing what any scenario proves (the epic's must-not-change list).
 - The 700 ms gate, the dedicated serial perf command and when it runs: PRB.T-040 (its AC-15; the measurement itself is here).
 
@@ -119,7 +119,7 @@ Verified by reading `scripts/scenarios/` on 2026-11-09. The desk analysis was no
 - NFR-1: any server-side timing adds no continuous repaint and no extra websocket traffic.
 - Killing is by captured pid only. Teardown by SIGKILL applies to throwaway servers; restart scenarios keep a graceful stop where graceful stop is what they test.
 - Linux (devcontainer) and macOS must both work (NFR-4); Chromium only.
-- Baseline method (epic KPI): devcontainer, rebuilt bundle, serial, no retries, median of 3 runs.
+- Baseline method (epic KPI): devcontainer, rebuilt bundle, serial, no retries, one run after the user confirms the machine is quiet; no median.
 
 ## Acceptance Criteria
 
@@ -145,8 +145,8 @@ Verified by reading `scripts/scenarios/` on 2026-11-09. The desk analysis was no
 | AC-18 | Given the shared fixtures module, when the scenario sources are searched, then each helper (`check`, `alert`, `endedRow`, `createWorkspace`, `withClient`, `seedWorkspace`, `projects`, `setUp`, restart-and-come-back) is defined once; `vp run typecheck` and knip pass for `scripts`. | manual (developer review) with typecheck and knip auto | NFR-7 |
 | AC-19 | Given the guard, when the harness is given `~/.t3`, a `--server`, `--url` or other non-local target, or ambient `T3CODE_*`/`VITE_*`/`PROBE_*` variables, then it refuses or strips them as before and the new isolation never writes to the real `HOME`. | auto (`harness.test.ts` unchanged cases pass; a case that the isolated home is not the real one) | NFR-3 |
 | AC-20 | Given the changes are in, when all scenarios (S1 to S8, T-002, R1, E2-S1, E2-S3) run twice in a row with no retries and no changes between runs, then both runs pass, and the `--selftest` run behaves as before. | auto | FR-2, FR-3, NFR-2 |
-| AC-21 | Given the baseline method, when it is run before the other changes land and after them, then per-scenario times, the total (median of 3 serial runs on a rebuilt bundle) and the flake rate over N runs are recorded in this ticket's Handoff, with S2's outcome on unmodified `main` with and without isolation (epic A-1). | manual (developer) | KPI, A-1, A-6 |
-| AC-22 | Given the docs, when read after the change, then no statement says E2-S3 fails above 700 ms in the suite, that the bundle is rebuilt only when missing, or describes helpers that moved. | manual (docs diff review) | NFR-7, FR-15 |
+| AC-21 | Given the baseline method, when it is run before the other changes land and after them, then per-scenario times (one serial run on a rebuilt bundle, after the user confirms the machine is quiet, no median) and the flake rate over N runs are recorded in this ticket's Handoff, with S2's outcome on unmodified `main` with and without isolation (epic A-1). | manual (developer) | KPI, A-1, A-6 |
+| AC-22 | Given the docs, when read after the change, then no statement says E2-S3 fails above 700 ms in the suite, that the bundle is rebuilt only when missing, or describes helpers that moved. | manual (docs diff review); handed to the epic's rules story (PRB.E-005, 2026-11-10), which replaces the stale text, so this ticket may close without it | NFR-7, FR-15 |
 | AC-23 | Given the developer's `SHELL` is fish or another shell Probe does not wrap, when a scenario's shell starts under isolation, then it is the same deterministic shell as with zsh or bash (or the run prints which shell it uses) and the PRB.T-011 order check still passes. | auto (harness self-test with `SHELL` set to an unwrapped shell) | EC-11, FR-2 |
 
 ## Dependencies
@@ -179,6 +179,6 @@ Verified by reading `scripts/scenarios/` on 2026-11-09. The desk analysis was no
 
 Filled during implementation.
 
-- Baseline (AC-21): TBD (author, at implementation) - per-scenario times, total, flake rate.
+- Baseline (AC-21): TBD (author, at implementation) - per-scenario times from one gate-style run, flake rate.
 - S2 on `main`, with and without isolation (SA-1): TBD (author, at implementation).
 - Failure triage order for this story (one story by decision): bundle (AC-1, AC-2), then isolation and the PRB.T-011 order (AC-3 to AC-5), then metrics and waits (AC-6 to AC-10), then readiness, login and teardown (AC-11 to AC-14), then root skips and artifacts (AC-15, AC-16), then baseline and docs (AC-21, AC-22).
