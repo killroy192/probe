@@ -9,6 +9,7 @@ import { secondServer } from "./scenarios/second-server.ts";
 import { plainShell, startFailures, userScripts } from "./scenarios/starting-scripts.ts";
 import { standaloneShell } from "./scenarios/standalone-shell.ts";
 import { worktrees } from "./scenarios/worktrees.ts";
+import { changedRerun } from "./selftest/changed-rerun.ts";
 import { deliberateFailure } from "./selftest/deliberate-failure.ts";
 import { oneLogin } from "./selftest/one-login.ts";
 import { restartPersistence } from "./selftest/restart-persistence.ts";
@@ -47,4 +48,5 @@ export const selftestScenarios: ReadonlyArray<Scenario> = [
 export const pickedSelftestScenarios: ReadonlyArray<Scenario> = [
   secondServerFailure,
   unstatedNeeds,
+  changedRerun,
 ];

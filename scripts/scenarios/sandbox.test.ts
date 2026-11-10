@@ -24,7 +24,7 @@ import {
 import { withClient } from "./fixtures.ts";
 import { pickScenario, sandboxRefusal, staleSandboxFile } from "./sandboxRules.ts";
 import { issueBearerToken } from "./seam.ts";
-import { attachServer } from "./server.ts";
+import { attachServer, REPO_ROOT } from "./server.ts";
 import { type Spawned, spawnScript } from "./spawned.ts";
 import { alive, gone } from "./support.ts";
 
@@ -54,7 +54,7 @@ describe("sandbox rules", () => {
     }
     assert.deepStrictEqual(
       registered.filter((scenario) => sandboxRefusal(scenario) === undefined).map(({ id }) => id),
-      ["S4", "S5", "T2", "T5"],
+      ["S4", "S5", "T2", "T5", "T6"],
     );
     assert.deepStrictEqual(
       registered.filter(({ needs }) => needs === undefined).map(({ id }) => id),
@@ -375,6 +375,17 @@ describe("sandbox", () => {
             ],
           );
 
+          // Listening on loopback only, by the address the server was told and, where procfs
+          // exists, by the socket table; the env check needs procfs, and `childEnv`'s unit test
+          // in harness.test.ts covers it everywhere.
+          const argv = NodeChildProcess.execFileSync(
+            "ps",
+            ["-o", "command=", "-p", String(serverPid)],
+            {
+              encoding: "utf8",
+            },
+          );
+          assert.include(argv, "--host 127.0.0.1");
           if (linux) {
             const environ = NodeFS.readFileSync(`/proc/${serverPid}/environ`, "utf8").split("\0");
             for (const key of Object.keys(ambient)) {
@@ -407,7 +418,7 @@ describe("sandbox", () => {
             await browser.close();
           }
 
-          kept = await startSandbox(["--keep-home"]);
+          kept = await startSandbox(["--keep-home", "--fixture", "shells"]);
           const ended = [serverPid, shellHostPid, ...state.shells.map(({ pid }) => pid!)];
           assert.strictEqual((await sandbox.stop()).code, 0);
           for (const pid of ended) assert.isTrue(await gone(pid), `${pid} survived the stop`);
@@ -418,9 +429,14 @@ describe("sandbox", () => {
           assert.throws(() => process.kill(sandbox.pid, "SIGTERM"), /ESRCH/);
           assert.isTrue((await fetch(kept.facts.origin!)).ok);
 
-          const keptServer = Number(kept.facts["server-pid"]);
+          const keptPids = [
+            Number(kept.facts["server-pid"]),
+            Number(kept.facts["shell-host-pid"]),
+            ...(await apiState(kept)).shells.map(({ pid }) => pid!),
+          ];
+          assert.lengthOf(keptPids, 4);
           assert.strictEqual((await kept.stop()).code, 0);
-          assert.isTrue(await gone(keptServer));
+          for (const pid of keptPids) assert.isTrue(await gone(pid), `${pid} survived the stop`);
           assert.isTrue(NodeFS.existsSync(NodePath.join(kept.facts.home!, "userdata")));
         } finally {
           await sandbox.stop();
@@ -440,15 +456,16 @@ describe("sandbox", () => {
         assert.notInclude(unknown.output, "sandbox: home=");
 
         for (const [args, says] of [
-          [["--fixture", "selftest-fails"], "the self-test fixture fails"],
+          [["--fixture", "selftest-fails"], ["the self-test fixture fails"]],
           [
             ["--server-bin", NodePath.join(NodeOS.tmpdir(), "scenario-missing", "bin.ts")],
-            "Probe server could not start",
+            // The reason, then the tail of what the server printed.
+            ["Probe server could not start", "Cannot find module"],
           ],
         ] as const) {
           const { code, output } = await spawnScript(sandboxBin, args).done;
           assert.strictEqual(code, 1, output);
-          assert.include(output, says);
+          for (const said of says) assert.include(output, said);
           const facts = factsOf(output);
           assert.isFalse(NodeFS.existsSync(facts.home!), "the home was left");
           assert.isFalse(NodeFS.existsSync(NodePath.join(RUNS_DIR, `${facts.pid}.json`)));
@@ -511,6 +528,21 @@ describe("sandbox", () => {
             assert.notStrictEqual(code, 0, output);
             assert.include(output, says);
             assert.notInclude(output, "scenarios: ready");
+          }
+          // A bundle rebuilt since the start, shown by its time alone; the time is put back.
+          const index = NodePath.join(REPO_ROOT, "apps", "web", "dist", "index.html");
+          const built = NodeFS.statSync(index);
+          NodeFS.utimesSync(index, built.atimeMs / 1000, built.mtimeMs / 1000 + 1);
+          try {
+            const { code, output } = await onSandbox(sandbox, "S5").done;
+            assert.strictEqual(code, 2, output);
+            assert.include(
+              output,
+              `apps/web/dist/index.html (the bundle was rebuilt since the sandbox started) changed since sandbox ${sandbox.pid} started, so it would run older code; start a new sandbox.`,
+            );
+            assert.notInclude(output, "scenarios: ready");
+          } finally {
+            NodeFS.utimesSync(index, built.atimeMs / 1000, built.mtimeMs / 1000);
           }
           const after = await apiState(sandbox);
           assert.deepStrictEqual(after.workspaces, before.workspaces);
@@ -618,6 +650,40 @@ describe("sandbox", () => {
           assert.strictEqual(
             factsOf(sandbox.spawned.output())["shell-host-pid"],
             String(shellHostPid),
+          );
+        } finally {
+          await sandbox.stop();
+        }
+      }),
+  );
+
+  it.live(
+    "reruns a changed scenario on one sandbox without meeting its earlier run's names or folders",
+    () =>
+      Effect.promise(async () => {
+        const sandbox = await startSandbox();
+        try {
+          const made: Array<{ workspace: string; folder: string; note: string }> = [];
+          // The note stands for a change to the scenario between the two runs.
+          for (const note of ["before the change", "after the change"]) {
+            const { code, output } = await spawnScript(
+              runnerBin,
+              ["--sandbox", String(sandbox.pid), "--only", "T6"],
+              { SCENARIO_T6_NOTE: note },
+            ).done;
+            assert.strictEqual(code, 0, output);
+            const [, workspace, folder] = /T6 made workspace=(\S+) folder=(\S+)/.exec(output)!;
+            made.push({ workspace: workspace!, folder: folder!, note });
+          }
+          const [first, second] = made as [(typeof made)[number], (typeof made)[number]];
+          assert.notStrictEqual(first.workspace, second.workspace);
+          assert.notStrictEqual(first.folder, second.folder);
+          for (const { folder, note } of made) {
+            assert.strictEqual(NodeFS.readFileSync(NodePath.join(folder, "note"), "utf8"), note);
+          }
+          assert.deepStrictEqual(
+            (await apiState(sandbox)).workspaces,
+            made.map(({ workspace }) => workspace).toSorted(),
           );
         } finally {
           await sandbox.stop();
