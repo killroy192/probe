@@ -29,8 +29,9 @@ vp i
 vp run dev
 ```
 
-The `[dev-runner]` line prints the address to open. Setup details, the dev container and the
-scenario tests are in the [development runbook](./docs/operations/development.md).
+The `[dev-runner]` line prints the address to open. Setup details and the dev container are in the
+[development runbook](./docs/operations/development.md); scenario tests have their own
+[rules](./.agents/rules/scenarios.md).
 
 ## Documentation
 

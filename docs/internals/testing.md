@@ -1,6 +1,6 @@
 # Testing
 
-Rules for writing tests, and for asking for them in review. AGENTS.md carries the same writing rules under Verifying; change both together.
+Rules for writing tests, and for asking for them in review. AGENTS.md carries the same rules for unit and browser tests under Verifying; change both together.
 
 ## What to test
 
@@ -25,16 +25,7 @@ Rules for writing tests, and for asking for them in review. AGENTS.md carries th
 
 ## Scenario tests
 
-Scenarios (`scripts/scenarios/`) prove the terminal-first product end to end in headless Chromium, installed and cached the same way as for the web browser tests. A Node runner owns the server process and uses Playwright as a library, because Vitest browser mode runs test code inside the page and cannot stop or restart a real server.
-
-- Each scenario gets its own throwaway home, server and browser context. The server child never inherits `T3CODE_*` or `VITE_*`, and the runner refuses `~/.t3` or any server address. Never add a path to real data or a remote server.
-- Scenarios receive a `PointerPage` (no `keyboard`). Drive the UI with clicks; typing into a terminal or text field is fine, keyboard shortcuts are not.
-- Wait on events (a locator, a ready line, a process `exit`), never on sleeps. Fix flakiness instead of retrying.
-- `harness.test.ts` covers the runner's failure paths; it needs the Playwright Chromium installed, like the web browser tests.
-- A new scenario goes in `scenarios/` and replaces its `pending` entry in `registry.ts`. Self-tests of the harness live in `selftest/` and run only with `--selftest`.
-- The mock agent (`scripts/mock-agent/mock-agent.ts`) stands in for a Claude-Code-like CLI in shells. The runner sets `PROBE_SEED_MOCK_AGENT`, so each throwaway state folder starts with a "mock agent" starting script; `openModal` picks it unless told otherwise, and the starting-script helpers in `workspaceUi.ts` rewrite the list file in the home, which the server reads on every use.
-- Fault helpers: `server.restart({ env })` restarts with changed variables (a broken `GIT_CONFIG_GLOBAL`, or `PROBE_SEED_MOCK_AGENT: undefined` for a server without the default), `server.logs()` returns the server's info-level output, and `connectionCutter(page)` in `browser.ts` drops a page's websockets when it sends a given request. To end a shell from outside the app, kill the `pid` the shell list reports (S2 does this for AC-19). Shared waits (`recorder`, `pageFrames`, `gone`) are in `support.ts`.
-- A failure message passed to `check()` is evaluated even when the check passes, so never `await` a locator inside it.
+Scenarios have their own rules, in [the scenario rules](../../.agents/rules/scenarios.md).
 
 ## Web browser tests
 

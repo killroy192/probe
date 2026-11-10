@@ -300,9 +300,9 @@ Runtime-discovered entrypoints and dependency exceptions belong in [knip.jsonc](
 
 ### Scenario tests
 
-`vp run test:scenarios` starts Probe on a throwaway data directory, drives it in headless Chromium, and prints each scenario as `PASS`, `FAIL` or `PENDING` plus how many of the 8 pass. It exits non-zero when a scenario fails. It uses the same Playwright Chromium as the web browser tests (install it once with `node scripts/node_modules/playwright-core/cli.js install --only-shell chromium`, or pass `--browser <path>`) and builds the web bundle if `apps/web/dist` is missing; pass `--rebuild` after web changes. It never touches `~/.t3` and does not disturb a running dev server. Each scenario stops its server's shell host, by the pid in its throwaway home, before deleting that home. Scenarios themselves are not a CI gate.
+How to write and run scenarios (`vp run test:scenarios`) is in [the scenario rules](../../.agents/rules/scenarios.md).
 
-`vp run test:scenarios -- --only S1` runs a single scenario by id. `vp run test:scenarios -- --selftest` runs the harness self-tests (restart persistence and a deliberate failure, so it exits non-zero by design). See [Testing](../internals/testing.md#scenario-tests).
+### Mock agent
 
 The mock agent CLI stands in for a Claude-Code-like tool:
 
@@ -316,10 +316,8 @@ It echoes each line as `echo: <line>` and exits 0 on `exit`. Sessions are stored
 
 `vp run dev` sets `PROBE_SEED_MOCK_AGENT` to this mock CLI unless your environment already sets it,
 so a state folder with no starting scripts gets a "mock agent" script to pick in **Create shell**.
-The scenario runner does the same per scenario. Once the list file exists the variable changes
-nothing; delete `<state dir>/starting-scripts.json` to get the default again. S2 prints the time
-from the start click to the CLI banner as `start-to-banner ms=…` (reported, not enforced); E2-S3
-prints the click-to-prompt time of a plain shell as `click-to-prompt ms=…` and fails above 700.
+Once the list file exists the variable changes nothing; delete `<state dir>/starting-scripts.json`
+to get the default again.
 
 ## Desktop artifacts
 
