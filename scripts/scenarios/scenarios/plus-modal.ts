@@ -245,13 +245,14 @@ export const plusModal: Scenario = {
         "The two shells share output (AC-12).",
       );
       // PRB.T-011: the agent command is typed once the prompt is ready, so it shows once, after it.
-      // The prompt scrolls a long line sideways, so only the start of the command is counted.
+      // The screen copy breaks a wrapped line into rows, so rows are joined before counting.
       const shown = (await history(rpc.client, first.shellId)).replace(
         /\u001b\][^\u0007\u001b]*(\u0007|\u001b\\)/g,
         "",
       );
       check(
-        (shown.match(/scripts\/mock-agent\/mock-agent/g) ?? []).length === 1 &&
+        (shown.replaceAll("\r\n", "").match(/scripts\/mock-agent\/mock-agent/g) ?? []).length ===
+          1 &&
           !shown.startsWith("node "),
         `The agent command is not shown once, after the prompt (PRB.T-011): ${JSON.stringify(shown.slice(0, 400))}`,
       );
@@ -269,6 +270,8 @@ export const plusModal: Scenario = {
       await openModal(page, fresh);
       await startButton(page).click();
       await shellNodes(page, fresh).first().waitFor();
+      // A script start finishes, and opens its tab, when the shell's first prompt is in.
+      await dialog(page).waitFor({ state: "detached" });
       await shellsIn(shells.lists, fresh, 1);
       const worktrees = await git(fresh, ["worktree", "list", "--porcelain"]);
       check(
@@ -287,6 +290,7 @@ export const plusModal: Scenario = {
       check((await modeSwitch(page).count()) === 0, "A plain folder offers worktrees (AC-10).");
       await startButton(page).click();
       await shellNodes(page, plain).first().waitFor();
+      await dialog(page).waitFor({ state: "detached" });
       await shellsIn(shells.lists, plain, 1);
 
       // AC-13: closing the modal without starting changes nothing.

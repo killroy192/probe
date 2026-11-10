@@ -46,7 +46,7 @@ import * as ProcessRunner from "../processRunner.ts";
 import { ShellHost } from "./shellHost/client.ts";
 import { TerminalManager } from "./Manager.ts";
 import { killProcessTree, makeReadProcessTable } from "./processTree.ts";
-import { type ShellOutputEvent, waitForPromptMark } from "./shellReady.ts";
+import { START_PROGRAM_ENV, type ShellOutputEvent, waitForPromptMark } from "./shellReady.ts";
 import { PROBE_COMMAND, SELF_KILL_PATH, SHELL_ENV, type ShellSelfKill } from "./shellEnv.ts";
 
 type Manager = TerminalManager["Service"];
@@ -234,7 +234,6 @@ export const withoutShells = (
 const DEFAULT_PROMPT_TIMEOUT = "15 seconds";
 
 interface ShellsOptions {
-  readonly searchPath?: string | undefined;
   /** How long a starting script waits for the shell's prompt; slow startup files need a long wait. */
   readonly promptTimeout?: Duration.Input;
   readonly platform?: NodeJS.Platform;
@@ -319,6 +318,7 @@ export const withoutDeletedMark = (cwd: string) => cwd.replace(/ \(deleted\)$/, 
 
 // The program is the command's first word; the shell itself parses the rest when it runs the line.
 // Leading `NAME=value` words are skipped: they are not the program, and may carry a secret.
+// Whether it exists is the shell's to say (PRB.T-016 U-1): see `waitForPromptMark`.
 const programOf = (command: string) => startingScriptProgram(command).replace(/^["']|["']$/g, "");
 
 export const makeShells = Effect.fn("Shells.make")(function* (
@@ -470,7 +470,8 @@ export const makeShells = Effect.fn("Shells.make")(function* (
   /** Reads every tracked shell's branch, folder and home once and sends the shells that changed. */
   const refreshLocations = Effect.gen(function* () {
     const tracked = [...records].filter(
-      ([shellId, record]) => record.home !== null && (terminals.has(shellId) || saved.has(shellId)),
+      ([shellId, record]) =>
+        record.home !== null && (terminals.has(shellId) || saved.has(shellId)),
     );
     if (tracked.length === 0) return;
     const branches = new Map<string, string | null>();
@@ -521,37 +522,6 @@ export const makeShells = Effect.fn("Shells.make")(function* (
       const shell = summaryOf(shellId);
       if (shell !== null) yield* emit({ type: "upsert", shell });
     }
-  });
-
-  const isFile = (candidate: string) =>
-    fs.stat(candidate).pipe(
-      Effect.map((info) => info.type === "File"),
-      Effect.orElseSucceed(() => false),
-    );
-
-  const findProgram = Effect.fnUntraced(function* (program: string, cwd: string) {
-    if (program.includes("/") || program.includes("\\")) {
-      return yield* isFile(path.resolve(cwd, program));
-    }
-    const extensions =
-      platform === "win32" ? ["", ...(process.env.PATHEXT ?? ".EXE;.CMD;.BAT").split(";")] : [""];
-    const dirs = (options.searchPath ?? process.env.PATH ?? "")
-      .split(platform === "win32" ? ";" : ":")
-      .filter((dir) => dir.length > 0);
-    for (const dir of dirs) {
-      for (const extension of extensions) {
-        if (yield* isFile(path.join(dir, `${program}${extension}`))) return true;
-      }
-    }
-    return false;
-  });
-
-  const scriptProblem = Effect.fnUntraced(function* (command: string, cwd: string) {
-    const program = programOf(command);
-    if (program.length === 0 || !(yield* findProgram(program, cwd))) {
-      return `The agent command was not found: ${program}`;
-    }
-    return null;
   });
 
   /** A shell that exited on its own without a signal is gone for good, like a killed one. */
@@ -679,10 +649,40 @@ export const makeShells = Effect.fn("Shells.make")(function* (
           PATH: selfKill.path,
         };
 
-  const failToStart = (cwd: string, reason: string) =>
-    Effect.logWarning("shell failed to start", { cwd, reason }).pipe(
+  // A script's fields carry its name and program, never its command line (it may carry a secret).
+  const failToStart = (
+    cwd: string,
+    reason: string,
+    script: { readonly script: string; readonly program: string } | null = null,
+  ) =>
+    Effect.logWarning("shell failed to start", { cwd, reason, ...script }).pipe(
       Effect.andThen(Effect.fail(new ShellLaunchError({ reason }))),
     );
+
+  /** Ends a script shell whose start failed before it was saved, leaving nothing behind. */
+  const discard = Effect.fn("Shells.discard")(function* (shellId: string, pid: number | null) {
+    killing.add(shellId);
+    yield* Effect.gen(function* () {
+      if (pid !== null) yield* killTree(pid);
+      yield* manager.close({ ...session(shellId), deleteHistory: true });
+      if (pid !== null && host !== null) yield* host.forget(pid);
+    }).pipe(
+      // The start fails either way; a shell this could not close is left to the next takeover.
+      Effect.catch((error) =>
+        Effect.logWarning("could not end a shell that failed to start", {
+          shellId,
+          reason: error.message,
+        }),
+      ),
+      Effect.ensuring(
+        Effect.sync(() => {
+          killing.delete(shellId);
+          forgetToken(shellId);
+        }),
+      ),
+      Effect.uninterruptible,
+    );
+  });
 
   // Shells being restored, so a second request while the first runs is refused.
   const restoring = new Set<string>();
@@ -838,16 +838,29 @@ export const makeShells = Effect.fn("Shells.make")(function* (
 
   return {
     // A shell that cannot start is not kept: the caller gets the launch error's reason instead.
+    // A script start returns at the shell's first prompt, once the shell says it can run the
+    // program; until then the shell is listed but unsaved, and input to it waits.
     open: Effect.fn("Shells.open")(function* (input: ShellOpenInput, options?: ShellOpenOptions) {
       const script = options?.script ?? null;
-      if (script !== null) {
-        const problem = yield* scriptProblem(script.command, input.cwd);
-        if (problem !== null) return yield* failToStart(input.cwd, problem);
+      const started =
+        script === null
+          ? null
+          : { script: script.name, program: programOf(script.command) };
+      if (started !== null && started.program.length === 0) {
+        return yield* failToStart(input.cwd, "The script has no command.", started);
       }
       const shellId = yield* newShellId;
       const owner = session(shellId);
       const worktree = options?.worktree ?? null;
       const home = worktree ?? options?.project ?? null;
+      // Settled once the command is typed or the start failed; input waits for it.
+      const typed = started === null ? null : yield* Deferred.make<void>();
+      if (typed !== null) scriptPending.set(shellId, typed);
+      const settle = Effect.sync(() => {
+        if (typed === null) return;
+        scriptPending.delete(shellId);
+        Deferred.doneUnsafe(typed, Effect.void);
+      });
       records.set(shellId, {
         title: options?.title ?? null,
         project: options?.project ?? null,
@@ -867,9 +880,11 @@ export const makeShells = Effect.fn("Shells.make")(function* (
       const token = yield* newToken;
       const tokenHash = token === null ? null : hashToken(token);
       if (tokenHash !== null) tokens.set(tokenHash, shellId);
-      const env = envOf(shellId, token, input.env);
+      const base = envOf(shellId, token, input.env);
+      const env =
+        started === null ? base : { ...base, [START_PROGRAM_ENV]: started.program };
       // Listens from before the shell starts, so its first prompt cannot slip past.
-      const output = script !== null ? yield* Queue.unbounded<ShellOutputEvent>() : null;
+      const output = started !== null ? yield* Queue.unbounded<ShellOutputEvent>() : null;
       const stopOutput =
         output === null
           ? () => {}
@@ -886,14 +901,52 @@ export const makeShells = Effect.fn("Shells.make")(function* (
         .open({ ...owner, ...input, ...(env === undefined ? {} : { env }) })
         .pipe(
           Effect.ensuring(Effect.sync(stop)),
-          Effect.onError(() => Effect.sync(stopOutput)),
+          Effect.onError(() => Effect.andThen(Effect.sync(stopOutput), settle)),
         );
       if (snapshot.status === "error") {
         stopOutput();
+        yield* settle;
         records.delete(shellId);
         forgetToken(shellId);
         yield* manager.close({ ...owner, deleteHistory: true });
-        return yield* failToStart(input.cwd, reason);
+        return yield* failToStart(input.cwd, reason, started);
+      }
+      if (output !== null && started !== null && script !== null) {
+        // Typed before the shell is ready, the line is echoed once at once and again after the
+        // prompt. A shell that cannot tell (not wrapped, or no mark in time) is not refused (ER-3).
+        const ready = yield* Effect.gen(function* () {
+          return (yield* manager.printsPromptMark(owner.threadId, owner.terminalId))
+            ? yield* waitForPromptMark(Stream.fromQueue(output), promptTimeout)
+            : // A shell that already ended has no process left to say it was wrapped.
+              (yield* Queue.clear(output)).some((event) => event.type === "exited")
+              ? { outcome: "exited" as const, program: null }
+              : { outcome: "unwrapped" as const, program: null };
+        }).pipe(
+          Effect.ensuring(Effect.sync(stopOutput)),
+          Effect.onError(() => Effect.andThen(discard(shellId, snapshot.pid), settle)),
+        );
+        const refusal =
+          ready.outcome === "exited"
+            ? "The shell ended before its first prompt."
+            : ready.program === "missing"
+              ? `${started.program} was not found.`
+              : null;
+        if (refusal !== null) {
+          yield* discard(shellId, snapshot.pid);
+          yield* settle;
+          return yield* failToStart(input.cwd, refusal, started);
+        }
+        if (ready.outcome === "timeout") {
+          yield* Effect.logWarning("shell printed no prompt mark; typing the starting script", {
+            shellId,
+          });
+        }
+        yield* manager
+          .write({ ...owner, data: `${script.command}\r` })
+          .pipe(
+            Effect.onError(() => discard(shellId, snapshot.pid)),
+            Effect.ensuring(settle),
+          );
       }
       const record = recordOf(shellId);
       saved.set(shellId, {
@@ -909,58 +962,19 @@ export const makeShells = Effect.fn("Shells.make")(function* (
         ended: null,
       });
       yield* persistOrWarn;
-      // The command line may carry a secret (`TOKEN=… claude`), so only its name and program are logged.
-      const started =
-        script === null
-          ? { script: "plain" }
-          : { script: script.name, program: startingScriptProgram(script.command) };
       yield* Effect.logInfo(
         "shell started",
         record.worktree === null
-          ? { shellId, cwd: snapshot.cwd, ...started }
+          ? { shellId, cwd: snapshot.cwd, ...(started ?? { script: "plain" }) }
           : {
               shellId,
               cwd: snapshot.cwd,
               worktree: record.worktree,
               branch: record.branch,
-              ...started,
+              ...(started ?? { script: "plain" }),
             },
       );
-      if (output !== null && script !== null) {
-        // Typed before the shell is ready, the line is echoed once at once and again after the
-        // prompt. Waiting for the prompt must not hold up the start, so it happens in the background.
-        const typed = yield* Deferred.make<void>();
-        scriptPending.set(shellId, typed);
-        yield* Effect.gen(function* () {
-          const outcome = (yield* manager.printsPromptMark(owner.threadId, owner.terminalId))
-            ? yield* waitForPromptMark(Stream.fromQueue(output), promptTimeout)
-            : "unwrapped";
-          if (outcome === "timeout") {
-            yield* Effect.logWarning("shell printed no prompt mark; typing the starting script", {
-              shellId,
-            });
-          }
-          if (outcome !== "exited") {
-            yield* manager.write({ ...owner, data: `${script.command}\r` });
-          }
-        }).pipe(
-          Effect.catch((error) =>
-            Effect.logWarning("the starting script was not typed", {
-              shellId,
-              reason: error.message,
-            }),
-          ),
-          Effect.ensuring(
-            Effect.sync(() => {
-              stopOutput();
-              scriptPending.delete(shellId);
-              Deferred.doneUnsafe(typed, Effect.void);
-            }),
-          ),
-          Effect.forkIn(scope),
-        );
-      }
-      return toSummary(shellId, snapshot, record);
+      return summaryOf(shellId) ?? toSummary(shellId, snapshot, record);
     }),
     attach: (input: ShellAttachInput, viewerId: string) =>
       manager.attachOutputStream(

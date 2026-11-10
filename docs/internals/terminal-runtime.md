@@ -27,14 +27,22 @@ use; a state folder with no file gets the mock agent only when `PROBE_SEED_MOCK_
 and the scenario harness), and an existing file, even an empty one, is never rewritten. The
 project's last start, worktree and script id, is saved per project in the workspace file.
 
-For a script, `Shells` checks that its program (the first word after any `NAME=value`
-assignments) is a file or a program on the server's `PATH`, then starts the normal interactive
-shell and types the command into it. The check runs before spawning so a missing CLI fails the
-start instead of leaving a shell that only printed "command not found". It does not see the
-shell's own `PATH`, aliases or functions; PRB.T-017 replaces it. Typing the command, rather than
+For a script, the shell that will run it decides whether its program exists, because only that
+shell, after its startup files ran, knows its `PATH`, aliases, functions and builtins (the U-1
+finding of PRB.T-016); a lookup on the server process's own `PATH` refused working commands.
+`Shells` passes the program (the first word after any `NAME=value` assignments) in
+`PROBE_START_PROGRAM`; the wrapper startup files take it out of the environment before the user's
+files run and, at the first prompt, ask the shell (`whence -w` in zsh, `type -t` in bash) and print
+a private `OSC 6973;start;found|missing` report just before the input-start mark. The wrappers also print the
+command-start mark C (zsh `preexec`, bash `PS0`): libghostty-vt clears a `redraw=1` prompt's rows
+on resize, and without C those rows run on into the command's output, which a resize then erased. Until that
+answer the shell is listed but not saved, so a server restart meanwhile finds it an orphan in the
+host and kills it, and input to it waits until the command is typed. On `missing` the shell is
+killed and removed and `shell.open` fails naming the program; with no answer (an unwrapped shell, a config that
+replaced the wrapper, the timeout) the start is not refused. Typing the command, rather than
 spawning the CLI directly, keeps the shell open when the CLI exits. `Shells` logs each start with
 the script's name and program, or `plain`, never the command line (it may carry a secret), each
-failed start with the cwd, and each end, at info level.
+failed start with the cwd (and the script's name and program), and each end.
 
 The command is typed only once the shell is ready. Typed at once, the terminal driver echoes it
 before the prompt and the shell's line editor draws it again after, so it shows twice. zsh and bash
@@ -42,7 +50,7 @@ are therefore started through wrapper startup files ([`shellReady.ts`](../../app
 written to `<state dir>/shell-ready` and chosen in `trySpawn` for shell owners only) that run the
 user's own files and then print the OSC 133;B input-start mark after the prompt. `Shells` types
 after the first mark, or after 15 seconds without one (a slow startup file, or a user config that
-replaced the wrapper), and does it in the background so `shell.open` returns at once. Three details
+replaced the wrapper). A script start's `shell.open` returns then; a plain shell's returns at once. Three details
 are easy to get wrong: zsh prints the mark from a `line-init` hook, because a `precmd` hook runs
 before zsh has put the terminal in raw mode; bash prints it at the end of `PS1`, because
 `PROMPT_COMMAND` runs before readline has; and the mark after the prompt must be B, not the
