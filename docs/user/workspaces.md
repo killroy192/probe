@@ -148,7 +148,7 @@ preselects Plain shell.
 
 Your scripts can't be edited in Probe yet, so a new server offers Plain shell
 only. The program a script runs must be one your shell on that server can run: a
-program on its `PATH` after your startup files ran, a path from the chosen
+program on its `PATH` after your startup files ran, an executable path from the chosen
 folder, an alias, a function or a builtin. When it is not, no shell is left
 and the dialog says which program was not found. A command that exits, or
 fails after it started, leaves the shell open at its prompt.

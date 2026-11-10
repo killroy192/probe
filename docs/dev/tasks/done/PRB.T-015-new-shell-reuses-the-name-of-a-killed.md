@@ -10,38 +10,19 @@ updated: 2026-11-09
 
 # New shell reuses the name of a killed shell that can still be restored
 
-## Steps
+## Goal
 
-1. Open a shell in a worktree. Its name is "shell 1".
-2. Kill it with a signal from outside Probe (for example `kill -9` on its process), so it stays
-   listed as ended with Restore. Killing it from Probe removes it for good.
-3. Restart the server.
-4. Open another shell in the same worktree. Its name is also "shell 1".
+After a server restart, a new shell reused the "Shell N" name of a shell that was killed from outside
+Probe but could still be restored, so the two would collide on restore. A new shell's name now
+skips every number that can still be restored.
 
-## Expected
+## Delivered
 
-The new shell is "shell 2". Killing a shell does not remove it completely: it can still be
-restored, so its name is still taken. Two shells with the same name would collide on restore.
+- The last "Shell N" number is saved in the workspace file (`lastShellNumber`) and survives restarts.
+- Test `SavedWorkspaces.test.ts` "keeps numbering after a restart, past a killed shell that can be restored" fails on `main` and passes with the fix.
+- Scenario S8, stage "restore after a restart": after a server and shell host restart a new shell is "Shell 2" next to the ended "Shell 1", and restoring "Shell 1" shows both.
 
-## Done when
+## Decisions
 
-- A new shell's default name skips the names of every shell in that worktree that can still be
-  restored, not only the running ones.
-- A test covers the sequence above (open, kill, open) and fails on `main`.
-- Restoring the killed shell after step 3 gives "shell 1" and "shell 2" side by side.
-
-## Notes
-
-The "Shell N" counter in `SavedWorkspaces` was in memory only, so it started over at 1 after a
-restart. Within one server run it never repeated. Fixed by saving the last number in the
-workspace file (`lastShellNumber`). A workspace file written before the fix has no saved number,
-so its first restart can still repeat one once.
-
-## Verification
-
-- `SavedWorkspaces.test.ts` "keeps numbering after a restart, past a killed shell that can be
-  restored": fails on `main` ("Shell 1"), passes with the fix ("Shell 2").
-- Scenario S8 (`vp run test:scenarios -- --only S8`), stage "restore after a restart": after a
-  server and shell host restart, a new shell is "Shell 2" next to the ended "Shell 1", and
-  restoring "Shell 1" shows both in the tree. Passes with the fix; on `main` it fails with
-  `A shell started after the restart is "Shell 1", next to "Shell 1".`
+- The counter is saved rather than derived from listed shells, because an ended shell that can be restored keeps its name taken. The counter was in memory only, so it restarted at 1.
+- A workspace file written before the fix has no saved number, so its first restart can still repeat a number once. Accepted.

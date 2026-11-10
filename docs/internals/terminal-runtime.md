@@ -118,6 +118,13 @@ it automatically. The host remembers an exit that happens while no server is con
 forgets it. The socket name carries the protocol version, so a server of another version starts
 its own host and shows the old host's shells as lost.
 
+In a container the detached host is re-parented to PID 1, so the container needs an init (`docker run
+--init`) or exited shells pile up as zombies. The socket has no authentication of its own: anything
+that mounts the state folder can drive its shells, so treat that folder as sensitive. A second
+server on the same folder from another PID namespace passes the pid check and is refused by the
+`server-owner.sqlite` lock. `node-pty` ships glibc prebuilds only, so a musl image (Alpine) installs
+and builds but cannot start the server.
+
 ## Output and retention
 
 [Terminal history](../../apps/server/src/terminal/Manager.ts) is incremental.
