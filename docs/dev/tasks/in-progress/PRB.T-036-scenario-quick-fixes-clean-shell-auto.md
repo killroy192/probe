@@ -14,7 +14,7 @@ updated: 2026-11-09
 
 **Problem:** The scenario suite (`vp run test:scenarios`) can pass or fail for reasons unrelated to Probe. It runs the developer's own shell config, so S2's PRB.T-011 check ("the agent command shows exactly once") likely fails on plain `main` (unverified at runtime, epic A-1). It tests an old web bundle after any web change, because the bundle is rebuilt only when missing. Three scenarios fail a run on elapsed milliseconds, so a busy machine turns a pass into a failure. Frame waits can be satisfied by an earlier frame, so a pass may not prove its claim. A failure prints one line with no screenshot or server log. Teardown can wait up to 10 s per scenario, a killed runner leaves servers behind, and the same helper is written up to three times. No baseline of run time or flake rate exists, so no later story can show it helped.
 
-**Proposed solution:** One pass that makes the suite honest without changing what any scenario proves: scenario servers run with an isolated shell config; the PRB.T-011 contract is checked as an order on the raw history; the web bundle is rebuilt whenever it is stale and the run says which bundle it used; wall-clock gates become recorded metrics, with the click-to-prompt time measured on the server and recorded (the 700 ms gate and the serial perf command are built in PRB.T-040); frame waits carry offsets; readiness comes from the server answering over HTTP; one login is reused per server; throwaway servers stop fast and leftovers of a killed runner are cleaned by captured PID; checks that cannot run as root say so; a failure leaves a screenshot, the server log tail and the last recorded values; helpers live in one shared module. The story also records the baseline the epic's KPI needs.
+**Proposed solution:** One pass that makes the suite honest without changing what any scenario proves: scenario servers run with an isolated shell config; the PRB.T-011 contract is checked as an order on the raw history; the web bundle is rebuilt whenever it is stale and the run says which bundle it used; wall-clock gates become recorded metrics, with the click-to-prompt time measured on the server and recorded (the serial perf command is built in PRB.T-040; the click-to-prompt budget belongs to PRB.E-002); frame waits carry offsets; readiness comes from the server answering over HTTP; one login is reused per server; throwaway servers stop fast and leftovers of a killed runner are cleaned by captured PID; checks that cannot run as root say so; a failure leaves a screenshot, the server log tail and the last recorded values; helpers live in one shared module. The story also records the baseline the epic's KPI needs.
 
 ## Epic and Requirements
 
@@ -24,7 +24,7 @@ updated: 2026-11-09
   - FR-1: a stale bundle can no longer be tested silently; the run rebuilds first and prints which bundle it used.
   - FR-2: scenario servers run with an isolated shell config.
   - FR-3: the PRB.T-011 contract is checked as an order on the raw history.
-  - FR-4: no scenario gates on elapsed wall-clock time; durations are recorded; the click-to-prompt time is measured on the server and recorded as a metric, with no pass/fail gate (the 700 ms gate and the dedicated serial perf command are built in PRB.T-040; the perf run is decided: on request and before a release).
+  - FR-4: no scenario gates on elapsed wall-clock time; durations are recorded; the click-to-prompt time is measured on the server and recorded as a metric, with no pass/fail gate (the dedicated serial perf command is built in PRB.T-040; product budgets such as the 700 ms belong to PRB.E-002; the perf run is decided: on request and before a release).
   - FR-5: a frame wait cannot be satisfied by an earlier frame, and "nothing arrived since" can be asserted.
   - FR-6 (without the trace, which needs the PRB.T-040 runner): a failure leaves a screenshot, the server log tail and the recorder's last values.
   - FR-7: checks that cannot run as root are skipped with a stated reason, never pass vacuously.
@@ -97,12 +97,12 @@ Verified by reading `scripts/scenarios/` on 2026-11-09. The desk analysis was no
 - Splitting S2, S3, S7 and E2-S1, replacing S4's `sleep 2` and S6's global `sleep 1601` regex, and the `/tmp` hard-coded in S3: PRB.T-039.
 - Replacing `gone()` polling, typing-before-ready and reload-with-save-in-flight: PRB.T-041 (the signals) and PRB.T-039/PRB.T-040.
 - Port reservation without a bind-and-release race, global process-table patterns and workspace scoping of assertions: PRB.T-040 (FR-14).
-- The Playwright Test runner, traces, parallel workers, per-scenario selection by name, the perf gate: PRB.T-040. The failure artifacts here are written by the current runner; the trace half of FR-6 is PRB.T-040.
+- The Playwright Test runner, traces, parallel workers, per-scenario selection by name, the serial perf command: PRB.T-040. The failure artifacts here are written by the current runner; the trace half of FR-6 is PRB.T-040.
 - The sandbox: PRB.T-037. The manifest this story writes must not break it (see Dependencies).
-- Smaller items from the analysis that have no owner yet (S1's repeated chat URLs, R1's duplicate tokens): TBD (author, before PRB.T-038 is planned).
+- R1's duplicate tokens: PRB.T-038 (AC-11). S1's repeated chat URLs: PRB.T-039.
 - Setting N for the KPI: epic U-2, after the baseline. The cap (15 s) is set (epic, 2026-11-10).
 - Making scenarios a CI gate; changing what any scenario proves (the epic's must-not-change list).
-- The 700 ms gate, the dedicated serial perf command and when it runs: PRB.T-040 (its AC-15; the measurement itself is here).
+- The serial perf command: PRB.T-040. The 700 ms budget: PRB.E-002 (PRB.E-005 Out); the measurement itself is here.
 
 ## Technical Scope
 

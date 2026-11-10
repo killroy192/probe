@@ -135,7 +135,7 @@ Verified by reading files on 2026-11-10 (the `cocoindex-code` MCP was not availa
 | PRB.T-036 | The rules file describes the harness as PRB.T-036 left it (rebuild on change, isolated shell, offsets, failure artifacts); AC-22 moves here | code merged 2026-11-10; ticket in progress |
 | PRB.E-005 | The rules list and the interim stories come from the epic | approved 2026-11-10, in backlog |
 
-PRB.T-037 to PRB.T-041 depend on this story (they write their rules into the file); none of them is a prerequisite. As written today they still put scenario docs into `docs/operations/development.md` and `docs/internals/testing.md` and do not mention PRB.T-042; their rework (epic, Stories) must land before any of them starts.
+PRB.T-037 to PRB.T-041 depend on this story (they write their rules into the file); none of them is a prerequisite. PRB.T-037, PRB.T-038 and PRB.T-040 were reworked on 2026-11-10 to write into the rules file; PRB.T-037 replaces the interim sandbox instruction this story writes (its AC-21). PRB.T-039 and PRB.T-041 still put scenario docs into `docs/operations/development.md` and `docs/internals/testing.md`; their rework (epic, Stories) must land before either starts.
 
 ## Assumptions
 

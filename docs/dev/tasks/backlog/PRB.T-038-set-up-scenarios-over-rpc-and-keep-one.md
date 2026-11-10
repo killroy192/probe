@@ -8,151 +8,207 @@ created: 2026-11-09
 updated: 2026-11-09
 ---
 
-# Set up scenarios over RPC and keep one real UI path per action
+# Shared e2e library: direct setup over the API, one real UI path per action, waits and debug logging
 
 ## Business Goal
 
-**Problem:** Most scenarios spend their time building a world by clicking: create a workspace, add each project through the dialog, start each shell through the "+" modal (about eight round trips per shell by the desk analysis), and leave the mock agent before the shell can be used. S7 starts 11 shells and adds 5 projects this way, S4 and S6 start about 6 and 10 shells. None of that is what those scenarios test, it is where most of their time goes, and every click is a chance for a flake. R1 already seeds a workspace over the server API, so the approach is proven in this suite.
+**Problem:** Most scenarios spend their time building a world by clicking: create a workspace from the Workspaces menu, add each project through the dialog, start each shell through the "+" modal (about eight round trips per shell by the desk analysis), then type `exit` into the mock agent before the shell can be used. None of that is what S4 to S8 or the E2 scenarios test, and every click is a chance for a flake. The helpers are spread over five modules, one of them inside the scenarios folder, and scenario files still define their own copies of shared helpers, so the next scenario (and PRB.T-039's atomic ones) would copy them again. When a scenario fails, the artifacts hold an info-level server log and nothing from the browser, so the cause often needs a rerun, which the epic forbids.
 
-**Proposed solution:** Scenarios whose subject is not a dialog create their workspaces, projects and shells directly through the server API, and start plain shells without a starting script, so nothing has to be typed out of the mock agent first. For each action family one scenario keeps the real pointer path, so the dialogs stay covered. The run times before and after are recorded, not gated.
+**Proposed solution:** One shared e2e library that every scenario and the sandbox use. It sets up workspaces, projects and shells directly through the server API, keeps one real pointer path per action family in the scenario that owns it, offers the waits (an event raced against one named deadline) and the logging helpers, and returns what it built so later scenarios can be composed from atomic ones. Scenario servers log at debug level, and a failure's artifacts carry that log and the browser console.
 
 ## Epic and Requirements
 
 - **Epic:** PRB.E-005 Fast, deterministic scenario tests
-- **Candidate story:** # 3 PRB.T-038 Set up scenarios over RPC, keep one real UI path per action
+- **Candidate story:** # 4 PRB.T-038 Shared e2e library: direct setup over the API, one real UI path per action, waits and debug logging
 - **Delivers:**
-  - FR-10: scenarios whose subject is not the dialog set up directly through the server API; one real UI path per action family stays (add project, "+" modal, kill with confirmation, Restore, Workspaces menu).
-  - FR-4 (the part a faster setup affects): no new wall-clock gate; times are recorded as a metric only.
-  - NFR-1 (the run-time half): the per-scenario times fall; the target is the KPI's, set after the baseline.
-  - NFR-2: setup that is deterministic by construction (no dialog race to lose).
-  - Epic assumption A-7 is tested here (timings before and after).
-- **Constraints respected, not delivered here:** NFR-3 (setup goes through the authenticated client the harness already uses; the throwaway-home guard is untouched), NFR-5 (pointer-only input in every scenario that drives the UI) and NFR-7 (the RPC setup lives in the one shared fixtures module that PRB.T-036 creates).
-- **One deployable outcome:** After this ships, the scenarios named below finish their setup without dialogs and report their times, and a broken dialog still turns a named scenario red. The suite is faster and no less covering, which is the epic's goal.
+  - FR-10: scenarios whose subject is not the dialog create workspaces, projects and shells directly through the server API; one real UI path per action family stays (add project, "+" modal, kill with confirmation, Restore, Workspaces menu), with the before/after round-trip and time table of the epic's FR-10 row.
+  - FR-20: scenario servers run at debug log level; the failure artifacts include the server's debug log and the browser console; product code may gain debug-level lines a scenario needs, off at the production default.
+  - FR-21: one shared e2e library holds every reusable setup, step, wait, fixture and logging helper; a scenario file holds only its own steps and assertions.
+  - NFR-7 (library half): no duplicate helpers across scenario files.
+  - NFR-3 (the part this story touches): no debug line added to product code, and nothing the library logs, prints a token, pairing URL or cookie.
+  - Epic assumption A-7 is tested here (round trips and times before and after).
+- **Touched, not delivered:** FR-12 only through the epic's switch rule (whichever of PRB.T-038, PRB.T-039 and PRB.T-041 lands last switches the library's waits to the signals); FR-15 only by keeping the rules file current (PRB.T-042 owns it).
+- **One deployable outcome:** After this ships, every scenario builds its world from the one library in a few API calls, the dialogs are still exercised by the scenarios that own them, and a failure's artifacts carry the debug server log and the browser console; the suite is faster, no less covering, and ready for PRB.T-039 to split it into atomic, composable scenarios.
 
 ## Current Behavior
 
-Read on 2026-11-09 (the code search index was unavailable, so this is from reading files). The fixtures module of PRB.T-036 and the sandbox helpers of PRB.T-037 do not exist yet; this story builds on them and the names below are today's.
+Verified by reading files on 2026-11-10 (the `cocoindex-code` MCP was not available; searched with grep). Nothing was run. PRB.T-036's code is merged; PRB.T-037 and PRB.T-042 are not built yet.
 
-- **Setup helpers.** `createWorkspace` (scripts/scenarios/scenarios/workspaceUi.ts:254) clicks the Workspaces menu and fills a dialog. `addProject` (workspaceUi.ts:168) drives the Add project dialog, with the folder browser. `startShell` and `startIn` (workspaceUi.ts:376, 360) open the "+" modal on a project, pick the mock agent (`openModal` picks it unless told otherwise), choose the worktree, click Create shell and wait for the shell list. Every scenario calls them directly.
-- **Leaving the agent.** `leaveAgent` (workspaceUi.ts:418) attaches to the shell, waits for the mock agent banner, types `exit` and waits for its goodbye, so the next typed line reaches the shell. It is used in S4 (many-shells.ts), S5 (close-tab.ts:55), S6 (kill-shell.ts, through `runInShell`), S7 (restart.ts), S8 (restore-shell.ts:76 and others) and in S3 (worktrees.ts, near the branch-switch stage). `agentReady` (workspaceUi.ts:402) waits for the banner.
-- **What already uses RPC.** `connectRpc` (rpc.ts) gives a typed client signed in as the page or a bearer token. R1 (second-server.ts:58-66) creates a workspace and adds a project with `workspace.create` and `workspace.addProject`. S3's kill helper (worktrees.ts) calls `shell.kill`. Scenarios already follow the shell list over `subscribeShells` (workspaceUi.ts:226).
-- **The start request.** `WorkspaceStartShellInput` (packages/contracts/src/workspace.ts:159) has the workspace, the project, an optional worktree choice, an optional script ("Absent for a plain shell") and the terminal size. So a plain shell can be started over the API without a starting script. Whether the server then also saves the project's last start, and whether a shell started this way gets a tab in the page, is not verified (SU-1, SU-2).
-- **Where the UI is the subject.** S1 creates and refuses workspaces by the menu and dialog (boot.ts:49, :142-160). S2 is the add-project and "+" modal scenario (plus-modal.ts). S3 is the worktree choices in the modal (worktrees.ts). S6 kills from the tree with a confirmation (kill-shell.ts:106-130, `askToKill`/`answerConfirm`). S8 clicks Restore (restore-shell.ts). S7 uses the Workspaces menu to switch to and remove a workspace (restart.ts, stages AC-9 and AC-33).
-- **Scenarios that set up by clicking and do not test it.** S4 (6 modal starts, 2 `leaveAgent`), S5 (workspace and 2 modal starts), S6 (about 10 modal starts), S7 (11 shells, 5 add-project dialogs), S8 (UI setup, 2 `leaveAgent`), E2-S3 and E2-S1 (starting-scripts.ts:70-76, `setUp`). The stage lists were read; the share of time each setup costs is unmeasured (SU-3).
-- **Timing.** No per-scenario "before" numbers exist until PRB.T-036 records the baseline.
+- **Where helpers live today (five modules, one inside the scenarios folder).**
+  - `scripts/scenarios/support.ts`: `check`, `recorder` (frame and value waits with `until` and `nothingSince`), `alive`, `gone`, `follow`, `pageFrames`.
+  - `scripts/scenarios/fixtures.ts` (PRB.T-036's fixtures module): `projects` (a git repo with a linked worktree and a plain folder), `setUp` (creates the workspace "sparta" by the UI and adds projects by the dialog), `restartAndReload`, `withClient`, `seedWorkspace` (workspace and one project over the API, used by R1), `unlessRoot`, `metric`, `expectLogged`, `logEntries`, `serverPromptMs`, `shellOutput`, `agentTypedOnceAfterPrompt`, `MOCK_AGENT_LINES`.
+  - `scripts/scenarios/scenarios/workspaceUi.ts`: about 50 pointer and API helpers (`createWorkspace`, `addProject`, `openModal`, `startIn`, `startShell`, `shellList`, `history`, `typeLine`, `openFromTree`, `closeTab`, `askToKill`, `answerConfirm`, `killFromTree`, `allGone`, `reloadShowing`, `openWorkspace`, `gitOk`, `agentReady`, `leaveAgent`, the starting-scripts file helpers). It sits in the scenarios folder, and `fixtures.ts:13` imports from it.
+  - `scripts/scenarios/rpc.ts` (`connectRpc`, `environmentId`) and `scripts/scenarios/seam.ts` (`issueBearerToken`).
+- **Helpers still defined in scenario files, or duplicated** (grep, 2026-11-10):
+  - The shell-list follower: `standalone-shell.ts:32-39` writes its own `subscribeShells` follower; `workspaceUi.ts:241` `shellList` is the same thing.
+  - The prompt mark and OSC stripping: `starting-scripts.ts:47-49` (`PROMPT_MARK`, `withoutOsc`) and `fixtures.ts:182-183` (`PROMPT_MARK`, `OSC`).
+  - The mock agent banner literal `Mock Agent v1`: `plus-modal.ts:151,255`, `worktrees.ts:291`, `workspaceUi.ts:440,457`, beside `MOCK_AGENT_LINES` in `fixtures.ts:217`.
+  - "Is this shell running": `close-tab.ts:38` (`running`) and `restart.ts:468` (`isRunning`).
+  - The Workspaces menu and create dialog: `boot.ts:28` (`workspacesMenu`) beside `workspaceUi.ts:384` (`openWorkspace`) and the menu clicks inside `createWorkspace` (`workspaceUi.ts:287`); S3 fills the start screen's create dialog inline (`worktrees.ts:124-127`).
+  - "The page shows workspace X": `restart.ts:56` (`shown`), `boot.ts:17` (`shownWorkspace`), and the same wait inside `createWorkspace` and `reloadShowing` (`workspaceUi.ts:291,380`).
+  - Tab reads: `restart.ts:43-54` (`openTabs`, `selectedTab`) beside `workspaceUi.ts:63,315` (`tabs`, `shellTab`).
+  - Modal start and script selection: `starting-scripts.ts:53,59` (`selectedScriptKey`, `startModal`) beside `workspaceUi.ts:94,215` (`selectedScript`, `startFromModal`).
+  - Agent waits: `agentReady` and `leaveAgent` (`workspaceUi.ts:433-464`) each attach and wait for the banner.
+  - Single-use helpers another scenario could use: `restoreButton` and `restoreFromTree` (`restore-shell.ts:29-37`), `lastStartOf` (`restart.ts:62`), `listNames`, `projectPaths`, `runtimePid` (`second-server.ts:24-43`), `openShell` (`standalone-shell.ts:14`), `pidsRunning` (`kill-shell.ts:34`), `expectOnlyPlain` (`starting-scripts.ts:334`).
+  - The same preamble in S4 to S8: make a folder in the home, `openPage`, `setViewportSize` (9 scenario files plus `fixtures.ts:30`), `pageFrames`, `connectRpc`, `shellList`, `createWorkspace`, `addProject` (for example `close-tab.ts:31-48`).
+  - The stage label: every long scenario keeps its own `let stage` and a catch that prefixes it (10 files, for example `close-tab.ts:42,117`).
+  - Tokens minted twice: R1 issues the second server's bearer token (`second-server.ts:71`) and `saveServerInBrowser` issues another for the same server (`seam.ts:40`), one CLI start each (the analysis's "R1 tokens minted twice").
+  - Fixed names: the workspace name `"sparta"` is written in `fixtures.ts` and in 8 scenario files, so two setups on one server would collide.
+- **UI setup that is not the subject.** By call sites of `startShell(` (runtime counts may be higher in loops): S4 `many-shells.ts` 6, S5 `close-tab.ts` 2, S6 `kill-shell.ts` 9, S7 `restart.ts` 11, S8 `restore-shell.ts` 5, each after `createWorkspace` and `addProject` by the UI; `leaveAgent` is called in S3 to S8. E2-S1, E2-S3 and E2-S4 (`starting-scripts.ts:79,179,363`) create the workspace and add projects by the UI through `setUp`.
+- **Where the UI is the subject.** S1 creates and refuses workspaces by the menu and dialog (`boot.ts`). S2 adds projects by the dialog and starts from the "+" modal, including the terminal size (`plus-modal.ts`). S3 is the worktree choices in the modal (`worktrees.ts`), and its stage AC-29 imports a linked worktree through the Add project dialog and waits for its notice (`worktrees.ts:131-136`). S6 kills from the tree with a confirmation (`askToKill`, `answerConfirm`). S8 clicks Restore (`restore-shell.ts:33`). S7 opens and removes workspaces by the Workspaces menu (`restart.ts:207,396-414,440`) and checks the modal's remembered choice (stage AC-31, `restart.ts:267`). E2-S1, E2-S3 and E2-S4 drive the modal's starting-script dropdown and its starts.
+- **What already uses the API.** R1 seeds workspaces and projects with `seedWorkspace` (`second-server.ts:70-77`); the `restart-persistence` self-test creates a workspace over the API; T-002 opens a standalone shell with `shell.open`; S2, S3 and T-002 kill with `shell.kill`.
+- **Starting a shell over the API.** The "+" modal itself calls `workspace.startShell` (`apps/web/src/state/workspaces.ts:399-413`), so an API start runs the same server method. `WorkspaceStartShellInput` (`packages/contracts/src/workspace.ts:159-168`) takes the workspace, project, an optional worktree, an optional script ("Absent for a plain shell") and a size. The server starts no script when none is given and saves the project's last start for every start (`apps/server/src/savedWorkspaces/SavedWorkspaces.ts:839-885`). The page adds a tab, and updates its own copy of the last starts, only for a shell it started itself (`workspaces.ts:414-430`); a shell started over the API gets no tab. Whether its tree row shows in a page already showing the workspace was not run (SA-3).
+- **Waits.** `recorder().until` (`support.ts:42-61`) and `server.logged` (`server.ts:278-292`) subscribe to values and race a deadline that fails with "Timed out waiting for <what>". The deadlines are three separate 10 s constants (`support.ts:12`, `server.ts:22`, the page action timeout `run.ts:40`), and Playwright's own `waitFor` failures name a locator, not what the scenario awaited. `gone()` (`support.ts:109-116`) polls a pid for up to 5 s; PRB.T-041 replaces it where the shell list reports the pid, and S6's background jobs keep a bounded loop (PRB.T-042 SA-6).
+- **Logging and artifacts.** Scenario servers start with `--log-level info` (`server.ts:227-228`) into a 4 MiB in-memory buffer (`server.ts:17,236`). A failure saves `error.txt`, a screenshot per page, the last 200 log lines per server (`run.ts:41,112-158`) and `recorders.json`, under the OS temp folder (`environment.ts:83-87`). Nothing listens to the browser console (no `console` or `pageerror` listener in `scripts/scenarios`). The server's level defaults to Info (`apps/server/src/cli/config.ts:97`, epic A-12, verified). The web app has no log level of its own (grep of `apps/web/src` for `logLevel`, `LogLevel`, `console.debug`, 2026-11-10: none).
+- **Timing.** No per-scenario "before" round-trip count exists. PRB.T-036's baseline (its AC-21) is still open.
 - **Mobile and desktop.** Nothing here touches either.
 
 ## Expected Behavior
 
-Setup that is not the subject happens over the API; the subject still happens by the pointer. A reader of a scenario sees the world it needs built in a few lines from the shared fixtures, and the dialogs are exercised by the scenarios that own them.
+Setup that is not the subject goes over the API; the subject still happens by the pointer. A scenario reads as its own steps and assertions on top of the library, and the dialogs are exercised by the scenarios that own them.
 
-- **Which scenarios keep which UI path** (the coverage map; it is the answer to "one real UI path per action family"):
-  - Create workspace by the Workspaces menu: S1.
+- **The library.** One library, separate from the scenario files, holds every reusable setup, UI step, wait, fixture and logging helper. Each duplicate listed in Current Behavior exists once in it. The sandbox's named fixtures (PRB.T-037) are built from the same setup, not a second copy. A scenario file defines no helper another scenario could use.
+- **Coverage map: who keeps which UI path** (one real UI path per action family):
+  - Create workspace by the Workspaces menu and by the start screen's button: S1.
   - Add project (import, create new folder, refusals): S2.
-  - Start a shell from the "+" modal, including worktree choices and the double click: S2 and S3.
-  - The terminal-size stage (S2 AC-6) keeps its modal start: S2.
-  - Starting the mock agent through the modal with a starting script chosen (the script dropdown and its preselection): E2-S1 and E2-S3, plus S2.
-  - The "+" modal's remembered choice (the modal-default stage, S7's AC-31 stage): S7 keeps its modal start, alongside S3's remembered-choice stage.
+  - Import a linked worktree through the Add project dialog, and its notice: S3 (stage AC-29).
+  - Start from the "+" modal, including worktree choices, the double click and the terminal-size stage (S2 AC-6): S2 and S3.
+  - Starting-script dropdown and starts through it: E2-S1, E2-S3, E2-S4, plus S2's agent stages.
+  - The modal's remembered choice: every start in S3 stays a modal start, and in S7 the last start in its workspace before the restart that stage AC-31 compares against (`restart.ts:216,267-271`).
   - Kill from the tree with a confirmation, and cancel: S6.
   - Restore on an ended shell: S8.
-  - Open workspace and remove workspace by the Workspaces menu: S7 keeps the switch and the removal.
-- **Everything else** creates its workspace, adds its projects and starts its shells over the API. After setup the page is brought to the workspace the way a user would (the Workspaces menu or a reload that shows it), and tabs are opened from the tree by a click.
-- **Plain shells without the agent.** Where a scenario needs a plain shell, it starts one with no starting script and types into it directly. `leaveAgent` is no longer called for those. A scenario that needs the mock agent (to test it) still starts it and waits for its banner.
-- **Times.** The per-scenario times from PRB.T-036's baseline and the times after this story are recorded in this ticket's handoff, per scenario, for comparison. They are not a gate.
+  - Open and remove a workspace by the Workspaces menu: S7 (S6's own workspace removal by the menu stays as a subject step).
+  - Remove a project by its row's hover action and a confirmation: S6 (`kill-shell.ts:206-222`).
+  - Close a tab: S5, and S4 and S7 where closing is part of their subject.
+- **Everything else** creates its workspace, adds its projects and starts its shells over the API, then brings the page to the workspace the way a user would and opens tabs from the tree by a click.
+- **Plain shells.** A scenario that needs a plain shell starts one with no starting script and does not leave a mock agent first. It does not type into it before the shell has shown its first prompt.
+- **Waits.** Every library wait subscribes to an event (a frame, a shell-list change, a log entry, a page state) and races it against a deadline from one place in the library; a missed event fails with a message that names what was awaited and the deadline. A time-based check loop stays only where no event exists, with the missing event named next to it, or where the signals switch rule below leaves a wait for PRB.T-041, with a PRB.T-042 temporary suppression that names PRB.T-041. No fixed sleep. A scenario file sets no deadline of its own.
+- **Signals switch rule.** If PRB.T-041 has landed when this story lands, the library's typing, reload and process-end waits use its signals in this story. If not, they keep today's waits, and whichever of PRB.T-039 and PRB.T-041 lands last switches them (epic, Stories).
+- **Logging.** Every server the harness starts runs at debug level: a scenario's server, a second server, and the sandbox's server. A failure's artifacts carry the server's debug log lines from the failing stage's start to the failure, for each server the scenario started, and the browser console of every page it opened. The library records what each setup call asked for and what it got back (workspace names, project paths, shell ids and pids) where the artifacts include it. Product code may gain debug lines a scenario needs; none prints at the production default level.
+- **What the library offers PRB.T-039** (so atomic scenarios can be composed; the composition shape is PRB.T-039's):
+  - **Needs, stated as inputs.** Each setup helper builds one precondition from what it is given (the server, a page, or an earlier helper's result) and nothing else. It never reads what another scenario left, and no state carries between scenarios through the library.
+  - **Results, as values.** Each helper returns what it created (workspace name, project paths and kinds, worktree paths, shell ids and pids, the page showing the workspace, the shell-list and frame followers), so a composed scenario passes one step's result to the next.
+  - **No collisions.** Names and folders are unique per call; the library never assumes an empty server. A scenario that needs a pristine server says so through PRB.T-037's declaration and does not get it from the library.
+  - **Same on every server.** The helpers work the same against the runner's server and a live sandbox.
+  - **What a scenario leaves.** Everything a setup created stays on the server until that server is torn down. The library offers the remove steps (kill a shell, remove a project or workspace) over the API and, for the owning scenarios, by the UI. It does not clean up on its own; whether a scenario must remove its state on a shared server is PRB.T-039's and PRB.T-040's call.
+- **Measurement.** At its start this story counts the setup round trips per scenario (FR-10's "before"), and the epic owner sets the threshold from that count. After the change it records the same count and the per-scenario times, before and after, in this ticket's handoff. Times are recorded, never gated.
 
 ### User Flow
 
-1. The developer (or an agent) runs the suite, or one scenario with `--only <id>`.
-2. A scenario that is not about a dialog builds its workspace, projects and shells in a few API calls and brings the page to the workspace.
-3. The scenario drives the behavior it is about with the pointer.
-4. The scenarios that own a dialog (coverage map above) still click through it; breaking that dialog turns one of them red.
-5. The developer reads the per-scenario times to see the change.
+1. The developer or an agent runs the suite, or one scenario with `--only <id>`.
+2. A scenario that is not about a dialog builds its workspace, projects and shells in a few library calls over the API, and brings the page to the workspace.
+3. It drives the behavior it is about with the pointer.
+4. The scenarios that own a dialog (coverage map) still click through it; when that dialog breaks, one of them fails and names its stage.
+5. A scenario fails. Its first run's artifacts hold the debug server log of the failing stage, the browser console, a screenshot, the recorder values and what the setup created, so the developer finds the cause without a rerun.
+6. An agent writing a new scenario finds in the rules file where the library is, what it offers and the coverage map, and uses it instead of writing a helper.
 
 ### Edge Cases
 
-- EC-1: A shell started over the API shows a row in the tree. Whether it also opens a tab on its own is unverified (SU-2); a scenario that needs a tab opens it from the tree by a click, as the reload scenarios already do.
-- EC-2: The modal's remembered choice (S3, S7 stage AC-31) and the project's "last start" must be true for the scenarios that check them. Those scenarios start through the modal, or set the remembered state by the same means a user would, so a check on "remembered" is never satisfied by API setup that does not write it (SU-1).
-- EC-3: A scenario that needs the page to show a workspace created over the API must not depend on an earlier page state (the start screen versus a remembered workspace); it brings the page there explicitly.
-- EC-4: S1 and S2 run with an empty server on purpose (no workspace yet, refusals): they keep their UI-built world and are not converted.
-- EC-5: The agent-start scenarios (S2's banner and double-click stages, E2-S1, E2-S3) still start the mock agent through the modal; the mock agent is not removed from the suite.
-- EC-6: Terminal size. A shell started over the API needs a size; the stages that assert the grid size (S2 AC-6) keep the modal path.
+- **EC-1** A shell started over the API gets no tab of its own (the page adds tabs only for shells it started). A scenario that needs a tab opens it from the tree by a click.
+- **EC-2** The server saves the last start for API starts too, but a page already showing the workspace updates its copy only for its own starts. Stages that assert the modal's remembered choice start the shell they check through the modal, so the check is never satisfied by setup that skipped the user's path.
+- **EC-3** The page before setup shows the start screen or a remembered workspace: bringing it to the workspace works from either (SA-8).
+- **EC-4** S1 needs an empty server (no workspace yet, refusals; PRB.T-037 declares it pristine). S2 needs only a workspace with no project yet, and the dialog is its subject: both keep their UI-built world.
+- **EC-5** Scenarios that test the mock agent (S2's agent stages, E2-S1, E2-S3) still start it through the modal and wait for its banner.
+- **EC-6** Terminal size: an API start passes a size; the stage that asserts the grid size (S2 AC-6) keeps its modal start.
+- **EC-7** The same setup runs twice on one server (a sandbox, a composed scenario): both succeed with distinct names and folders.
+- **EC-8** A long scenario at debug level produces more log output than the artifact can hold: the failing stage's lines are still in it.
+- **EC-9** Several pages, an anonymous page, or a second server: the console of each page and the debug log of each server are in the artifacts, each labelled.
+- **EC-10** A scenario restarts the server after API setup (S7): its shells and workspaces survive as they did after UI setup, since the modal uses the same server method.
+- **EC-11** A wait with no event to subscribe to (S6's background jobs ending): it stays a bounded check loop that names the missing event (PRB.T-042 EC-6 class (c)).
+- **EC-12** PRB.T-041 lands before or after this story: the switch rule decides who moves the waits to the signals.
 
 ### Error Handling
 
-- ER-1: An API setup call fails: the scenario fails in a setup stage whose name says which call failed (workspace, project, shell) with the server's reason, not later with a missing-element timeout.
-- ER-2: The page does not reach the workspace after API setup: the failure says the workspace was not shown, with the usual failure artifacts of PRB.T-036.
-- ER-3: A dialog is broken: the scenario that owns it fails, and the scenarios that no longer click it are not the ones that report it (that is the point; the coverage map names the owner).
+- **ER-1** An API setup call fails: the scenario fails in a setup stage whose message names the call (workspace, project, shell) and the server's reason, not later with a missing-element timeout.
+- **ER-2** The page does not reach the workspace after API setup: the failure says which workspace was not shown, with the usual artifacts.
+- **ER-3** A UI path is broken: the scenario that owns it in the coverage map fails and names its stage; scenarios that set up over the API do not hide it and are not the ones expected to report it.
+- **ER-4** Saving the browser console or the debug log fails (closed page, unwritable folder): the original scenario error is still the one reported, with a note that the piece is missing (as PRB.T-036 ER-4).
+- **ER-5** A wait passes its deadline: the failure names what was awaited, from which offset where it has one, and the deadline.
 
 ## Out Of Scope
 
-- Splitting S2, S3, S7 and E2-S1 into independent scenarios: PRB.T-039. This story edits their setup lines only where the split is not needed.
-- Removing restarts or changing what a restart proves: PRB.T-039 (and the must-not-change list).
-- Replacing guessed typing with a prompt-ready signal, or reload timing with a layout-saved signal: PRB.T-041. Plain shells started without a script still get typed into after the page attaches; that guess is T-041's to remove, and this story must not make it worse.
-- The runner, shared servers and parallel workers: PRB.T-040.
-- Changing what any scenario proves, or any production code. The mouse-first rule holds.
-- New scenarios for unbuilt features.
-- Mobile and desktop.
+- Splitting scenarios into atomic ones, the check and perf kinds, `.perf.ts`, composed scenarios, named sets, the cap gate (FR-22) and the first-run diagnosis rules of FR-19: PRB.T-039. This story converts the setup of today's scenarios in place and offers the library interface above; it does not split anything or run the cap gate.
+- Cleaning up a scenario's state on a shared server, assertions scoped to a workspace, ports (FR-14): PRB.T-039 and PRB.T-040.
+- The prompt-ready, layout-saved and process-end signals: PRB.T-041 (this story only follows the switch rule).
+- The sandbox command, its refusals and the A-4 check: PRB.T-037.
+- The runner, traces, parallel workers and the serial perf run: PRB.T-040.
+- Info-level product logging (epic Out) and product performance budgets.
+- Changing what any scenario proves; the epic's must-not-change list holds.
+- S1's repeated chat URLs (an analysis small item): scenario content, not setup; proposed for PRB.T-039, TBD (epic owner, before PRB.T-039 is planned). R1's duplicate tokens are in scope here (AC-11).
+- New scenarios for unbuilt features; mobile and desktop.
 
 ## Technical Scope
 
-- **Layers:** scenario harness only (fixtures module, scenario setup), the typed RPC client the harness already has. No server, contract or web change is planned; if the start request or the page needs a change to make API setup observable (SU-2), stop and raise it for the epic owner.
-- **Docs impact:** the "Scenario tests" part of `docs/operations/development.md` and `docs/internals/testing.md` where they describe how scenarios set up; the full rewrite for the runner is PRB.T-040 (FR-15). Check AGENTS.md "Verifying" for accuracy.
-- **Mobile impact:** none.
+- **Layers:** the scenario harness (`scripts/scenarios`: the library, scenario setup, the server handle's log level, failure artifacts, self-tests); the typed RPC client it already has. Product code only for debug-level log lines a scenario needs (server; the web side only once SU-1 is settled). No contract change is planned; if API setup needs one to be observable, stop and raise it with the epic owner.
+- **Docs impact:** the e2e rules file PRB.T-042 creates in `.agents/rules/`: where the library is and what it offers (setup, steps, waits, logging, the interface for composition), the coverage map and the rule that a new scenario sets up over the API unless the UI path is its subject, the waiting rule as the library implements it, and the debug log and browser console in the artifacts. The interim instructions PRB.T-042 wrote for FR-10, FR-20 and FR-21 are replaced, not appended to. No other doc restates any of it (`docs/internals/testing.md`, `docs/operations/development.md` and AGENTS.md are not edited for scenario rules).
+- **Mobile impact:** none; no contract change expected.
 
 ## Non-functional Requirements and Constraints
 
-- The repo test rules hold for the code this story touches: no sleeps, polling loops, wall-clock deltas, per-test timeouts or retries (lint rules `t3code/no-real-time-wait-in-tests`, `no-polling-loop-in-tests`, `no-wall-clock-in-tests`).
-- Pointer-only input in scenarios that drive the UI (mouse-first rule).
-- Real PTYs, real git worktrees and real websockets stay: API setup talks to the real server, it does not mock it.
-- Setup helpers live in the one fixtures module; no copy in a scenario file (epic NFR-7).
-- Times are recorded for comparison, not gated (epic FR-4); no new `Date.now()` delta is added.
-- The throwaway-home guard and cleanup by captured PID are unchanged (epic NFR-3).
+- The repo test rules hold in the library and the scenarios: no sleeps, polling loops, wall-clock deltas, per-test timeout arguments or retries; the lint rules PRB.T-042 widens to scenario files pass, and each suppression keeps its PRB.T-042 class and reason.
+- Pointer-only input in every scenario that drives the UI (mouse-first rule).
+- Real PTYs, git worktrees and websockets stay: setup talks to the real server and mocks nothing.
+- The throwaway-home guard, the clean child environment and cleanup by captured PID are unchanged (NFR-3).
+- Nothing the library logs, and no product debug line, prints a token, pairing URL or cookie (NFR-3). Artifacts stay under the OS temp folder, never in the repo.
+- Product debug lines stay below the production default level (`T3CODE_LOG_LEVEL`, default Info).
+- One run, no reruns: each time measurement is one run on unchanged code (epic FR-19); the before and after runs are of different code. AC-22's after counts and times are read from AC-25's one suite run, and every `auto` criterion is checked by that run, the one `--selftest` run or `vp run check:changed`, except AC-12's one sandbox run.
+- The library has no knowledge of a particular scenario; it does not import from scenario files.
 
 ## Acceptance Criteria
 
 | ID    | Criterion (Given / When / Then) | Check (auto / manual) | Covers (FR / NFR / EC / ER) |
 | ----- | ------------------------------- | --------------------- | --------------------------- |
-| AC-1  | Given the scenarios S4, S5, S6, S7, S8, E2-S1 and E2-S3, when the suite runs, then none of them calls the Add project dialog or the Workspaces menu's Create workspace to build its world, and the only "+" modal starts left in them are the ones the coverage map assigns to them (S7's remembered-choice stage, and the agent-start stages of E2-S1 and E2-S3) | manual (developer, by reading the diff against the coverage map) | FR-10 |
-| AC-2  | Given the coverage map, when the suite runs, then S1 creates a workspace by the menu, S2 adds projects by the dialog and starts shells from the "+" modal, S3 starts from the modal with worktree choices, S6 kills from the tree with a confirmation, S8 clicks Restore, and S7 opens and removes a workspace by the menu, each passing | auto | FR-10, R-2 (epic) |
-| AC-3  | Given the Add project dialog is broken (the refusal of a plain file as a project folder is removed, so the dialog accepts it), when the suite runs, then S2 fails and the output names it | manual (developer, recorded in the handoff; the break is made outside the committed tree and reverted) | FR-10, ER-3 |
-| AC-4  | Given the "+" modal is broken (the Create shell button's click does nothing), when the suite runs, then S2 and S3 fail, and the scenarios that start by API do not hide it | manual (as AC-3) | FR-10, ER-3 |
-| AC-5  | Given the kill confirmation is broken (Confirm does not send the kill), when the suite runs, then S6 fails | manual (as AC-3) | FR-10, ER-3 |
-| AC-6  | Given Restore is broken (the Restore button's click does nothing), when the suite runs, then S8 fails | manual (as AC-3) | FR-10, ER-3 |
-| AC-7  | Given a scenario that needs a plain shell, when it starts one, then it is started with no starting script, nothing is typed into it by the server, and the scenario does not call `leaveAgent` for it | auto | FR-10 |
-| AC-8  | Given the scenarios that still start the mock agent (S2 banner and double-click stages, E2-S1, E2-S3), when they run, then they start it through the modal and see its banner exactly as before | auto | EC-5 |
-| AC-9  | Given a shell started over the API, when the page is at the workspace, then the shell's row shows in the tree, and the tab is open, opening it by click if not already | auto | EC-1 |
-| AC-10 | Given the modal-default stages named in the coverage map (S3's remembered choice, S7's AC-31 stage), when they run, then each starts the shell it checks through the "+" modal, so the remembered state it asserts is written by the user's path whichever way SU-1 comes out | auto | EC-2 |
-| AC-11 | Given a workspace created over the API, when the scenario brings the page to it, then it shows without depending on what the page showed before | auto | EC-3 |
-| AC-12 | Given S1 and S2, when they run, then they start from an empty server and their world is still built by the UI | auto | EC-4 |
-| AC-13 | Given a setup call is made to fail on purpose (a project path that does not exist), when the scenario runs, then it fails in a setup stage naming the call and the server's reason | auto (harness self-test) | ER-1 |
-| AC-14 | Given a workspace that never shows in the page, when the scenario waits for it, then the failure says the workspace was not shown and carries the failure artifacts | auto (harness self-test) | ER-2 |
-| AC-15 | Given the baseline of PRB.T-036 and a run after this story, when the per-scenario times are compared, then the times for S4, S5, S6, S7, S8, E2-S1 and E2-S3 are written in the handoff next to each other, with the machine and method; nothing fails on a time | manual (author, in the ticket handoff) | NFR-1, FR-4, A-7 (epic) |
-| AC-16 | Given two consecutive full runs after this story with no retries and no changes between them, when they finish, then both pass | auto | NFR-2 |
-| AC-17 | Given the suite after this story, when the lint rules for waits and wall-clock deltas run on the scripts, then there is no new violation and no new exemption | auto (`vp run check:changed`) | NFR-7 |
-| AC-18 | Given the new setup code, when the suite is searched for setup helpers, then they are in the one fixtures module and not copied into scenario files | manual (developer) | NFR-7 |
-| AC-19 | Given the throwaway-home guard test in `harness.test.ts`, when it runs, then it still refuses `~/.t3` and any non-local address | auto | NFR-3 |
-| AC-20 | Given the docs that describe scenario setup, when this story lands, then no sentence in them says that scenarios create their workspace and shells by clicking, or that they leave the agent first | manual (developer, docs diff review) | FR-15 (epic), NFR-7 |
-| AC-21 | Given a remembered-choice stage whose remembered state was not written (the modal start replaced by an API start in a trial run), when the stage runs, then it fails | auto (harness self-test) | EC-2 |
-| AC-22 | Given the stage that asserts the terminal size (S2 AC-6), when it runs, then the shell is started through the "+" modal and the grid size is asserted | auto | EC-6 |
+| AC-1  | Given S3, S4, S5, S6, S7, S8, E2-S1, E2-S3 and E2-S4 after the change, when read against the coverage map, then none creates a workspace by the UI, none adds a project by the dialog except S3's stage AC-29, and the only "+" modal starts left are the ones the map assigns to them | manual (developer, diff review against the map) | FR-10 |
+| AC-2  | Given the coverage map, when the suite runs, then each owner drives its UI path and passes (S1 creates by the menu; S2 adds by the dialog and starts from the modal, including the grid-size stage S2 AC-6; S3 imports a linked worktree by the dialog (AC-29) and starts with worktree choices; S6 kills with a confirmation and cancels; S8 clicks Restore; S7 opens and removes by the menu; E2-S1, E2-S3, E2-S4 start through the script dropdown) | auto (suite) and manual (review of each owning stage against the map) | FR-10, ER-3, EC-6, R-2 (epic) |
+| AC-3  | Given a scenario that needs a plain shell, when it runs, then the shell is started over the API with no starting script, the server types nothing into it, no mock agent is left first, and nothing is typed before the shell's first prompt has shown | auto | FR-10 |
+| AC-4  | Given S2's agent stages, E2-S1 and E2-S3, when they run, then they start the mock agent through the modal and see its banner as before | auto | EC-5 |
+| AC-5  | Given a shell started over the API, when the page shows the workspace, then the shell's row is in the tree, and the scenario opens its tab from the tree by a click | auto | EC-1 |
+| AC-6  | Given S3 and S7's stage AC-31, when they run, then every shell S3 starts goes through the modal, and S7's last start in its workspace before the restart (the one AC-31 compares against) goes through the modal | auto | EC-2 |
+| AC-7  | Given a workspace created over the API, when the library brings a page to it from the start screen and from another remembered workspace, then it shows in both cases | auto (harness self-test) | EC-3 |
+| AC-8  | Given S1 and S2, when they run, then S1 starts from an empty server, S2 from a workspace with no project, and both build their world by the UI | auto | EC-4 |
+| AC-9  | Given one server, when the same library setup runs twice, then both succeed and return distinct workspace names and folders, and neither reads the other's state | auto (harness self-test) | FR-21, EC-7 |
+| AC-10 | Given the library, when its setup helpers are read, then each takes what it needs as inputs and returns what it created as a value (names, paths, shell ids and pids, page, followers), none keeps state that a later scenario reads, and the remove steps (kill a shell, remove a project or workspace) exist over the API | manual (developer review) | FR-21 |
+| AC-11 | Given the scenario sources, when reviewed against the rules file, then each duplicate in Current Behavior is defined once, in the library, and R1 mints each server's bearer token once; no scenario file defines a helper another scenario uses or could use; the library imports nothing from scenario files; `vp run typecheck` and knip pass for `scripts` | manual (developer review) and auto (typecheck, knip) | FR-21, NFR-7 |
+| AC-12 | Given the sandbox's named fixtures (PRB.T-037), when read, then they are built from the library's setup and not a second copy; and given one scenario accepted on the sandbox, when it runs once against a sandbox, then it builds its world with the same library calls as on the runner's server and passes | manual (developer review) and auto (the sandbox run) | FR-21 |
+| AC-13 | Given the library's waits, when reviewed, then each subscribes to an event and races a deadline from one place; a check loop remains only where no event exists and names it, or where the switch rule leaves it for PRB.T-041 under a temporary suppression naming PRB.T-041; no fixed sleep remains; no scenario file passes its own deadline | manual (review: event subscription, one deadline source, named missing events) and auto (lint: no sleep, polling loop or clock read without a PRB.T-042 suppression, permanent with its class or temporary naming its story) | FR-21, EC-11 |
+| AC-14 | Given a wait whose event never comes, when it fails, then the message names what was awaited, its offset where it has one, and the deadline | auto (harness self-test) | ER-5 |
+| AC-15 | Given a setup call that fails on purpose (a project path that does not exist), when the scenario runs, then it fails in a setup stage naming the call and the server's reason | auto (harness self-test) | ER-1 |
+| AC-16 | Given a page asked to show a workspace that does not exist, when the wait ends, then the failure says which workspace was not shown and the artifacts are saved | auto (harness self-test) | ER-2 |
+| AC-17 | Given a deliberate failure on a scenario server, when the run ends, then the artifacts hold debug-level server lines from the failing stage and the console of every page opened, each labelled by server or page, including a second server and an anonymous page | auto (harness self-test) | FR-20, EC-9 |
+| AC-18 | Given a failure after more log output than the artifact keeps, when the artifacts are read, then they still hold the server lines from the failing stage's start to the failure | auto (harness self-test) | FR-20, EC-8 |
+| AC-19 | Given a server started with no log flag and no `T3CODE_LOG_LEVEL`, when it runs the code paths of every debug line this story adds, then it prints none of them; and no added line prints a token, pairing URL or cookie | auto (test) and manual (review of each added line) | FR-20, NFR-3 |
+| AC-20 | Given the console or the debug log cannot be saved (a closed page, an unwritable folder), when a scenario fails, then its original error is reported with a note naming the missing piece | auto (harness self-test) | ER-4 |
+| AC-21 | Given a deliberate failure after setup, when the artifacts are read, then they list what each setup call asked for and got back, and contain no token, pairing URL or cookie | auto (harness self-test) and manual (review) | FR-21, NFR-3 |
+| AC-22 | Given the setup round trips counted at this story's start and the epic owner's threshold, when the change is in, then a table in the handoff gives per scenario the round trips and times before and after, each time from one run with its method and machine, and the after counts meet the threshold; nothing fails on a time | manual (author, in the handoff; threshold by the epic owner) | FR-10, A-7 (epic) |
+| AC-23 | Given whether PRB.T-041 has landed when this story lands, when the library is reviewed, then its typing, reload and process-end waits use the signals if it had, and otherwise the handoff names the story that switches them | manual (review) | EC-12, FR-12 (touched) |
+| AC-24 | Given the rules file after this story, when read, then it says where the library is and what it offers (including the composition interface), gives the coverage map and the direct-setup rule, the waiting rule as implemented and the debug log and console in artifacts; the interim instructions for FR-10, FR-20 and FR-21 are gone; no other doc restates them | manual (docs review) | FR-15 (epic, kept current), NFR-7 |
+| AC-25 | Given the change, when `vp run test:scenarios` runs once, `--selftest` runs once and `vp run check:changed` runs, then every scenario passes as before, the self-tests behave as before (T2 fails by design) and the new ones pass, S7 still proves restart survival with API-created state, and the `harness.test.ts` guard cases still pass | auto | EC-10, NFR-3, Out Of Scope |
 
 ## Dependencies
 
-**Depends on:** PRB.T-037 (and through it PRB.T-036), as the table says. **Blocks:** PRB.T-039, then PRB.T-040. Independent of PRB.T-041.
-
 | Depends on | Why | Status |
 | ---------- | --- | ------ |
-| PRB.T-037 | The sandbox lets the author try a setup call against a live server while writing the fixtures (SA-1, SU-1, SU-2), and the sandbox's importable helpers are the home of the RPC fixtures. | backlog |
-| PRB.T-036 | The baseline times to compare with (AC-15), the single fixtures module this story extends, the failure artifacts ER-2 relies on, and the removal of wall-clock gates. Reached through PRB.T-037, listed because the AC depends on it. | backlog |
+| PRB.T-037 | Epic order; its named fixtures move into or are built from the library (AC-12), and its A-4 check says whether scenarios can share a server one after another, which the no-collision rule serves. | backlog (rework in progress) |
+| PRB.T-042 | The rules file this story updates (AC-24) and the lint rules on scenario files the library must pass. | backlog |
+| PRB.T-036 | The fixtures module, failure artifacts, offsets and isolated shell this story builds on; its baseline (AC-21) may give the "before" times (SU-3). | code merged 2026-11-10; in progress |
 
-Blocks: PRB.T-039, because each split scenario builds its own world through these API fixtures.
+PRB.T-039 as written today has not been reworked: it still leaves S1, S4, S5, S6 and S8 unsplit and does not mention composition or cleanup on a shared server. Its rework (epic, Stories) must take those over before anyone relies on this story's composition interface.
+
+**Blocks:** PRB.T-039 (atomic scenarios build their own world through the library and compose through its interface); PRB.T-040 through it. Independent of PRB.T-041 apart from the switch rule.
 
 ## Assumptions
 
 | ID   | Statement | Kind (assumption / unknown) | Status (unverified / verified / false) | How and when to verify | Owner |
 | ---- | --------- | --------------------------- | -------------------------------------- | ---------------------- | ----- |
-| SA-1 | `workspace.startShell` with no script field starts a plain shell that types nothing, as the contract comment says. | assumption | unverified (contract read, behaviour not run) | Start one over a sandbox (PRB.T-037) and read its history. | author, at the start of this story |
-| SU-1 | Whether a start over the API saves the project's last start the way the modal does. | unknown | unverified | Start over a sandbox, then `workspace.open` and read `lastStarts`. The result decides whether other scenarios can rely on the saved last start; AC-10 holds either way. | author, at the start of this story |
-| SU-2 | Whether a shell started over the API opens a tab in a page that is showing the workspace, or only a tree row. | unknown | unverified | Run in a sandbox and look at the page. | author, at the start of this story |
-| SU-3 | How much of each scenario's time is setup, and whether the saving is large. | unknown | unverified | The per-scenario times of PRB.T-036's baseline against this story's run (epic A-7). | author, when this story closes |
-| SA-2 | Scenarios other than S1, S2, S3, S6, S7 (partly) and S8 (Restore) do not assert anything about the dialogs, so converting their setup does not remove a check. | assumption | unverified (stage lists read, not every assertion) | Read each converted scenario's assertions against the coverage map before deleting its UI setup. | author |
-| SA-3 | The analysis's list of scenarios that keep the UI path ("S1, S2, S3 and S6") is a start; Restore (S8) and the Workspaces menu's open and remove (S7) must also keep theirs. | assumption | unverified | Epic owner confirms the coverage map. | epic owner |
+| SA-1 | `workspace.startShell` with no script starts a plain shell into which the server types nothing. | assumption | verified (read `SavedWorkspaces.ts:839-885`; not run) | AC-3 at runtime. | author |
+| SA-2 | A plain shell in the isolated shell config shows a first-prompt mark the library can wait for before typing. | assumption | unverified | Read which shell PRB.T-036's isolation selects (its SU-3) when planning; AC-3. | author |
+| SA-3 | A shell started over the API shows a tree row in a page already showing the workspace (the tree follows the server's shell list). | assumption | unverified | AC-5 at the start of implementation. | author |
+| SA-4 | The scenarios outside the coverage map do not assert dialog behavior in their setup, so converting it removes no check. | assumption | unverified (stage lists read, not every assertion) | Read each converted scenario's assertions against the map when planning. | author |
+| SA-5 | The coverage map is complete, including Restore (S8), the menu's open and remove (S7), the start screen's create (S1), project removal (S6), close tab (S5) and E2-S4's dropdown starts. | assumption | unverified | Epic owner confirms the map at human review. | epic owner |
+| SA-6 | Debug-level server output stays small enough that the harness keeps the failing stage's lines and the run time does not rise noticeably. | assumption | unverified | Measure one scenario's debug volume when planning; AC-18 and the after times of AC-22. | author |
+| SA-7 | API setup removes most per-shell round trips and a large part of the run time (epic A-7). | assumption | unverified | AC-22. | author |
+| SA-8 | A page already open on the start screen, or showing another workspace, can reach a workspace created over the API after it loaded (the Workspaces menu or start screen lists it). | assumption | unverified | AC-7 at the start of implementation. | author |
+| SU-1 | Whether the web app can hide diagnostic lines in production (it has no log level today), or web diagnostics stay out until a decision (epic U-3). | unknown | unverified | Plan stage; if a scenario needs a web line and nothing hides it by default, raise it with the epic owner. | TBD (author, plan stage) |
+| SU-2 | What counts as one setup round trip, and the FR-10 threshold (epic U-2). The epic disagrees with itself on when: its FR-10 Verification row says from this story's own "before" count, its U-2 row says by the end of PRB.T-036; this story follows the FR-10 row. | unknown | unverified | The author proposes the unit with the "before" count at the start; the epic owner sets the threshold. | TBD (epic owner, at the start of this story) |
+| SU-3 | Whether the "before" times come from PRB.T-036's baseline (its AC-21, open) or from this story's own single run at its start. | unknown | unverified | At the start: use the baseline if it exists on the same method. | TBD (author, at the start of this story) |
+| SU-4 | PRB.T-037 plans two named fixtures (`workspace`: one git project; `shells`: the same with two running plain shells, its AC-5) in the shared fixtures module this story grows into the library, and per-run names for scenarios accepted on the sandbox. Unknown: what it actually ships, and whether its per-run names cover the library's no-collision rule or need extending. | unknown | unverified | Read PRB.T-037's code and handoff when it lands. | TBD (author, when PRB.T-037 lands) |
