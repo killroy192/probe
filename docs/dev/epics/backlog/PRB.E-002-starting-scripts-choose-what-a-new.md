@@ -196,7 +196,7 @@ None.
 
 ## Notes for stories
 
-- Today: `PROBE_AGENT_COMMAND` (`apps/server/src/cli/config.ts`) feeds `agentCommand` in `apps/server/src/terminal/Shells.ts`, which checks the program with `agentProblem`/`findProgram` and types `<command>\r` after the shell-ready mark (`apps/server/src/terminal/shellReady.ts`). The harness sets the env var in `scripts/scenarios/server.ts`. The modal's dropdown is `STARTING_SCRIPT` in `apps/web/src/components/workspaces/StartShellDialog.tsx`; the remembered start is `WorkspaceLastStart` in `packages/contracts/src/workspace.ts`.
+- Today (after PRB.T-016): a start names a starting script by id; `SavedWorkspaces` resolves it from the user list and passes it to `Shells.open` (`apps/server/src/terminal/Shells.ts`), which checks the program with `agentProblem`/`findProgram` and types `<command>\r` after the shell-ready mark (`apps/server/src/terminal/shellReady.ts`). The dev runner and the scenario harness seed the mock agent with `PROBE_SEED_MOCK_AGENT`. The remembered start is `WorkspaceLastStart` in `packages/contracts/src/workspace.ts`.
 - Today there is one server: the server-wide command check and the typing happen in the same process that would hold the user list. Keep the user list behind its own service so it can sit on the default server while a start runs on another.
 - T3's project scripts (`ProjectScript` in `packages/contracts/src/project.ts`, `t3.json` actions) belong to the chat-era project model; do not reuse them for this epic's storage.
 - Shell readiness waits up to 15 seconds for the prompt mark before typing anyway (`docs/internals/terminal-runtime.md`).

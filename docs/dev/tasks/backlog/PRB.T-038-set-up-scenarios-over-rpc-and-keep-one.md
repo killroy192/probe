@@ -32,7 +32,7 @@ updated: 2026-11-09
 
 ## Current Behavior
 
-Verified by reading files on 2026-11-10 (the `cocoindex-code` MCP was not available; searched with grep). Nothing was run. PRB.T-036's code is merged; PRB.T-037 and PRB.T-042 are not built yet.
+Verified by reading files on 2026-11-10 (the `cocoindex-code` MCP was not available; searched with grep). Nothing was run. PRB.T-036's code is merged; PRB.T-042 has since merged (done); PRB.T-037 is not built yet.
 
 - **Where helpers live today (five modules, one inside the scenarios folder).**
   - `scripts/scenarios/support.ts`: `check`, `recorder` (frame and value waits with `until` and `nothingSince`), `alive`, `gone`, `follow`, `pageFrames`.
@@ -189,7 +189,7 @@ Setup that is not the subject goes over the API; the subject still happens by th
 | Depends on | Why | Status |
 | ---------- | --- | ------ |
 | PRB.T-037 | Epic order; its named fixtures move into or are built from the library (AC-12), and its A-4 check says whether scenarios can share a server one after another, which the no-collision rule serves. | backlog (rework in progress) |
-| PRB.T-042 | The rules file this story updates (AC-24) and the lint rules on scenario files the library must pass. | backlog |
+| PRB.T-042 | The rules file this story updates (AC-24) and the lint rules on scenario files the library must pass. | done |
 | PRB.T-036 | The fixtures module, failure artifacts, offsets and isolated shell this story builds on; its baseline (AC-21) may give the "before" times (SU-3). | code merged 2026-11-10; in progress |
 
 

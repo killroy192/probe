@@ -40,7 +40,7 @@ Read from code by the earlier draft on 2026-11-08 (the code search index was una
 - **Workspace file:** each workspace is one JSON file named after it, read and written by `apps/server/src/savedWorkspaces/SavedWorkspaces.ts`. It holds projects, the last start and the tabs; older files are migrated on read. It has no field for scripts. Writes are atomic. A file that cannot be read or decoded fails to open with an invalid-workspace error but stays listed; `docs/user/workspaces.md` says opening it "shows why".
 - **Contracts:** the workspace detail and last start are in `packages/contracts/src/workspace.ts` (`WorkspaceDetail`, `WorkspaceLastStart`). Neither carries scripts.
 - **Permissions:** existing methods carry permission scopes (`packages/contracts/src/clientRpcPermissions.ts`). No method exists for starting scripts. By the 2026-11-08 decision, every user has the same permissions and this story adds no role or permission rule of its own.
-- **Server command:** one server-wide command (`PROBE_AGENT_COMMAND`, `apps/server/src/cli/config.ts`, used in `apps/server/src/terminal/Shells.ts`) is typed into every shell. There is no user list, no per-start choice and no merge. (These arrive with PRB.T-016 and PRB.T-018.)
+- **Starting scripts today:** a start names a starting script by id from the user list (PRB.T-016, done; `docs/internals/terminal-runtime.md`). There is no editing of that list (PRB.T-018) and no per-workspace merge, disabling or workspace scripts.
 - **Mobile:** `apps/mobile` consumes shared contracts; it has no workspace or starting script UI. Unverified whether it imports the workspace contracts this story changes (SA-4).
 
 ## Expected Behavior
@@ -147,7 +147,7 @@ AC-19 and AC-20 are manual (code review, as the epic's verification table says);
 | Depends on | Why | Status |
 | ---------- | --- | ------ |
 | PRB.T-018 | Reuses the FR-2 name and command rules and the user list management (renames and deletes that EC-4, EC-5 and EC-6 react to) | backlog |
-| PRB.T-016 | Through PRB.T-018: the persisted user list, the stable identity of a user script, and the dropdown that shows the merged list | backlog |
+| PRB.T-016 | Through PRB.T-018: the persisted user list, the stable identity of a user script, and the dropdown that shows the merged list | done |
 
 PRB.E-003 carries the multi-server connection and is not a blocker: this story works fully with one server, and AC-21 is verified by PRB.E-003 story 8, does not gate this story (PRB.E-003 adds and runs it against its harness second server). PRB.T-020 depends on this story (live updates cover both lists); PRB.T-017 is independent.
 

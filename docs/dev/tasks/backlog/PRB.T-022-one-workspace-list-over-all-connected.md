@@ -41,7 +41,7 @@ Verified by reading the code on 2026-11-09 (the code search index was unavailabl
 - **Shown workspace.** The shown workspace carries an environment id (`ShownWorkspace`), and the tabs are keyed by environment id and name. The remembered shown workspace is stored in the browser under `probe:shown-workspace:` plus an environment id, so it is remembered per server, not as one choice across servers.
 - **Screens.** `WorkspaceScreen.tsx`, `WorkspaceSidebar.tsx` (the shell tree), `ShellTerminal` and `AddProjectDialog.tsx` (folder browser, `filesystemEnvironment.browse`) receive an environment id from the view state. `AddProjectDialog.tsx` also checks whether the connection target is the primary one, and `serverLocation.ts` guesses "remote" from the OS and page host. Other screens may still reach the primary server (the story-1 audit, PRB.T-021, lists them).
 - **Live updates.** A `subscribeWorkspaces` request exists in `packages/contracts/src/rpc.ts`. Unverified: what it pushes (A-8).
-- **Starting scripts.** PRB.T-016 (backlog) has not been built; today a start uses the server-wide command. How a start request gets its command on a workspace of another server is open (U-7).
+- **Starting scripts.** PRB.T-016 is done: a start names a starting script by id from the user list of the server that serves the UI (`starting-scripts.json`). How a start request gets its command on a workspace of another server is open (U-7).
 - **Scenarios.** `scripts/scenarios/scenarios/` has PRB.E-001 S1 to S8 and a start-to-banner time printed by S2. PRB.T-021 adds the second server; until then no scenario runs against another server.
 - **Mobile.** Has its own server list; contracts may change here, so mobile must still compile.
 

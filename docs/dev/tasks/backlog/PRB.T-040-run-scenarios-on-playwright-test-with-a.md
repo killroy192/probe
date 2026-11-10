@@ -37,7 +37,7 @@ updated: 2026-11-09
 
 ## Current Behavior
 
-Read on 2026-11-10 on `main` after the PRB.T-036 merge (`4786cd250`), with grep and file reads; the code search index was down. PRB.T-037, PRB.T-038, PRB.T-039, PRB.T-041 and PRB.T-042 have not landed, so this is the code those stories change before this one starts. What they will have changed is described by the FRs the epic gives them, not here.
+Read on 2026-11-10 on `main` after the PRB.T-036 merge (`4786cd250`), with grep and file reads; the code search index was down. PRB.T-037, PRB.T-038, PRB.T-039 and PRB.T-041 have not landed (PRB.T-042 has, after this was read), so this is the code those stories change before this one starts. What they will have changed is described by the FRs the epic gives them, not here.
 
 - **Runner.** `vp run test:scenarios` is `node scripts/scenarios/run.ts` (root `package.json:41`). `run.ts` launches one Chromium through `playwright-core` (`browser.ts:6-24`, with Playwright's own SIGINT, SIGTERM and SIGHUP handlers turned off so the runner stops its servers first, `browser.ts:7-13`), then runs the selected scenarios one after another (`run.ts:307-326`). It prints `PASS    <id> <title> (<s> s, teardown <ms> ms)` or `FAIL    <id> <title> (...): <message>` plus an artifacts line, and `PENDING` for a scenario without a `run` (`run.ts:308-325`). The summary is `scenarios: <n>/8 passing, ...` from the constant `TOTAL = 8` (`run.ts:39`, `328-332`), then `scenarios: total <s> s` (`run.ts:333`). Every page action has a 10 s default timeout (`run.ts:40`, `230`). There is no retry anywhere in the harness (grep for `retries`/`repeat`, 2026-11-10).
 - **Selection.** `--only <id>` matches one id exactly; no match exits 2 with `no scenario has the id …` (`run.ts:297-301`, `environment.ts:39`). There are no sets. `--selftest` runs T1, T2 and T4; T3 runs only when picked with `--only` (`registry.ts:39-46`, `run.ts:292-296`).
@@ -190,7 +190,7 @@ Read on 2026-11-10 on `main` after the PRB.T-036 merge (`4786cd250`), with grep 
 | PRB.T-043 | The `.perf.ts` files this story's serial perf command runs, sets and composed scenarios, the two new needs its EC-17 uses, and the cap gate command (FR-16, FR-17, FR-19, FR-22). Split from PRB.T-039 on 2026-11-10 | backlog |
 | PRB.T-039 | Atomic scenarios that each build their own state, old ids as sets and S6's marker (FR-11, FR-14 for S6, by the epic's ownership). Parallel workers on a shared server need scenarios that leave nothing for each other. Reworked 2026-11-10: it owns S6's per-run marker; this story keeps S3's scoping and the two-suite check. This story is re-reviewed against PRB.T-039 before it is planned | backlog |
 | PRB.T-041 | Must land before this story closes: the flake-free claim (AC-15) needs the prompt-ready and layout-saved signals and the process-end wait (FR-12). Not needed to start | backlog |
-| PRB.T-042 | Creates the e2e rules file this story updates (FR-15) | backlog |
+| PRB.T-042 | Creates the e2e rules file this story updates (FR-15) | done |
 | PRB.T-036 | The bundle step, isolated shells, failure artifacts, the cleanup manifest and the timing output this story ports; its baseline (AC-21) gives the per-scenario times and lets the epic owner set N (epic U-2) | code merged 2026-11-10; ticket in progress |
 
 Order (epic, user decision 2026-11-10): PRB.T-037, PRB.T-038, PRB.T-043, PRB.T-039, then this story; PRB.T-041 is independent and lands before this one closes. Blocks: nothing; with this story closed, the epic's Done-when list can be checked.

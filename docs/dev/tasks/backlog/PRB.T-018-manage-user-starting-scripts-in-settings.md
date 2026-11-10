@@ -33,14 +33,14 @@ updated: 2026-11-08
 
 ## Current Behavior
 
-Verified by reading code on 2026-11-08 (the cocoindex-code index was unavailable). PRB.T-016 (the persisted user list) is now written but not yet built, so the list below describes the code as it is today and the user list as PRB.T-016 specifies it (a list in the default server's state folder, absent until seeded or saved; a damaged one is logged, the file kept, and the modal offers Plain shell only); see Assumptions.
+Verified by reading code on 2026-11-08 (the cocoindex-code index was unavailable). PRB.T-016 (the persisted user list) has since been built (done), so the list below describes the code as read before it landed, to be re-read at the plan stage, and the user list as PRB.T-016 specified it (a list in the default server's state folder, absent until seeded or saved; a damaged one is logged, the file kept, and the modal offers Plain shell only); see Assumptions.
 
 - **Settings (web).** Settings sections are routes named `apps/web/src/routes/_chat.settings.<section>.tsx` (general, appearance, keybindings, connections, and others). The sidebar lists them from `SETTINGS_NAV_GROUPS` in `apps/web/src/components/settings/settingsSearch.ts`, which drops any path in `HIDDEN_SETTINGS_PATHS` (this is how chat-only pages are hidden, PRB.T-003). Section labels are in `SETTINGS_SECTION_LABELS` in the same file. There is no "Starting scripts" route, label, nav entry or search entry.
-- **Starting script today.** One server-wide command from `PROBE_AGENT_COMMAND` (`apps/server/src/cli/config.ts`) feeds `agentCommand` in `apps/server/src/terminal/Shells.ts`; there is no user list and no endpoint to read or write scripts. The modal's dropdown (`STARTING_SCRIPT` in `apps/web/src/components/workspaces/StartShellDialog.tsx`) is disabled.
+- **Starting script today.** A start names a starting script by id; `SavedWorkspaces` resolves it from the user list (`starting-scripts.json` in the state folder of the server that serves the UI) and passes it to `Shells.open`, which checks its program and types it once after the shell-ready mark (`docs/internals/terminal-runtime.md`). The list has no endpoint to edit it yet: the modal offers Plain shell and the saved scripts, and Settings has no page for them.
 - **Client-guarded methods.** Protected methods are listed in `packages/contracts/src/clientRpcPermissions.ts`. No method exists for starting scripts. This story adds no roles or permission logic (every user has the same permissions, decided 2026-11-08).
 - **Persistence conventions.** Workspaces are files in the server's `userdata/workspaces` folder (`docs/user/workspaces.md`, "Names"); an unreadable file stays in the list and opening it shows why.
 - **Mobile.** `apps/mobile` is a separate React Native app with its own navigation; it has no starting-script UI.
-- **Docs.** `docs/user/workspaces.md` describes the "Agent command" (`PROBE_AGENT_COMMAND`) and says the Starting script cannot be changed yet. `docs/internals/terminal-runtime.md` describes how the agent command is checked and typed. Neither mentions a user list.
+- **Docs.** `docs/user/workspaces.md` describes the starting-script dropdown and says the scripts cannot be edited in Probe yet. `docs/internals/terminal-runtime.md` describes how a starting script is chosen, checked and typed. Neither describes editing the list.
 
 ## Expected Behavior
 
@@ -156,7 +156,7 @@ Settled by the user on 2026-11-08, and applied below:
 
 | Depends on | Why | Status |
 | --- | --- | --- |
-| PRB.T-016 | Persisted user list (and the modal dropdown that shows it); this story edits that list | backlog (written, not yet built) |
+| PRB.T-016 | Persisted user list (and the modal dropdown that shows it); this story edits that list | done |
 
 PRB.E-003 carries the multi-server connection and is not a blocker: this story works fully with one server, and AC-26 is verified by PRB.E-003 story 8, does not gate this story (PRB.E-003 adds and runs it against its harness second server). PRB.T-017 is independent of this story and can run in parallel after PRB.T-016. PRB.T-019 (workspace scripts) and PRB.T-020 (changes after start, live updates) come after this story: PRB.T-019 applies its name and command rules, and PRB.T-020 covers the list this story creates.
 

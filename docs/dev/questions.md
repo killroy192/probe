@@ -37,7 +37,7 @@ it is verified or decided; settled decisions go to `roadmap.md`.
   - PRB.T-038 SA-2: a plain shell in the isolated shell config shows a first-prompt mark the library can wait for before typing (depends on PRB.T-036 SU-3). Checked when PRB.T-038 is planned.
   - PRB.T-038 SU-1 / PRB.E-005 U-3: whether web diagnostic lines can be hidden in production; the web app has no log level today (grep 2026-11-10). Plan stage of PRB.T-038.
 - From the PRB.T-029 container spike (`research/t-029-container-spike.md`), for PRB.T-030 and PRB.T-031:
-  - Whether the server should default the agent command when `PROBE_AGENT_COMMAND` is unset. Today no shell opens at all without it, in any install.
+  - Whether a new install should offer a ready-made starting script. Today a state folder with no `starting-scripts.json` offers Plain shell only; the mock agent is seeded only with `PROBE_SEED_MOCK_AGENT`.
   - What the startup banner and `pair` should print when the server is bound to `0.0.0.0` in a container: today they print the bridge IP, which the host cannot reach. The startup token also lands in the server log.
   - The PID-based "already running" preflight (`apps/server/src/cli/config.ts`) cannot see a server in another PID namespace; the `server-owner.sqlite` lock caught it between containers. Unverified for a host server sharing the folder with a container server.
   - The shell-host socket on a mounted state folder accepts connections from any container that mounts it. Whether the guide only warns, or the socket needs its own check.

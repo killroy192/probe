@@ -52,7 +52,7 @@ Verified by reading the code on 2026-11-10 (the `cocoindex-code` MCP was not ava
 - **Failure artifacts.** A failed scenario saves `error.txt`, a screenshot per open page, each server's log tail and the recorders' last values under `<tmp>/probe-scenario-artifacts/<run start>/<id>/` (`saveArtifacts`, `run.ts:112`), outside the home. Per-scenario timing is printed on every run (`run.ts:315`).
 - **Bundle while a server runs.** The server reads static files from the bundle folder per request (`apps/server/src/http.ts:586-640`) and loads the bundle's asset manifest once (`loadImmutableBuildAssets`, `http.ts:515`). Whether a running server serves a bundle rebuilt after it started correctly is unverified (SA-6). Server code is loaded once at start.
 - **Browser and runner versions.** `scripts/package.json` depends on `playwright-core` 1.60.0; `apps/web` uses `playwright` 1.60.0 (`apps/web/package.json:103`). `@playwright/test` is not a dependency anywhere in the repo (outside `.repos/`). The browser cache (`~/.cache/ms-playwright`) holds only `chromium_headless_shell-1223`. A-5 is unverified.
-- **Docs.** No sandbox is documented. The e2e rules file does not exist yet (`.agents/rules/` is missing; PRB.T-042 is in backlog); `docs/operations/development.md` and `docs/internals/testing.md` describe only the per-scenario runner.
+- **Docs.** No sandbox is documented. The e2e rules file `.agents/rules/scenarios.md` exists (PRB.T-042, done) and says there is no sandbox yet; `docs/operations/development.md` and `docs/internals/testing.md` describe only the per-scenario runner.
 
 ## Expected Behavior
 
@@ -163,7 +163,7 @@ Verified by reading the code on 2026-11-10 (the `cocoindex-code` MCP was not ava
 | Depends on | Why | Status |
 | ---------- | --- | ------ |
 | PRB.T-036 | The sandbox reuses the server handle, HTTP readiness, one login per server, the isolated shell, the manifest cleanup (which skips a live owner), the failure artifacts and the shared fixtures module. | code merged 2026-11-10; ticket in progress |
-| PRB.T-042 | The sandbox commands go into the e2e rules file it creates; it also writes the interim sandbox instruction this story replaces. | backlog |
+| PRB.T-042 | The sandbox commands go into the e2e rules file it creates; it also writes the interim sandbox instruction this story replaces. | done |
 
 **Blocks:** PRB.T-038 (the library grows from the shared fixtures module and the named fixtures defined here); PRB.T-043 (sets and composed scenarios run on this sandbox, FR-17, and two new needs it refuses); PRB.T-039 (converts the scenarios refused here as not yet safe on a shared server); PRB.T-040 (keeps the sandbox working on the new runner, and depends on the A-5 result recorded here). PRB.T-038 and PRB.T-039 as written today still plan ad-hoc sandbox use (importable sandbox helpers, looking at a page, running one step of S3 without its restart); their rework must drop that, because this sandbox runs saved scenarios only.
 

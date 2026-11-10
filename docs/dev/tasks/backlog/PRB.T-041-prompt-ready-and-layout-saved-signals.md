@@ -172,7 +172,7 @@ The users are the developer and the agents writing or running scenarios.
 | ---------- | --- | ------ |
 | PRB.T-036 | The isolated shell, the shared fixtures module, the named-deadline waits and the first-prompt scan for every wrapped shell this story publishes; N (epic U-2) is set by its end | code merged 2026-11-10; in progress (baseline and handoff open) |
 | PRB.T-036, the S2 and E2-S1 order-check failure | AC-24 needs every scenario that uses the signals green N times, S2 and E2-S1 included; PRB.T-042's run saw both fail the PRB.T-011 order check (its Handoff, AC-14), which PRB.T-036 owns (FR-3). Blocks closing this story, not starting it | open |
-| PRB.T-042 | The rules file this story updates, the lint rules on scenario files, and the temporary suppressions naming PRB.T-041 this story removes | merged 2026-11-10; in progress (verify) |
+| PRB.T-042 | The rules file this story updates, the lint rules on scenario files, and the temporary suppressions naming PRB.T-041 this story removes | done (merged 2026-11-10) |
 | PRB.T-016 | The first-prompt scan and script typing reused here | done |
 | PRB.T-011 | The command is typed once, after the first prompt; must stay true | done |
 | PRB.T-008 | Restore, whose new process starts not ready | done |

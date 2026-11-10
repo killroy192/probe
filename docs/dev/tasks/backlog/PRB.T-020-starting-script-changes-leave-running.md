@@ -34,7 +34,7 @@ updated: 2026-11-08
 
 Verified by reading code on 2026-11-08. The code search index (`cocoindex-code`) was unavailable, so searches were by grep.
 
-- **Starting command is server-wide, not per script.** `apps/server/src/terminal/Shells.ts` (`makeShells`, `open`) reads one `agentCommand` option (from `PROBE_AGENT_COMMAND`, `apps/server/src/cli/config.ts`), checks its program, and types `<command>\r` once after the shell-ready mark (`apps/server/src/terminal/shellReady.ts`). There is no user list, no workspace disabling or workspace scripts and no per-start script yet (PRB.T-016, PRB.T-018, PRB.T-019 are backlog stories, not built yet).
+- **A start names one script.** `workspace.startShell` names a starting script by id; `SavedWorkspaces` looks it up in the user list and passes it to `Shells.open`, which checks its program and types it once after the shell-ready mark (`apps/server/src/terminal/shellReady.ts`; `docs/internals/terminal-runtime.md`). There is no workspace disabling or workspace scripts yet (PRB.T-018 and PRB.T-019 are backlog stories, not built).
 - **A shell does not remember its script.** The saved shell record (`SavedShell` in `Shells.ts`) holds id, pid, cwd, label, title, project, worktree, home, token hash, ended state and a `restored` flag, and no script or command.
 - **Restore opens a plain shell today.** `Shells.restore` (`Shells.ts`) reopens the same terminal under the same id and folder, drops the old output and sets `restored`. It does not type any command. `docs/internals/terminal-runtime.md` says nothing calls it automatically.
 - **The shell's name.** `apps/web/src/components/workspaces/shellName.ts` builds "Shell N · folder · program": `title` is the fixed workspace number, the folder is optional, and the last part is `shell.process`, which `Shells.ts` fills from the terminal's current running-program label (only while a subprocess runs, otherwise null). So today the program part follows what is running in the shell now, not a value fixed at start. The epic's FR-9 (amended 2026-11-08, SU-1) keeps it that way: a script edit must not change a name, and the program part stays what runs in the shell.
@@ -143,7 +143,7 @@ Hit-every-surface decisions: entry points (Settings, workspace dialog and modal;
 | ---------- | --- | ------ |
 | PRB.T-019 | Live updates cover both lists (user list and workspace lists), so workspace disabling and workspace scripts must exist | backlog |
 | PRB.T-018 | Through PRB.T-019: the user list must be editable to be changed after start | backlog |
-| PRB.T-016 | Through PRB.T-019 and PRB.T-018: the per-start script choice and remembered script that the fallback and the refusal act on | backlog |
+| PRB.T-016 | Through PRB.T-019 and PRB.T-018: the per-start script choice and remembered script that the fallback and the refusal act on | done |
 | PRB.E-003 (not a blocker) | Carries the multi-server connection. This story works fully with one server; AC-21 to AC-23 are verified by PRB.E-003 story 8, does not gate this story (PRB.E-003 adds and runs them against its harness second server) | backlog |
 | PRB.T-008 | Restore exists and is only extended by a test for script-started shells | done |
 
