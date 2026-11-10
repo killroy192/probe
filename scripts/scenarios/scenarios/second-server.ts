@@ -7,17 +7,14 @@ import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as Stream from "effect/Stream";
 
-import { connectRpc, type WsClient } from "../rpc.ts";
+import { seedWorkspace, withClient } from "../fixtures.ts";
+import type { WsClient } from "../rpc.ts";
 import type { Scenario } from "../scenario.ts";
 import { issueBearerToken, saveServerInBrowser } from "../seam.ts";
 import { REPO_ROOT, type ServerHandle } from "../server.ts";
-import { recorder } from "../support.ts";
+import { check, recorder } from "../support.ts";
 
 const LABEL = "Second server";
-
-function check(condition: boolean, message: string): asserts condition {
-  if (!condition) throw new Error(message);
-}
 
 const isInside = (child: string, parent: string) => {
   const relative = NodePath.relative(parent, child);
@@ -27,19 +24,6 @@ const isInside = (child: string, parent: string) => {
 async function runtimePid(server: ServerHandle): Promise<number> {
   const file = NodePath.join(server.home, "userdata", "server-runtime.json");
   return (JSON.parse(await NodeFSP.readFile(file, "utf8")) as { readonly pid: number }).pid;
-}
-
-async function withClient<A, E>(
-  origin: string,
-  bearerToken: string,
-  use: (client: WsClient) => Effect.Effect<A, E>,
-): Promise<A> {
-  const rpc = await connectRpc(origin, { bearerToken });
-  try {
-    return await Effect.runPromise(use(rpc.client));
-  } finally {
-    await rpc.close();
-  }
 }
 
 const listNames = (client: WsClient) =>
@@ -52,18 +36,6 @@ const listNames = (client: WsClient) =>
       }),
     ),
   );
-
-/** Creates `name` on the server with one project folder inside that server's own home. */
-const seedWorkspace = Effect.fn("secondServer.seedWorkspace")(function* (
-  client: WsClient,
-  home: string,
-  name: string,
-) {
-  const folder = NodePath.join(home, `${name}-project`);
-  yield* Effect.promise(() => NodeFSP.mkdir(folder, { recursive: true }));
-  yield* client["workspace.create"]({ name });
-  yield* client["workspace.addProject"]({ mode: "import", name, path: folder });
-});
 
 const projectPaths = (client: WsClient, name: string) =>
   client["workspace.open"]({ name }).pipe(
@@ -126,7 +98,7 @@ export const secondServer: Scenario = {
     // AC-3: the seam saves the second server in the browser, and the UI connects to it.
     const page = await openPage();
     const secondPort = new URL(second.origin).port;
-    const answered = recorder<string>();
+    const answered = recorder<string>("second server sockets");
     // EC-1: every credential the page sends to the default server, checked below.
     const sentToFirst: Array<string> = [];
     page.on("request", (request) => {
@@ -140,7 +112,8 @@ export const secondServer: Scenario = {
       socket.once("framereceived", () => answered.push(socket.url()));
     });
     const saved = await saveServerInBrowser(page, second, LABEL);
-    await answered.until("the UI to connect to the second server", () => true);
+    // Pushed only by sockets to the second server, which the page opens after the seam saves it.
+    await answered.until("the UI to connect to the second server", () => true, 0);
     const heldList = await withClient(second.origin, saved.bearerToken, listNames);
     check(
       JSON.stringify(heldList) === JSON.stringify(["alpha", "shared"]),

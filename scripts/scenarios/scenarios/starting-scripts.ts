@@ -1,23 +1,29 @@
 // @effect-diagnostics nodeBuiltinImport:off globalDate:off - Makes folder fixtures in the throwaway home, edits its starting scripts and times the start.
 
 import * as NodeFSP from "node:fs/promises";
-import * as NodePath from "node:path";
-import * as NodeProcess from "node:process";
 
 import type { StartingScript } from "@t3tools/contracts";
 
 import type { PointerPage } from "../browser.ts";
-import { connectRpc, type WsClient } from "../rpc.ts";
+import {
+  agentTypedOnceAfterPrompt,
+  expectLogged,
+  logEntries,
+  metric,
+  MOCK_AGENT_LINES,
+  projects,
+  restartAndReload,
+  serverPromptMs,
+  setUp,
+  shellOutput,
+} from "../fixtures.ts";
+import { connectRpc } from "../rpc.ts";
 import type { Scenario } from "../scenario.ts";
 import { MOCK_AGENT_COMMAND, type ServerHandle } from "../server.ts";
-import { pageFrames } from "../support.ts";
+import { check, pageFrames } from "../support.ts";
 import {
-  addProject,
   cancelModal,
-  check,
-  createWorkspace,
   dialog,
-  gitOk,
   history,
   openFromTree,
   openModal,
@@ -39,8 +45,6 @@ import {
 
 /** OSC 133;B, which Probe's zsh and bash wrappers print when the line editor first reads input. */
 const PROMPT_MARK = "]133;B";
-/** NFR-1 guardrail; the baseline on 2026-11-09 was 604 to 615 ms, so it is enforced. */
-const PROMPT_LIMIT_MS = 700;
 
 const withoutOsc = (text: string) => text.replace(/\u001b\][^\u0007\u001b]*(\u0007|\u001b\\)/g, "");
 const count = (text: string, part: string) => text.split(part).length - 1;
@@ -57,33 +61,9 @@ async function startModal(page: PointerPage) {
   await dialog(page).waitFor({ state: "detached" });
 }
 
-/** Fixtures: a git project with a linked worktree, and a plain folder. */
-async function projects(server: ServerHandle) {
-  const folders = NodePath.join(server.home, "folders");
-  const repo = NodePath.join(folders, "repo");
-  const linked = NodePath.join(folders, "linked");
-  const plain = NodePath.join(folders, "plain");
-  for (const dir of [repo, plain]) await NodeFSP.mkdir(dir, { recursive: true });
-  await gitOk(repo, "init", "-q", "-b", "main");
-  await gitOk(repo, "commit", "-q", "--allow-empty", "-m", "first");
-  await gitOk(repo, "worktree", "add", "-q", "-b", "topic", linked);
-  return { repo, linked, plain };
-}
-
-async function setUp(page: PointerPage, folders: ReadonlyArray<string>) {
-  await page.setViewportSize({ width: 1200, height: 800 });
-  await createWorkspace(page, "sparta");
-  for (const folder of folders) {
-    check((await addProject(page, { import: folder })) === null, `Adding ${folder} failed.`);
-  }
-}
-
 /** The server's start log lines. */
 const startLines = (server: ServerHandle) =>
-  server
-    .logs()
-    .split(/\n(?=\S)/)
-    .filter((line) => line.includes("shell started"));
+  logEntries(server).filter((line) => line.includes("shell started"));
 
 export const plainShell: Scenario = {
   id: "E2-S3",
@@ -107,20 +87,24 @@ export const plainShell: Scenario = {
         `A fresh state folder offers ${JSON.stringify(offered)} (AC-1).`,
       );
 
-      // Timed like the baseline: the first start on a fresh server, in the project's checkout.
+      // Timed like the baseline: the first start on a fresh server, in the project's checkout. The
+      // times are recorded, not judged (FR-4); the 700 ms budget is checked by a serial perf run.
       stage = "AC-2b";
       check((await selectedScriptKey(page)) === "plain", "Plain shell is not preselected.");
-      const from = frames.seen.length;
+      const from = frames.mark();
       const clickedAt = Date.now();
       await startButton(page).click();
       await frames.until("the first prompt", (frame) => frame.includes(PROMPT_MARK), from);
-      const promptMs = Date.now() - clickedAt;
-      NodeProcess.stdout.write(
-        `scenarios: E2-S3 click-to-prompt ms=${promptMs} (limit ${PROMPT_LIMIT_MS})\n`,
-      );
-      check(promptMs <= PROMPT_LIMIT_MS, `Click to prompt took ${promptMs} ms (AC-2b).`);
+      metric("E2-S3", "click-to-prompt", Date.now() - clickedAt, "harness, includes the browser");
       await dialog(page).waitFor({ state: "detached" });
-      await shellsIn(shells.lists, repo, 1);
+      const [timed] = await shellsIn(shells.lists, repo, 1);
+      check(timed !== undefined, "The plain shell is not listed.");
+      metric(
+        "E2-S3",
+        "start-to-prompt",
+        await serverPromptMs(server, timed.shellId),
+        "server, start request to first prompt",
+      );
 
       // AC-13a: the variable that used to set every shell's command has no effect any more.
       stage = "AC-2a, AC-13a";
@@ -135,19 +119,27 @@ export const plainShell: Scenario = {
       const [shell] = await shellsIn(shells.lists, linked, 1);
       check(shell !== undefined && shell.worktree === linked, "The shell is not in the worktree.");
       await shellRow(page, shell.shellId).waitFor();
+      const startedFrom = frames.mark();
       // A line typed now runs after anything the server typed, so its output closes the check.
       await typeLine(page, "echo plain-$((40+2))");
-      await frames.until("the typed line's output", (frame) => frame.includes("plain-42"));
+      await frames.nothingSince(
+        "the mock agent in a plain shell (AC-2a, AC-13a)",
+        (frame) => frame.includes("mock-agent") || frame.includes("Mock Agent"),
+        startedFrom,
+        { what: "the typed line's output", match: (frame) => frame.includes("plain-42") },
+      );
       const shown = withoutOsc(await history(rpc.client, shell.shellId));
       check(
         !shown.includes("mock-agent") && !shown.includes("Mock Agent"),
         `Something was typed into a plain shell: ${JSON.stringify(shown.slice(0, 400))} (AC-2a, AC-13a).`,
       );
-      check(
-        startLines(server).some(
-          (line) => line.includes(shell.shellId) && /script\W+plain/.test(line),
-        ),
+      await expectLogged(
+        server,
         `The plain start is not logged as plain (AC-12): ${startLines(server).join("\n")}`,
+        (line) =>
+          line.includes("shell started") &&
+          line.includes(shell.shellId) &&
+          /script\W+plain/.test(line),
       );
     } catch (error) {
       throw new Error(`${stage}: ${error instanceof Error ? error.message : String(error)}`, {
@@ -198,23 +190,33 @@ export const userScripts: Scenario = {
       stage = "AC-3";
       await cancelModal(page);
       await openModal(page, repo);
+      const agentFrom = output.mark();
       await startModal(page);
       const [agent] = await shellsIn(shells.lists, repo, 1);
       check(agent !== undefined, "The mock agent shell did not start.");
-      await output.until("the mock agent's banner", (frame) => frame.includes("Mock Agent v1"));
-      // Typed twice, the second line would reach the agent; S2 checks how the line is shown.
-      const agentShown = withoutOsc(await history(rpc.client, agent.shellId));
+      await output.until(
+        "the mock agent's session line",
+        (frame) => frame.includes("session: mock-"),
+        agentFrom,
+      );
+      const agentRaw = shellOutput(output.seen.slice(agentFrom), agent.shellId);
+      const problem = agentTypedOnceAfterPrompt(agentRaw, MOCK_AGENT_COMMAND, MOCK_AGENT_LINES);
       check(
-        count(agentShown, "session: mock-") === 1 && !agentShown.includes("echo: node"),
-        `The mock agent did not start exactly once (AC-3): ${JSON.stringify(agentShown.slice(0, 400))}`,
+        problem === null,
+        `The mock agent did not start exactly once, after the prompt (AC-3): ${problem}: ${JSON.stringify(agentRaw.slice(0, 400))}`,
       );
 
       stage = "AC-4";
       await openModal(page, plain, { script: "echo agent" });
+      const echoFrom = output.mark();
       await startModal(page);
       const [echoed] = await shellsIn(shells.lists, plain, 1);
       check(echoed !== undefined, "The echo shell did not start.");
-      await output.until("the echo script's output", (frame) => frame.includes("probe-42"));
+      await output.until(
+        "the echo script's output",
+        (frame) => frame.includes("probe-42"),
+        echoFrom,
+      );
       const echoShown = withoutOsc(await history(rpc.client, echoed.shellId));
       check(
         count(echoShown, "probe-42") === 1,
@@ -222,12 +224,17 @@ export const userScripts: Scenario = {
       );
 
       stage = "AC-12";
+      for (const [shellId, name] of [
+        [agent.shellId, "mock agent"],
+        [echoed.shellId, "echo agent"],
+      ] as const) {
+        await expectLogged(
+          server,
+          "A start line lacks the script name (AC-12).",
+          (line) => line.includes("shell started") && line.includes(shellId) && line.includes(name),
+        );
+      }
       const started = startLines(server);
-      check(
-        started.some((line) => line.includes(agent.shellId) && line.includes("mock agent")) &&
-          started.some((line) => line.includes(echoed.shellId) && line.includes("echo agent")),
-        "A start line lacks the script name (AC-12).",
-      );
       check(
         started.every((line) => !line.includes("mock-agent.ts") && !line.includes("probe-$")),
         "A start line carries the command line (AC-12).",
@@ -291,9 +298,8 @@ export const userScripts: Scenario = {
       await NodeFSP.writeFile(startingScriptsFile(server.home), "{ damaged");
       rpc = await restartAndReload(page, server, rpc);
       await expectOnlyPlain(page, repo, "A damaged list offers more than Plain shell (AC-9).");
-      check(
-        server.logs().includes("the starting scripts could not be read"),
-        "The damaged list is not in the server log (AC-9).",
+      await expectLogged(server, "The damaged list is not in the server log (AC-9).", (line) =>
+        line.includes("the starting scripts could not be read"),
       );
       check(
         (await NodeFSP.readFile(startingScriptsFile(server.home), "utf8")) === "{ damaged",
@@ -324,18 +330,6 @@ export const userScripts: Scenario = {
     }
   },
 };
-
-async function restartAndReload(
-  page: PointerPage,
-  server: ServerHandle,
-  rpc: { readonly client: WsClient; readonly close: () => Promise<void> },
-  env?: Readonly<Record<string, string | undefined>>,
-) {
-  await rpc.close();
-  await server.restart(env === undefined ? undefined : { env });
-  await reloadShowing(page, "sparta");
-  return connectRpc(server.origin, page);
-}
 
 async function expectOnlyPlain(page: PointerPage, project: string, message: string) {
   await openModal(page, project, { script: null });
@@ -419,6 +413,7 @@ export const startFailures: Scenario = {
 
       // AC-9 to AC-11: the command ends with code 3; its shell stays listed and running.
       stage = "AC-9";
+      const quickFrom = output.mark();
       await openModal(page, repo, { script: "quick exit" });
       await startModal(page);
       const started = await shellsIn(shells.lists, repo, 2);
@@ -426,11 +421,16 @@ export const startFailures: Scenario = {
       check(quick !== undefined, "The quick exit shell is not listed (AC-9).");
       await shellRow(page, quick.shellId).waitFor();
       await openFromTree(page, quick.shellId);
-      await output.until("the quick command's output", (frame) => frame.includes("quick-exit"));
+      await output.until(
+        "the quick command's output",
+        (frame) => frame.includes("quick-exit"),
+        quickFrom,
+      );
 
       stage = "AC-10";
+      const typedFrom = output.mark();
       await typeLine(page, "echo typed-$((40+2))");
-      await output.until("the typed line's output", (frame) => frame.includes("typed-42"));
+      await output.until("the typed line's output", (frame) => frame.includes("typed-42"), typedFrom);
       const after = shells.current().find((shell) => shell.shellId === quick.shellId);
       check(
         after?.status === "running" && after.ended === null,

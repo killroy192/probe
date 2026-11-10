@@ -3,7 +3,7 @@ id: PRB.T-036
 type: story
 parent: PRB.E-005
 phase: 1
-labels: [testing, plan]
+labels: [testing, implement]
 created: 2026-11-09
 updated: 2026-11-09
 ---

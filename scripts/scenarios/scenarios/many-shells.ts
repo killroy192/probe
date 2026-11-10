@@ -8,10 +8,9 @@ import * as Effect from "effect/Effect";
 
 import { connectRpc } from "../rpc.ts";
 import type { Scenario } from "../scenario.ts";
-import { alive, gone, pageFrames } from "../support.ts";
+import { alive, check, gone, pageFrames } from "../support.ts";
 import {
   addProject,
-  check,
   closeTab,
   createWorkspace,
   gitOk,
@@ -80,9 +79,12 @@ export const manyShells: Scenario = {
       // Each line goes to the shell whose tab is shown, so every marker lands in one shell only.
       for (const [index, shell] of started.entries()) {
         await openFromTree(page, shell.shellId);
+        const typed = frames.mark();
         await typeLine(page, `marker-${index}-s4`);
-        await frames.until(`shell ${index} to echo its marker`, (frame) =>
-          frame.includes(`echo: marker-${index}-s4`),
+        await frames.until(
+          `shell ${index} to echo its marker`,
+          (frame) => frame.includes(`echo: marker-${index}-s4`),
+          typed,
         );
       }
       for (const [index, shell] of started.entries()) {
@@ -135,14 +137,22 @@ export const manyShells: Scenario = {
       await killFromTree(page, killed.shellId);
       await openFromTree(page, inPlain.shellId);
       await leaveAgent(page, rpc.client, inPlain.shellId);
+      // Lists from before the shell started also lack it; only later ones count.
+      const exitedFrom = shells.lists.mark();
       await typeLine(page, "false; exit");
-      await shells.lists.until("the exited shell to leave the list", (list) =>
-        list.every((shell) => shell.shellId !== inPlain.shellId),
+      await shells.lists.until(
+        "the exited shell to leave the list",
+        (list) => list.every((shell) => shell.shellId !== inPlain.shellId),
+        exitedFrom,
       );
+      const signalledFrom = shells.lists.mark();
       NodeProcess.kill(signalled.pid!, "SIGKILL");
       check(await gone(signalled.pid!), "The shell killed by a signal is still running.");
-      await shells.lists.until("the signalled shell to be listed as ended", (list) =>
-        list.some((shell) => shell.shellId === signalled.shellId && shell.ended === "signal"),
+      await shells.lists.until(
+        "the signalled shell to be listed as ended",
+        (list) =>
+          list.some((shell) => shell.shellId === signalled.shellId && shell.ended === "signal"),
+        signalledFrom,
       );
       // A shell with no agent left in it (EC-3) shows output that arrives during the reload.
       await openFromTree(page, plainShell.shellId);
@@ -157,7 +167,7 @@ export const manyShells: Scenario = {
       // AC-32, AC-1, AC-31, AC-5: a reload shows the same workspace, tree, tabs and selection.
 
       stage = "AC-32";
-      const reloadedFrom = frames.seen.length;
+      const reloadedFrom = frames.mark();
       await page.reload();
       await page.getByRole("tree").getByRole("treeitem", { level: 1, name: "sparta" }).waitFor();
 
@@ -203,16 +213,19 @@ export const manyShells: Scenario = {
       // AC-2, AC-3: a reopened tab shows the earlier output once, and input still reaches it.
 
       stage = "AC-2";
-      const reopenedFrom = frames.seen.length;
+      const reopenedFrom = frames.mark();
       await openFromTree(page, closed.shellId);
       await frames.until(
         "the closed shell's earlier output",
         (frame) => frame.includes("echo: marker-5-s4"),
         reopenedFrom,
       );
+      const typedAfter = frames.mark();
       await typeLine(page, "after-reload-s4");
-      await frames.until("input after the reload", (frame) =>
-        frame.includes("echo: after-reload-s4"),
+      await frames.until(
+        "input after the reload",
+        (frame) => frame.includes("echo: after-reload-s4"),
+        typedAfter,
       );
 
       stage = "AC-3";

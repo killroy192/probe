@@ -2,7 +2,6 @@
 
 import * as NodeFSP from "node:fs/promises";
 import * as NodePath from "node:path";
-import * as NodeProcess from "node:process";
 
 import type { ShellSummary } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
@@ -10,13 +9,13 @@ import * as Effect from "effect/Effect";
 import type { PointerPage } from "../browser.ts";
 import { connectRpc } from "../rpc.ts";
 import type { Scenario } from "../scenario.ts";
-import { gone, pageFrames } from "../support.ts";
+import { expectLogged, metric } from "../fixtures.ts";
+import { check, gone, pageFrames } from "../support.ts";
 import {
   addProject,
   addStartingScript,
   leaveAgent,
   cancelModal,
-  check,
   createShellButton,
   dialog,
   dropdownItems,
@@ -105,7 +104,6 @@ export const worktrees: Scenario = {
     let rpc = await connectRpc(server.origin, page);
     let shells = shellList(rpc.client);
     let stage = "setup";
-    const logLines = () => server.logs().split(/\n(?=\S)/);
     const reopen = () => reloadShowing(page, "sparta");
     const killShell = async (shell: ShellSummary) => {
       const latest = shells.current().find((entry) => entry.shellId === shell.shellId);
@@ -114,8 +112,11 @@ export const worktrees: Scenario = {
       // A Probe kill removes the shell; one a signal ended would stay listed (PRB.T-007).
       await Effect.runPromise(rpc.client["shell.kill"]({ shellId: shell.shellId }));
       check(await gone(pid), "The killed shell's process is still running.");
-      await shells.lists.until("the killed shell to leave the list", (list) =>
-        list.every((entry) => entry.shellId !== shell.shellId),
+      // From the current list on; lists from before the shell started lack it too.
+      await shells.lists.until(
+        "the killed shell to leave the list",
+        (list) => list.every((entry) => entry.shellId !== shell.shellId),
+        Math.max(0, shells.lists.mark() - 1),
       );
     };
 
@@ -188,13 +189,13 @@ export const worktrees: Scenario = {
       await tabs(page)
         .filter({ hasText: /^Shell 1 · repo$/ })
         .waitFor();
+      // A recorded metric (FR-4), never compared.
       const switchedAt = Date.now();
       await typeLine(page, "git switch -q other");
       await worktreeNodeLabel(page, repo)
         .filter({ hasText: /^primary · other$/ })
         .waitFor();
-      const switchMs = Date.now() - switchedAt;
-      check(switchMs <= 4_000, `The branch label took ${switchMs} ms (AC-26 needs about 2000).`);
+      metric("S3", "branch-label", Date.now() - switchedAt, "AC-26, was a 4000 ms gate");
       check(
         (await worktreeNode(page, repo).locator("[data-shell-id]").count()) === 2,
         "The worktree's shells did not both stay under its node (AC-26).",
@@ -279,7 +280,8 @@ export const worktrees: Scenario = {
       stage = "AC-5, AC-8";
       await pickItem(page, "Fork from", "branch:other");
       const name1 = await proposedName(page);
-      const framesBefore = frames.seen.length;
+      const framesBefore = frames.mark();
+      // A recorded metric (FR-4), never compared.
       const clickedAt = Date.now();
       check((await startFromModal(page)) === null, "The fork failed (AC-5).");
       const path1 = NodePath.join(repoWorktrees, name1);
@@ -289,9 +291,7 @@ export const worktrees: Scenario = {
         (frame) => frame.includes("Mock Agent v1"),
         framesBefore,
       );
-      NodeProcess.stdout.write(
-        `scenarios: S3 fork start-to-banner ms=${Date.now() - clickedAt} (SU-1, not enforced)\n`,
-      );
+      metric("S3", "fork-start-to-banner", Date.now() - clickedAt);
       check(
         (await run(path1, "branch", "--show-current")) === name1,
         "The branch is not named as shown.",
@@ -302,16 +302,15 @@ export const worktrees: Scenario = {
       );
       check((await tabs(page).count()) === tabsBefore + 1, "No tab opened for the fork (AC-5).");
       await worktreeNodeLabel(page, path1).filter({ hasText: name1 }).waitFor();
-      check(
-        logLines().some(
-          (line) =>
-            line.includes("shell started") &&
-            line.includes(shell1!.shellId) &&
-            line.includes(path1) &&
-            // Once in the worktree path and once as the branch.
-            line.split(name1).length >= 3,
-        ),
+      await expectLogged(
+        server,
         "The log has no start line with the worktree and branch (AC-8).",
+        (line) =>
+          line.includes("shell started") &&
+          line.includes(shell1!.shellId) &&
+          line.includes(path1) &&
+          // Once in the worktree path and once as the branch.
+          line.split(name1).length >= 3,
       );
 
       // AC-9, AC-7: the fork is remembered and one click makes another, differently named one.

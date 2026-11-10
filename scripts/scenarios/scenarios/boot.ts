@@ -5,17 +5,14 @@ import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
 
 import type { PointerPage } from "../browser.ts";
+import { unlessRoot } from "../fixtures.ts";
 import { environmentId } from "../rpc.ts";
 import type { Scenario } from "../scenario.ts";
-
-/** Fails the scenario with `message` unless `condition` holds. */
-function check(condition: boolean, message: string): asserts condition {
-  if (!condition) throw new Error(message);
-}
+import { check } from "../support.ts";
+import { alert, fillCreateWorkspace as createWorkspace } from "./workspaceUi.ts";
 
 const screen = (page: PointerPage) => page.getByTestId("workspace-screen");
 const treeRoot = (page: PointerPage) => page.getByRole("tree").getByRole("treeitem");
-const alert = (page: PointerPage) => page.getByRole("alert");
 
 async function shownWorkspace(page: PointerPage, name: string) {
   await treeRoot(page).filter({ hasText: name }).waitFor();
@@ -43,22 +40,6 @@ async function closeMenu(page: PointerPage) {
   // An empty spot of the main pane, away from the sidebar's controls.
   await page.mouse.click(900, 600);
   await page.getByRole("menu").first().waitFor({ state: "detached" });
-}
-
-/** Fills the create dialog and confirms; returns the dialog's refusal, or null once it closes. */
-async function createWorkspace(page: PointerPage, name: string): Promise<string | null> {
-  const dialog = page.getByRole("dialog");
-  await dialog.getByRole("textbox").fill(name);
-  await dialog.getByRole("button", { name: "Create" }).click();
-  const refusal = dialog.getByRole("alert");
-  await Promise.race([refusal.waitFor(), dialog.waitFor({ state: "detached" })]);
-  if (await dialog.count()) {
-    const reason = await refusal.textContent();
-    await dialog.getByRole("button", { name: "Cancel" }).click();
-    await dialog.waitFor({ state: "detached" });
-    return reason;
-  }
-  return null;
 }
 
 /** Client-side navigation, the way an in-app link or the back button reaches an address. */
@@ -252,33 +233,39 @@ export const boot: Scenario = {
     // AC-15: an invalid or unreadable workspace stays listed and is refused when chosen.
     await seed("broken.json", "not json");
     await seed("locked.json", '{"version":1}');
-    await NodeFSP.chmod(NodePath.join(workspacesDir, "locked.json"), 0o000);
-    for (const name of ["broken", "locked"]) {
+    const refusedOnOpen = async (name: string) => {
       await workspacesMenu(page, "Open workspace");
       await page.getByRole("menuitem", { name, exact: true }).click();
       await alert(page)
         .filter({ hasText: `Workspace "${name}" cannot be opened` })
         .waitFor();
       await shownWorkspace(page, "delphi");
-    }
+    };
+    await refusedOnOpen("broken");
+    await unlessRoot("S1", "AC-15 unreadable workspace", async () => {
+      await NodeFSP.chmod(NodePath.join(workspacesDir, "locked.json"), 0o000);
+      await refusedOnOpen("locked");
+    });
 
     // AC-16, AC-17: when the folder cannot change, create and remove say why and the list stays.
-    await NodeFSP.chmod(workspacesDir, 0o555);
-    try {
-      await workspacesMenu(page);
-      await page.getByRole("menuitem", { name: "Create workspace" }).click();
-      const refused = await createWorkspace(page, "olympia");
-      check(refused?.includes("Could not create") === true, `Create did not fail: ${refused}`);
-      await workspacesMenu(page, "Remove workspace");
-      await page.getByRole("menuitem", { name: "sparta", exact: true }).click();
-      await alert(page).filter({ hasText: "Could not remove" }).waitFor();
-      await workspacesMenu(page, "Open workspace");
-      const unchanged = await menuNames(page, ["broken", "delphi", "locked", "sparta"]);
-      check(!unchanged.includes("olympia"), "A refused workspace was listed.");
-      await closeMenu(page);
-    } finally {
-      await NodeFSP.chmod(workspacesDir, 0o755);
-    }
+    await unlessRoot("S1", "AC-16, AC-17 folder that cannot change", async () => {
+      await NodeFSP.chmod(workspacesDir, 0o555);
+      try {
+        await workspacesMenu(page);
+        await page.getByRole("menuitem", { name: "Create workspace" }).click();
+        const refused = await createWorkspace(page, "olympia");
+        check(refused?.includes("Could not create") === true, `Create did not fail: ${refused}`);
+        await workspacesMenu(page, "Remove workspace");
+        await page.getByRole("menuitem", { name: "sparta", exact: true }).click();
+        await alert(page).filter({ hasText: "Could not remove" }).waitFor();
+        await workspacesMenu(page, "Open workspace");
+        const unchanged = await menuNames(page, ["broken", "delphi", "locked", "sparta"]);
+        check(!unchanged.includes("olympia"), "A refused workspace was listed.");
+        await closeMenu(page);
+      } finally {
+        await NodeFSP.chmod(workspacesDir, 0o755);
+      }
+    });
 
     // AC-6: removing the shown workspace returns to the start screen, which lists the rest.
     await workspacesMenu(page, "Remove workspace");

@@ -10,6 +10,7 @@ import { plainShell, startFailures, userScripts } from "./scenarios/starting-scr
 import { standaloneShell } from "./scenarios/standalone-shell.ts";
 import { worktrees } from "./scenarios/worktrees.ts";
 import { deliberateFailure } from "./selftest/deliberate-failure.ts";
+import { oneLogin } from "./selftest/one-login.ts";
 import { restartPersistence } from "./selftest/restart-persistence.ts";
 import { secondServerFailure } from "./selftest/second-server-failure.ts";
 import type { Scenario } from "./scenario.ts";
@@ -35,7 +36,11 @@ export const storyScenarios: ReadonlyArray<Scenario> = [
   startFailures,
 ];
 
-export const selftestScenarios: ReadonlyArray<Scenario> = [restartPersistence, deliberateFailure];
+export const selftestScenarios: ReadonlyArray<Scenario> = [
+  restartPersistence,
+  deliberateFailure,
+  oneLogin,
+];
 
 /** Self-tests that run only when picked with `--only`, so one `--selftest` run stays short. */
 export const pickedSelftestScenarios: ReadonlyArray<Scenario> = [secondServerFailure];

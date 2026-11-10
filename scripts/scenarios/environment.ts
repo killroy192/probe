@@ -11,9 +11,13 @@ export interface RunOptions {
   readonly serverBin: string | undefined;
   /** Runs only the scenario with this id. */
   readonly only: string | undefined;
+  /** Runs shells with the developer's own startup files instead of the harness's plain ones. */
+  readonly ownShellConfig: boolean;
+  /** Where a failed scenario's screenshot, log tail and recorded values go. */
+  readonly artifacts: string | undefined;
 }
 
-const VALUE_FLAGS = ["--browser", "--server-bin", "--only"] as const;
+const VALUE_FLAGS = ["--browser", "--server-bin", "--only", "--artifacts"] as const;
 // Pointing the harness at existing data or a server is never allowed; these flags only exist to
 // be refused with a clear message.
 const TARGET_FLAGS = ["--base-dir", "--home-dir", "--server", "--server-url", "--url"] as const;
@@ -33,6 +37,8 @@ export function parseArgs(argv: ReadonlyArray<string>): RunOptions {
     browser: flagValue("--browser"),
     serverBin: flagValue("--server-bin"),
     only: flagValue("--only"),
+    ownShellConfig: argv.includes("--own-shell-config"),
+    artifacts: flagValue("--artifacts"),
   };
 }
 
@@ -72,6 +78,14 @@ export function refusalReason(
 export async function createThrowawayHome(): Promise<string> {
   return await NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "probe-scenario-"));
 }
+
+/** The default folder for this run's failure artifacts; never under a throwaway home. */
+export const defaultArtifactsDir = (startedAt: Date) =>
+  NodePath.join(
+    NodeOS.tmpdir(),
+    "probe-scenario-artifacts",
+    startedAt.toISOString().replace(/[:.]/g, "-"),
+  );
 
 export async function removeThrowawayHome(home: string): Promise<void> {
   await NodeFSP.rm(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
