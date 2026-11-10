@@ -63,7 +63,9 @@ for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"] as const) {
 
 const write = (line: string) => NodeProcess.stdout.write(`${line}\n`);
 // Run and scenario durations are printed, never judged (NFR-6).
-const seconds = (fromMs: number) => `${((performance.now() - fromMs) / 1000).toFixed(1)} s`;
+// oxlint-disable-next-line t3code/no-wall-clock-in-tests -- permanent (a): the runner's printed timing
+const clock = () => performance.now();
+const seconds = (fromMs: number) => `${((clock() - fromMs) / 1000).toFixed(1)} s`;
 const fromRepo = (path: string) => NodePath.relative(REPO_ROOT, path);
 
 /** Rebuilds the web bundle when it is missing, older than its sources or `--rebuild` asks. */
@@ -171,12 +173,13 @@ async function runScenario(
   options: RunOptions,
   artifactsRoot: string,
 ): Promise<Outcome> {
-  const startedMs = performance.now();
+  const startedMs = clock();
   resetRecorders();
   const owned: Array<Owned> = [];
   const pages: Array<PointerPage> = [];
   const contexts: Array<BrowserContext> = [];
   const startOwnedServer = async (label: string, serverBin: string | undefined) => {
+    // oxlint-disable-next-line t3code/no-wall-clock-in-tests -- permanent (a): the PID-reuse guard's timestamp
     const homeCreatedMs = Date.now();
     const home = await createThrowawayHome();
     let entry: ManifestEntry | undefined;
@@ -256,8 +259,8 @@ async function runScenario(
       ...missing.map((note) => `artifact missing: ${note}`),
     ].join("\n        ");
   }
-  const durationMs = performance.now() - startedMs;
-  const teardownFrom = performance.now();
+  const durationMs = clock() - startedMs;
+  const teardownFrom = clock();
   for (const context of contexts) await context.close().catch(() => undefined);
   for (const server of owned.reverse()) {
     const index = cleanups.indexOf(server.stop);
@@ -266,11 +269,12 @@ async function runScenario(
     cleanups.splice(index, 1);
     await server.stop();
   }
-  return { error, durationMs, teardownMs: performance.now() - teardownFrom, artifacts };
+  return { error, durationMs, teardownMs: clock() - teardownFrom, artifacts };
 }
 
 async function main(): Promise<number> {
-  const runStartedMs = performance.now();
+  const runStartedMs = clock();
+  // oxlint-disable-next-line t3code/no-wall-clock-in-tests -- permanent (a): names the artifacts folder
   const startedAt = new Date();
   const argv = NodeProcess.argv.slice(2);
   const refusal = refusalReason(argv, NodeProcess.env);

@@ -44,8 +44,8 @@ removed.
 
 ## Working on Probe
 
-Start with the [development runbook](./operations/development.md) (including the
-[scenario tests](./operations/development.md#scenario-tests)) and the
+Start with the [development runbook](./operations/development.md), the
+[scenario rules](../.agents/rules/scenarios.md) and the
 [contribution policy](../CONTRIBUTING.md). Project rules for agents are in [AGENTS.md](../AGENTS.md).
 
 Internal notes preserve architectural decisions, constraints, and implementation traps that the

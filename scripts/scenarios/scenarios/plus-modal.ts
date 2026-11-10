@@ -142,15 +142,18 @@ export const plusModal: Scenario = {
       stage = "AC-2, AC-3, AC-21";
       const framesBefore = frames.mark();
       // Clock reads below are recorded metrics (FR-4), never compared.
+      // oxlint-disable-next-line t3code/no-wall-clock-in-tests -- temporary: PRB.T-039 moves this metric into a perf scenario
       const clickedAt = Date.now();
       await startButton(page).click();
       await shellNodes(page, repo).first().waitFor();
+      // oxlint-disable-next-line t3code/no-wall-clock-in-tests -- temporary: PRB.T-039 moves this metric into a perf scenario
       metric("S2", "tree-node", Date.now() - clickedAt, "AC-3, was a 1000 ms gate");
       await frames.until(
         "the mock CLI banner",
         (frame) => frame.includes("Mock Agent v1"),
         framesBefore,
       );
+      // oxlint-disable-next-line t3code/no-wall-clock-in-tests -- temporary: PRB.T-039 moves this metric into a perf scenario
       metric("S2", "start-to-banner", Date.now() - clickedAt);
       await frames.until(
         "the mock CLI session id",

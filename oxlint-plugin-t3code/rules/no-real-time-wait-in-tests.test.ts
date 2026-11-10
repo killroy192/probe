@@ -266,3 +266,30 @@ productionRule.valid(
     it.live("waits", () => Effect.sleep("1 second"));
   `,
 );
+
+const e2eRule = (filename: string) =>
+  createOxlintRuleHarness("t3code/no-real-time-wait-in-tests", { filename });
+
+describe("t3code/no-real-time-wait-in-tests in e2e files", () => {
+  for (const filename of [
+    "scripts/scenarios/scenarios/fixture.ts",
+    "scripts/scenarios/scenarios/fixture.perf.ts",
+    "scripts/mock-agent/fixture.ts",
+  ]) {
+    e2eRule(filename).invalid(
+      `reports timer sleeps and waitForTimeout in ${filename}`,
+      `
+        import { setTimeout as delay } from "node:timers/promises";
+
+        export async function step(page: { waitForTimeout(ms: number): Promise<void> }) {
+          await new Promise((resolve) => setTimeout(resolve, 50));
+          await delay(50);
+          await page.waitForTimeout(50);
+        }
+      `,
+      (output) => {
+        assert.equal(output.match(/Real-clock wait in a scenario/g)?.length, 3);
+      },
+    );
+  }
+});

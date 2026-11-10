@@ -1,14 +1,16 @@
 import { defineRule, type ESTree } from "@oxlint/plugins";
 import * as Option from "effect/Option";
 
-import { getPropertyName, isIdentifier, unwrapExpression } from "../utils.ts";
+import { getPropertyName, isIdentifier, testFileKind, unwrapExpression } from "../utils.ts";
 
-const TEST_FILE_PATTERN = /\.(?:test|spec)\.[cm]?[jt]sx?$/u;
 const FUNCTIONS = new Set(["ArrowFunctionExpression", "FunctionExpression", "FunctionDeclaration"]);
 const COUNTER_OPERATORS = new Set(["<", "<=", ">", ">="]);
 const TIMERS = new Set(["setImmediate", "setTimeout"]);
 const MESSAGE =
   "Polling loop in a test. Spinning on `yieldNow`/`sleep` is scheduler- and load-dependent. Await the `Deferred`, `Queue.take`, `Stream` element, `drain()`, or `expect.poll` that marks the milestone.";
+
+const E2E_MESSAGE =
+  "Polling loop in a scenario. Wait on the event that marks the milestone; a bounded check loop is only for a state with no event, and its suppression names the missing event. See `.agents/rules/scenarios.md`.";
 
 type LoopNode = ESTree.ForStatement | ESTree.WhileStatement | ESTree.DoWhileStatement;
 
@@ -177,12 +179,14 @@ export default defineRule({
     schema: [],
   },
   create(context) {
-    if (!TEST_FILE_PATTERN.test(context.filename)) return {};
+    const kind = testFileKind(context.filename);
+    if (Option.isNone(kind)) return {};
+    const message = kind.value === "test" ? MESSAGE : E2E_MESSAGE;
 
     const check = (loop: LoopNode) => {
       if (!someDescendant(loop.body, isWait)) return;
       if (!hasPredicateExit(loop)) return;
-      context.report({ node: loop, message: MESSAGE });
+      context.report({ node: loop, message });
     };
 
     return {

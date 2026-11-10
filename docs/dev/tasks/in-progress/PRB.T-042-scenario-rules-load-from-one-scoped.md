@@ -3,7 +3,7 @@ id: PRB.T-042
 type: story
 parent: PRB.E-005
 phase: 1
-labels: [testing, plan]
+labels: [testing, verify]
 created: 2026-11-10
 updated: 2026-11-10
 ---
@@ -141,12 +141,38 @@ PRB.T-037 to PRB.T-041 depend on this story (they write their rules into the fil
 
 | ID   | Statement | Kind (assumption / unknown) | Status (unverified / verified / false) | How and when to verify | Owner |
 | ---- | --------- | --------------------------- | -------------------------------------- | ---------------------- | ----- |
-| SA-1 | Claude Code loads a rules file from `.claude/rules/` with path globs when the agent reads or edits a matching file, also when `.claude/rules` is a symlink to `.agents/rules` (epic A-14). | assumption | unverified | First step of implementation: one rule file, a fresh session reading a scenario file (AC-1). | author |
+| SA-1 | Claude Code loads a rules file from `.claude/rules/` with path globs when the agent reads or edits a matching file, also when `.claude/rules` is a symlink to `.agents/rules` (epic A-14). | assumption | verified | First step of implementation: one rule file, a fresh session reading a scenario file (AC-1). Pre-check 2026-11-10, `claude -p --model haiku --allowedTools Read`, stub rule with a marker: loaded after reading `scripts/scenarios/support.ts` and `scripts/mock-agent/mock-agent.ts` (only that file read, through the symlink), not after `apps/web/package.json`. The developer checked AC-1 and AC-2 in fresh interactive sessions, 2026-11-10: as expected. | author |
 | SA-2 | The three test lint rules apply to scenario files (epic A-15). | assumption | false | Read 2026-11-10: each matches only `.test.`/`.spec.` file names (`oxlint-plugin-t3code/rules/no-wall-clock-in-tests.ts:6`). This story widens them (AC-9). | author |
-| SA-3 | The three rules can match more files without changing what they report in `*.test.*` and `*.spec.*` files. | assumption | unverified | Their existing rule tests pass (AC-11). | author |
+| SA-3 | The three rules can match more files without changing what they report in `*.test.*` and `*.spec.*` files. | assumption | verified | 2026-11-10: the existing cases of the three rule tests pass unchanged; test-file messages are byte-equal (AC-11). | author |
 | SA-4 | No skill or agent file restates scenario rules, so the docs listed in Current Behavior are the whole cut. | assumption | verified | grep of `.agents/`, `AGENTS.md`, `docs/` (outside `docs/dev`) and `README.md` for `test:scenarios`, `scripts/scenarios`, `scenario harness`, `scenario tests`, 2026-11-10 (the last term found `docs/README.md:48`). | author |
-| SA-5 | The list of existing lint hits in Current Behavior is complete. | assumption | unverified | Lint output after widening, compared in AC-13. | author |
-| SU-1 | Which EC-6 outcome each real lint hit gets (the `server.ts` guards, the event-wait deadlines in `support.ts` and `server.ts`, the runner timestamps, `gone()` and the metrics). | unknown | unverified | At the plan stage, from the lint output; the EC-6 rule decides per hit. | author |
-| SA-6 | PRB.T-041 removes `gone()` polling wherever the shell list reports the pid; what remains (S6's `allGone` for background jobs the server does not list) has no exit event to subscribe to and fits EC-6 class (c). | assumption | unverified | Read PRB.T-041 AC-13 when planning, and check that no event exists for those background jobs; if one does, the loop is fixed here or kept temporary for PRB.T-041. | author |
-| SU-2 | Whether path-scoped rules also load when an agent only runs a command and reads no file. | unknown | unverified | Observe in AC-1's sessions; the AGENTS.md pointer covers it either way (EC-2). | author |
-| SU-3 | Which of today's development.md and testing.md details a maintainer (not an agent) still needs outside the rules file, such as the Chromium install line. | unknown | unverified | At the plan stage; anything kept must be a pointer or a non-rule fact (AC-4). | author |
+| SA-5 | The list of existing lint hits in Current Behavior is complete. | assumption | verified | 2026-11-10: the widened lint reported exactly the Current Behavior candidates, 26 errors; `server.ts:106` was not flagged; `scripts/mock-agent` had none (AC-13 table in the Handoff). | author |
+| SU-1 | Which EC-6 outcome each real lint hit gets (the `server.ts` guards, the event-wait deadlines in `support.ts` and `server.ts`, the runner timestamps, `gone()` and the metrics). | unknown | verified | Settled 2026-11-10; the table in the Handoff. | author |
+| SA-6 | PRB.T-041 removes `gone()` polling wherever the shell list reports the pid; what remains (S6's `allGone` for background jobs the server does not list) has no exit event to subscribe to and fits EC-6 class (c). | assumption | verified | 2026-11-10: PRB.T-041 AC-13 drops `gone()` only for pids the shell list reports; S6's jobs (`kill-shell.ts:119-125`) are found by a process-table pattern and have no exit event. `gone()`'s loop stays temporary for PRB.T-041, because some of its callers do have an event today; PRB.T-041 reclassifies the remainder as class (c). | author |
+| SU-2 | Whether path-scoped rules also load when an agent only runs a command and reads no file. | unknown | verified | Pre-check 2026-11-10: a headless session that read no file did not have the rule, so the AGENTS.md pointer is the only path for EC-2. | author |
+| SU-3 | Which of today's development.md and testing.md details a maintainer (not an agent) still needs outside the rules file, such as the Chromium install line. | unknown | verified | 2026-11-10: only the mock agent CLI usage and `vp run dev`'s `PROBE_SEED_MOCK_AGENT` seeding stay in development.md (now its own "Mock agent" section); everything else, including the Chromium install line and the Node-runner rationale, is in the rules file. | author |
+
+## Handoff
+
+- **Rules loading (SA-1, SU-2).** Verified: headless Haiku pre-check, then the developer's AC-1 and AC-2 sessions (2026-11-10).
+- **Lint design.** `testFileKind` in `oxlint-plugin-t3code/utils.ts` decides what the three rules check: `*.test.*`/`*.spec.*` as before, plus any file under `scripts/scenarios/` or `scripts/mock-agent/`; `.perf.ts` there is exempt from the clock rule only. In e2e files the messages point to the rules file. `waitForTimeout` is reported in every checked file (no code used it, so unit and browser lint output is unchanged).
+- **Lint hits (AC-13).** The suppression reason forms are written in the rules file ("Waiting").
+
+| Hit | Rule | What it is | Outcome |
+| --- | --- | --- | --- |
+| `support.ts` `recorder().until` timer | real-time-wait | deadline on a value, named in the failure | permanent (b) |
+| `server.ts` `server.logged` timer | real-time-wait | deadline on a log line, named | permanent (b) |
+| `server.ts` start timer | real-time-wait | deadline raced against output, exit and the HTTP answer, named | permanent (b) |
+| `server.ts` `stopShellHost` loop and timer | polling, real-time-wait | the detached shell host is not the harness's child, and `host.ts:161` drops its pid file before it exits, so no event marks its end | permanent (c) |
+| `support.ts` `gone()` two `Date.now()` reads | wall-clock | the 5 s deadline | fixed: an attempt counter, same bound |
+| `support.ts` `gone()` loop and timer | polling, real-time-wait | process-end wait | temporary, PRB.T-041 (SA-6) |
+| `run.ts` six `performance.now()` reads | wall-clock | printed timing (NFR-6) | permanent (a), behind one `clock()` helper with one suppression |
+| `run.ts` `homeCreatedMs` | wall-clock | PID-reuse guard (`cleanup.ts:149`) | permanent (a) |
+| `run.ts` `startedAt` | wall-clock | names the artifacts folder | permanent (a) |
+| `plus-modal.ts` (3), `starting-scripts.ts` (2), `worktrees.ts` (4) | wall-clock | S2, E2-S3 and S3 metrics in check scenarios | temporary, PRB.T-039 |
+
+- **Docs.** AGENTS.md "Verifying" keeps one scenario line; the documentation table has a `.agents/rules/` row. `testing.md` and `development.md` keep their "Scenario tests" headings (for the anchors) with one pointer line; the mock agent text in development.md moved under "Mock agent". `README.md` and `docs/README.md` link the rules file.
+- **Commands run once (AC-7).** Chromium install: exit 0. Both mock agent commands behave as documented. `--selftest`: T1 and T4 pass, T2 fails by design. `--selftest --only T3`: fails by design (a second server that cannot start, `MODULE_NOT_FOUND` for the missing bin); the rules file now says T3 is a deliberate failure too.
+- **AC-14, accepted with existing failures (user decision, 2026-11-10).** One suite run, 2026-11-10 (bundle current): 7/8 epic scenarios and 4/5 story checks pass. S2 (AC-7/AC-12/AC-24) and E2-S1 (AC-3) fail the PRB.T-011 order check: the shell frames the page received start at the mock agent banner, so the first prompt and the typed command never reached the page (`shellOutput(frames.seen.slice(framesBefore), …)`). This looks like a race between the shell starting and the page subscribing. Neither scenario's code path changed in this story (only comment lines in `plus-modal.ts`; S2 fails before its one `gone()` call), and this run had no rerun. The order check is PRB.T-036's (FR-3), and the prompt-ready signal is PRB.T-041's. `vp run check:changed` fails on two things from local `main`, not from this branch: the format of `apps/server/src/terminal/Shells.ts` and `Manager.test.ts`, and `harness.test.ts` "cleans up after a runner killed with SIGKILL", which reads the shells `registry.json` before it exists after S2's first shell. Local `main` is 90 commits ahead of `origin/main`, which `check:changed` diffs against. Lint, knip, typecheck and the other 449 tests pass. These failures are left to PRB.T-036, whose handoff is open.
+- **Rules file review (user feedback, 2026-11-10).** The file holds only scenario-specific rules and links to AGENTS.md for the general test rules, the lint rule names and the `~/.t3` guard. It names no library exports, and keeps fault-helper and root-check notes only as rules (the code documents the APIs). The interim lines are gathered in a closing section, so a landing story deletes its line. "Running" and the cap gate stay in the file, as FR-15, NFR-5 and FR-9 require (user decision, same day). AC-5's "nothing dropped" therefore holds for rules, not for API descriptions the code carries.
+- **For PRB.T-037 to PRB.T-041.** Write rules into `.agents/rules/scenarios.md` in the change that alters the harness, replace its interim lines, and remove the temporary suppressions you own.
+

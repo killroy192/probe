@@ -52,6 +52,7 @@ export function recorder<A>(label = "values") {
         waiters.delete(check);
         resolve(found);
       };
+      // oxlint-disable-next-line t3code/no-real-time-wait-in-tests -- permanent (b): deadline raced against the value, named in the failure
       const timer = setTimeout(() => {
         waiters.delete(check);
         reject(new Error(`Timed out waiting for ${what}.`));
@@ -107,9 +108,11 @@ export const alive = (pid: number) => {
 
 // Ending a shell sends SIGTERM and escalates after a grace period, so the process leaves a little later.
 export async function gone(pid: number): Promise<boolean> {
-  const deadline = Date.now() + 5_000;
-  while (alive(pid)) {
-    if (Date.now() > deadline) return false;
+  // Up to 5 s: 50 checks 100 ms apart.
+  // oxlint-disable-next-line t3code/no-polling-loop-in-tests -- temporary: PRB.T-041 waits for the shell list's ended event instead
+  for (let attempt = 0; alive(pid); attempt++) {
+    if (attempt === 50) return false;
+    // oxlint-disable-next-line t3code/no-real-time-wait-in-tests -- temporary: PRB.T-041 waits for the shell list's ended event instead
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
   return true;

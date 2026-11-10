@@ -33,7 +33,6 @@ it is verified or decided; settled decisions go to `roadmap.md`.
   - PRB.E-005 A-9: the cold starts and UI-driven setup are most of the run time. Timing split in the PRB.T-036 baseline; acted on in PRB.T-038.
   - PRB.E-005 A-11: parallel load exposes waits that are only guesses today. Run in parallel before and after PRB.T-041, in PRB.T-040.
   - PRB.E-005 A-13: with direct setup and a shared server, atomic scenarios fit under the 15 s cap. The cap gate per scenario in PRB.T-039, and a whole-suite gate when PRB.T-040 closes.
-  - PRB.T-042 SA-6: what PRB.T-041 leaves of `gone()` polling (S6's background jobs, which the server does not list) has no exit event to subscribe to, so it may stay as a bounded check loop with the missing event named. Checked when PRB.T-042 is planned, against PRB.T-041 AC-13.
   - PRB.E-005 U-1: per-scenario times and the flake rate today. One gate-style serial run in PRB.T-036 (its AC-21), after the user confirms the machine is quiet.
   - PRB.E-005 A-2 (PRB.T-041 SA-2): S4's tab-list flake comes from reloading with a layout save still in flight and reading the tab strip once with no wait. Desk reading; PRB.T-041 AC-9 tests it.
   - PRB.T-038 SA-2: a plain shell in the isolated shell config shows a first-prompt mark the library can wait for before typing (depends on PRB.T-036 SU-3). Checked when PRB.T-038 is planned.

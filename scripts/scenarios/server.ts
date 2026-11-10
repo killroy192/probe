@@ -153,6 +153,7 @@ export const waitUntilServing = (
     child.stderr?.on("data", onData);
     child.once("error", (error) => fail(error.message));
     child.once("exit", (code, signal) => fail(`exited with ${signal ?? `code ${String(code)}`}`));
+    // oxlint-disable-next-line t3code/no-real-time-wait-in-tests -- permanent (b): deadline raced against output, exit and the HTTP answer, named in the failure
     const timer = setTimeout(
       () => fail(`no answer over HTTP within ${timeoutMs / 1000} s`),
       timeoutMs,
@@ -283,6 +284,7 @@ export async function startServer(options: {
           logWaiters.delete(check);
           resolve(found);
         };
+        // oxlint-disable-next-line t3code/no-real-time-wait-in-tests -- permanent (b): deadline raced against the log line, named in the failure
         const timer = setTimeout(() => {
           logWaiters.delete(check);
           reject(new Error(`Timed out waiting for the server to log ${what}.`));
@@ -305,11 +307,13 @@ export async function startServer(options: {
       if (pid === null) return;
       NodeProcess.kill(pid, signal);
       // Up to 5 s for the host to end its shells, then it is killed outright.
+      // oxlint-disable-next-line t3code/no-polling-loop-in-tests -- permanent (c): no exit event, the detached host is not our child and drops its pid file before it exits
       for (let attempt = 0; alive(pid); attempt++) {
         if (attempt === 100) {
           NodeProcess.kill(pid, "SIGKILL");
           break;
         }
+        // oxlint-disable-next-line t3code/no-real-time-wait-in-tests -- permanent (c): no exit event, the detached host is not our child
         await new Promise((resolve) => setTimeout(resolve, 50));
       }
     },

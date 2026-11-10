@@ -49,19 +49,20 @@ Shared vocabulary is in [docs/internals/glossary.md](docs/internals/glossary.md)
 
 Pick the place by asking: is it shipped, is it shared, is it durable?
 
-| Where                       | Holds                                                                                         | Committed     | Never here                                                     |
-| --------------------------- | --------------------------------------------------------------------------------------------- | ------------- | -------------------------------------------------------------- |
-| `docs/user/`                | How to use shipped features                                                                   | yes           | implementation, plans                                          |
-| `docs/operations/`          | Maintainer procedures: dev setup, release, debugging                                          | yes           | user how-tos, plans                                            |
-| `docs/internals/`           | Architecture decisions, cross-component constraints and traps, for built code                 | yes           | anything not built yet                                         |
-| `docs/dev/roadmap.md`       | Every settled product and scope decision, and the phase order                                 | yes           | per-ticket detail                                              |
-| `docs/dev/questions.md`     | Open questions and unverified claims that span tickets                                        | yes           | copies of a ticket's assumption table                          |
-| `docs/dev/epics/`, `tasks/` | One ticket each: spec, assumptions, verification notes, and the handoff a later session needs | yes, via `tm` | step-by-step working plans                                     |
-| `docs/dev/design/`          | Design drafts for features not built yet                                                      | yes           |                                                                |
-| `docs/dev/research/`        | Studies of other products and spike reports                                                   | yes           |                                                                |
-| `docs/dev/ideas/`           | Unscoped ideas to research later, one file each                                               | yes           | decisions, tickets                                             |
-| `.plans/`                   | The current working plan                                                                      | no            | anything a later session needs; put it in the ticket's handoff |
-| Agent auto-memory           | How this developer likes to work with the agent                                               | no            | project facts and decisions                                    |
+| Where                       | Holds                                                                                            | Committed     | Never here                                                     |
+| --------------------------- | ------------------------------------------------------------------------------------------------ | ------------- | -------------------------------------------------------------- |
+| `docs/user/`                | How to use shipped features                                                                      | yes           | implementation, plans                                          |
+| `docs/operations/`          | Maintainer procedures: dev setup, release, debugging                                             | yes           | user how-tos, plans                                            |
+| `docs/internals/`           | Architecture decisions, cross-component constraints and traps, for built code                    | yes           | anything not built yet                                         |
+| `docs/dev/roadmap.md`       | Every settled product and scope decision, and the phase order                                    | yes           | per-ticket detail                                              |
+| `docs/dev/questions.md`     | Open questions and unverified claims that span tickets                                           | yes           | copies of a ticket's assumption table                          |
+| `docs/dev/epics/`, `tasks/` | One ticket each: spec, assumptions, verification notes, and the handoff a later session needs    | yes, via `tm` | step-by-step working plans                                     |
+| `docs/dev/design/`          | Design drafts for features not built yet                                                         | yes           |                                                                |
+| `docs/dev/research/`        | Studies of other products and spike reports                                                      | yes           |                                                                |
+| `docs/dev/ideas/`           | Unscoped ideas to research later, one file each                                                  | yes           | decisions, tickets                                             |
+| `.agents/rules/`            | Agent rules scoped to file globs, loaded when an agent touches them (`.claude/rules` links here) | yes           | text another doc restates                                      |
+| `.plans/`                   | The current working plan                                                                         | no            | anything a later session needs; put it in the ticket's handoff |
+| Agent auto-memory           | How this developer likes to work with the agent                                                  | no            | project facts and decisions                                    |
 
 - **Memory test.** If another developer or agent on another machine would need it, it goes in
   `docs/dev`, not in your auto-memory. Do not commit auto-memory, plans, or other agent scratch files.
@@ -189,7 +190,7 @@ An empty database is a bad test. Seed your worktree's `.t3` with a copy of real 
   });
   ```
 
-- Terminal-first behavior is proven by the scenario harness: `vp run test:scenarios` (or `-- --only <id>`) starts Probe on a throwaway home and drives it in headless Chromium, with the mock agent CLI (`scripts/mock-agent/mock-agent.ts`) standing in for Claude Code. A new user-facing behavior adds or extends a scenario. See [Scenario tests](docs/operations/development.md#scenario-tests).
+- Terminal-first behavior is proven by scenarios (`scripts/scenarios`), and a new user-facing behavior adds or extends one. Read [the scenario rules](.agents/rules/scenarios.md) before writing or running a scenario.
 - User-visible frontend changes should get one integrated pass in a real client with `test-t3-app`. The primary agent does this once after integrating. Subagents do not launch their own dev servers.
 
 - Real agent runs cost money. Use the mock agent in shells. Run a real CLI (Claude Code in a shell) only when the change depends on its behavior, and then pick its cheapest model, such as Haiku. The `Replay (dev)` provider that `vp run dev` registers only matters for chat code; [test-t3-app](.agents/skills/test-t3-app/SKILL.md) shows how to start one.

@@ -92,9 +92,11 @@ export const plainShell: Scenario = {
       stage = "AC-2b";
       check((await selectedScriptKey(page)) === "plain", "Plain shell is not preselected.");
       const from = frames.mark();
+      // oxlint-disable-next-line t3code/no-wall-clock-in-tests -- temporary: PRB.T-039 moves this metric into a perf scenario
       const clickedAt = Date.now();
       await startButton(page).click();
       await frames.until("the first prompt", (frame) => frame.includes(PROMPT_MARK), from);
+      // oxlint-disable-next-line t3code/no-wall-clock-in-tests -- temporary: PRB.T-039 moves this metric into a perf scenario
       metric("E2-S3", "click-to-prompt", Date.now() - clickedAt, "harness, includes the browser");
       await dialog(page).waitFor({ state: "detached" });
       const [timed] = await shellsIn(shells.lists, repo, 1);
@@ -430,7 +432,11 @@ export const startFailures: Scenario = {
       stage = "AC-10";
       const typedFrom = output.mark();
       await typeLine(page, "echo typed-$((40+2))");
-      await output.until("the typed line's output", (frame) => frame.includes("typed-42"), typedFrom);
+      await output.until(
+        "the typed line's output",
+        (frame) => frame.includes("typed-42"),
+        typedFrom,
+      );
       const after = shells.current().find((shell) => shell.shellId === quick.shellId);
       check(
         after?.status === "running" && after.ended === null,
