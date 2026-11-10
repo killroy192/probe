@@ -2479,8 +2479,14 @@ it.layer(
         ptyAdapter.processes[1]!.emitData(MARK);
         yield* Deferred.await(wrote);
         expect(lines.filter((line) => line.message === "shell prompt ready")).toEqual([
-          { message: "shell prompt ready", fields: { shellId: plain.shellId, ms: expect.any(Number) } },
-          { message: "shell prompt ready", fields: { shellId: agent.shellId, ms: expect.any(Number) } },
+          {
+            message: "shell prompt ready",
+            fields: { shellId: plain.shellId, ms: expect.any(Number) },
+          },
+          {
+            message: "shell prompt ready",
+            fields: { shellId: agent.shellId, ms: expect.any(Number) },
+          },
         ]);
       }).pipe(Effect.scoped, Effect.provide(Logger.layer([logger], { mergeWithExisting: false })));
     });
