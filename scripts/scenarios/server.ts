@@ -49,6 +49,11 @@ export interface ServerHandle {
   readonly shellHostPid: () => number | null;
   /** Stops the shell host by the pid it wrote into this home, which ends every shell in it. */
   readonly stopShellHost: (signal?: NodeJS.Signals) => Promise<void>;
+  /**
+   * Everything `shellId`'s process wrote that this home's servers received, prompt marks included,
+   * whenever a page attached. The server saves a chunk before it sends it to any client.
+   */
+  readonly rawOutput: (shellId: string) => string;
 }
 
 const RESERVED_PREFIXES = ["T3CODE_", "VITE_", "PROBE_"];
@@ -202,12 +207,14 @@ export async function startServer(options: {
   let logs = "";
   const logWaiters = new Set<() => void>();
   let pairings = 0;
+  const rawOutputDir = NodePath.join(options.home, "raw-output");
   const defaults: ServerEnv = {
     // Without a UTF-8 locale zsh counts a prompt's "➜" as three columns and redraws over the
     // prompt row where a typed line wraps.
     ...(NodeProcess.env.LANG || NodeProcess.env.LC_ALL ? {} : { LANG: "C.UTF-8" }),
     PROBE_SEED_MOCK_AGENT: MOCK_AGENT_COMMAND,
     MOCK_AGENT_HOME: NodePath.join(options.home, "mock-agent"),
+    PROBE_RAW_OUTPUT_DIR: rawOutputDir,
     ...(options.isolateShell === false ? {} : await isolatedShellEnv(options.home)),
   };
   const envFor = (env: ServerEnv = {}) => childEnv({ ...defaults, ...env }, options.ambient);
@@ -301,6 +308,13 @@ export async function startServer(options: {
     },
     pairings: () => pairings,
     cli,
+    rawOutput: (shellId) => {
+      try {
+        return NodeFS.readFileSync(NodePath.join(rawOutputDir, `${shellId}.log`), "utf8");
+      } catch {
+        return "";
+      }
+    },
     shellHostPid,
     stopShellHost: async (signal = "SIGTERM") => {
       const pid = shellHostPid();

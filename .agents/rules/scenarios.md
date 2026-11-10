@@ -24,6 +24,7 @@ A scenario (`scripts/scenarios/scenarios/`) starts a real Probe server on a thro
 - **Isolated shell.** Scenario shells run zsh or bash with the harness's plain startup files and git config. How a developer's own shell config affects behavior or timing is not the suite's concern.
 - **Mock agent.** Shells run `scripts/mock-agent/mock-agent.ts`, never a real agent CLI; each throwaway home is seeded with it as the "mock agent" starting script.
 - **Ending a shell from outside** the app means killing the `pid` the shell list reports.
+- **Raw output.** A check on what a shell printed (prompt marks, the order of the prompt, the command and the agent) reads `server.rawOutput(shellId)`, never page frames: a page that attached late misses the start, and attach snapshots carry no marks.
 - **Root.** A check that relies on file permissions runs through `unlessRoot`, so it is skipped with a reason as root instead of passing vacuously.
 - **`check()` messages** are evaluated even when the check passes, so never `await` a locator inside one.
 

@@ -2434,10 +2434,14 @@ it.layer(
         const kept = yield* makeShells((yield* createManager()).manager, { registryPath });
         const before = yield* kept.open({ cwd: process.cwd() });
         killedTrees.length = 0;
-        const { manager, shells, events, opening, ptyAdapter } = yield* startAgent("/bin/bash", missing, {
-          registryPath,
-          host,
-        });
+        const { manager, shells, events, opening, ptyAdapter } = yield* startAgent(
+          "/bin/bash",
+          missing,
+          {
+            registryPath,
+            host,
+          },
+        );
         const pty = ptyAdapter.processes[0]!;
         pty.emitData(`${report("missing")}$ ${MARK}`);
         const refused = yield* Effect.flip(Fiber.join(opening));
@@ -2604,6 +2608,40 @@ it.layer(
         expect(lines).not.toContain("shell prompt ready");
       }).pipe(Effect.scoped, Effect.provide(Logger.layer([logger], { mergeWithExisting: false })));
     });
+
+    it.effect(
+      "saves a shell's output as written, prompt marks included, before any client gets it",
+      () =>
+        Effect.gen(function* () {
+          const fs = yield* FileSystem.FileSystem;
+          const dir = yield* fs.makeTempDirectoryScoped({ prefix: "t3code-raw-output-" });
+          const { manager, ptyAdapter } = yield* createManager(5, {
+            shellResolver: () => "/bin/zsh",
+            shellReadyDir: "/ready",
+          });
+          const shells = yield* makeShells(manager, { rawOutputDir: dir });
+          const shell = yield* shells.open({ cwd: process.cwd() });
+          const seen = yield* Queue.unbounded<string>();
+          const read = Effect.fnUntraced(function* () {
+            return yield* fs.readFileString(`${dir}/${shell.shellId}.log`);
+          });
+          // Subscribed after the shells, so it runs after the save, as a client's stream would.
+          yield* manager.subscribe((event) =>
+            event.type === "output"
+              ? read().pipe(
+                  Effect.flatMap((text) => Queue.offer(seen, text)),
+                  Effect.asVoid,
+                  Effect.orDie,
+                )
+              : Effect.void,
+          );
+          const pty = ptyAdapter.processes[0]!;
+          pty.emitData(`\u001b]0;title\u0007$ ${MARK}`);
+          assert.equal(yield* Queue.take(seen), `\u001b]0;title\u0007$ ${MARK}`);
+          pty.emitData("node agent.ts\r\n");
+          assert.equal(yield* Queue.take(seen), `\u001b]0;title\u0007$ ${MARK}node agent.ts\r\n`);
+        }).pipe(Effect.scoped),
+    );
   }
 
   it.effect(

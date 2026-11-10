@@ -143,51 +143,16 @@ export async function serverPromptMs(server: ServerHandle, shellId: string): Pro
   return Number(ms);
 }
 
-/**
- * A shell's output as the page received it, in order, from websocket frames. Unlike the attach
- * snapshot, which the server re-serializes from its terminal state, it keeps the prompt marks.
- * Output from before the page attached is not in it.
- */
-export function shellOutput(frames: ReadonlyArray<string>, shellId: string): string {
-  const threadId = `shell:${shellId}`;
-  const chunks = new Map<number, string>();
-  for (const frame of frames) {
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(frame);
-    } catch {
-      continue;
-    }
-    const values =
-      typeof parsed === "object" && parsed !== null && "values" in parsed ? parsed.values : null;
-    if (!Array.isArray(values)) continue;
-    for (const value of values as ReadonlyArray<Record<string, unknown>>) {
-      if (
-        value?.type === "output" &&
-        value.threadId === threadId &&
-        typeof value.sequence === "number" &&
-        typeof value.data === "string"
-      ) {
-        // A second attach replays nothing new; the sequence tells repeats apart.
-        chunks.set(value.sequence, value.data);
-      }
-    }
-  }
-  return [...chunks.entries()]
-    .toSorted(([a], [b]) => a - b)
-    .map(([, data]) => data)
-    .join("");
-}
-
 const PROMPT_MARK = "\u001b]133;B";
 const OSC = /\u001b\][^\u0007\u001b]*(?:\u0007|\u001b\\)/g;
 // Stands in for the prompt mark once the other OSC sequences (titles, cwd) are removed.
 const MARK = "\u0000";
 
 /**
- * PRB.T-011 on a shell's raw output: the agent command was typed once, after the first prompt.
- * A prompt may scroll and redraw the line, so the command's last word stands for it and is not
- * counted; a second typing shows as a second session or as the agent echoing it.
+ * PRB.T-011 on a shell's raw output (`ServerHandle.rawOutput`): the agent command was typed once,
+ * after the first prompt. A prompt may scroll and redraw the line, so the command's last word
+ * stands for it and is not counted; a second typing shows as a second session or as the agent
+ * echoing it.
  */
 export function agentTypedOnceAfterPrompt(
   raw: string,
@@ -197,8 +162,7 @@ export function agentTypedOnceAfterPrompt(
   const text = raw.replace(OSC, (sequence) => (sequence.startsWith(PROMPT_MARK) ? MARK : ""));
   const word = command.trim().split(/[\s/]/).at(-1) ?? command;
   const markAt = text.indexOf(MARK);
-  if (markAt === -1)
-    return "no prompt mark in the output (the page attached after the first prompt?)";
+  if (markAt === -1) return "no prompt mark in the output";
   if (text.slice(0, markAt).includes(word)) return "the command shows before the first prompt";
   const commandAt = text.indexOf(word, markAt);
   if (commandAt === -1) return "the command does not show after the first prompt";
