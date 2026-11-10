@@ -22,10 +22,24 @@ export interface ManifestEntry {
   readonly homeCreatedMs: number;
 }
 
+/** What a sandbox records about itself, so a run can find its server by the sandbox's pid. */
+export interface SandboxRecord {
+  readonly origin: string;
+  readonly home: string;
+  readonly serverPid: number;
+  /** Where the sandbox writes its server's output, for a run's log waits and failure artifacts. */
+  readonly logFile: string;
+  readonly startedMs: number;
+}
+
 interface Manifest {
   readonly runner: { readonly pid: number; readonly startTime: string };
   readonly entries: ReadonlyArray<ManifestEntry>;
+  readonly sandbox?: SandboxRecord;
 }
+
+/** The sandbox's server output file, next to its manifest and removed with it. */
+export const sandboxLogFile = (pid: number, dir = RUNS_DIR) => NodePath.join(dir, `${pid}.log`);
 
 /** The process's start, as the OS reports it; null when no such process runs. */
 export function processStartTime(pid: number): string | null {
@@ -86,9 +100,14 @@ export function openManifest(dir = RUNS_DIR) {
   const path = NodePath.join(dir, `${NodeProcess.pid}.json`);
   const runner = { pid: NodeProcess.pid, startTime: processStartTime(NodeProcess.pid) ?? "" };
   let entries: Array<ManifestEntry> = [];
-  const save = () => writeManifest(path, { runner, entries });
+  let sandbox: SandboxRecord | undefined;
+  const save = () => writeManifest(path, { runner, entries, ...(sandbox ? { sandbox } : {}) });
   save();
   return {
+    describeSandbox: (record: SandboxRecord) => {
+      sandbox = record;
+      save();
+    },
     add: (entry: ManifestEntry) => {
       entries = [...entries.filter((known) => known.pid !== entry.pid), entry];
       save();
@@ -97,8 +116,36 @@ export function openManifest(dir = RUNS_DIR) {
       entries = entries.filter((known) => known.pid !== pid);
       save();
     },
-    close: () => NodeFS.rmSync(path, { force: true }),
+    close: () => {
+      NodeFS.rmSync(path, { force: true });
+      NodeFS.rmSync(sandboxLogFile(runner.pid, dir), { force: true });
+    },
   };
+}
+
+/**
+ * The live sandbox whose own pid is `pid`, from the harness's record; a reason when there is none.
+ * A sandbox is never found by an address, only by the manifest its process wrote.
+ */
+export function findSandbox(
+  pid: number,
+  dir = RUNS_DIR,
+): { readonly sandbox: SandboxRecord } | { readonly refusal: string } {
+  let manifest: Manifest;
+  try {
+    manifest = JSON.parse(
+      NodeFS.readFileSync(NodePath.join(dir, `${pid}.json`), "utf8"),
+    ) as Manifest;
+  } catch {
+    return { refusal: `No sandbox this harness started has the pid ${pid}.` };
+  }
+  if (manifest.sandbox === undefined) {
+    return { refusal: `Process ${pid} is a scenario run, not a sandbox.` };
+  }
+  if (!isSameProcess(manifest.runner.pid, manifest.runner.startTime)) {
+    return { refusal: `The sandbox ${pid} is no longer running; start a new one.` };
+  }
+  return { sandbox: manifest.sandbox };
 }
 
 function readNumber(file: string): number | null {
@@ -195,6 +242,7 @@ export function cleanLeftovers(write: (line: string) => void, dir = RUNS_DIR) {
     if (isSameProcess(manifest.runner.pid, manifest.runner.startTime)) continue;
     for (const entry of manifest.entries) killServerTree(entry);
     NodeFS.rmSync(path, { force: true });
+    NodeFS.rmSync(sandboxLogFile(manifest.runner.pid, dir), { force: true });
     write(
       `scenarios: cleaned up after run ${manifest.runner.pid}: ${manifest.entries.length} server(s) and their homes`,
     );

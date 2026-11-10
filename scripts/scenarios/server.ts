@@ -190,6 +190,55 @@ export function parsePairingCredentialOutput(output: string): string {
 /** The log entries in `logs`; an entry starts with its time and continues on indented lines. */
 const entriesOf = (logs: string) => logs.split(/\n(?=\S)/);
 
+/** Entries of `read()` that `match` accepts, checked again each time `subscribe` wakes it. */
+const waitForLog =
+  (read: () => string, subscribe: (wake: () => void) => () => void) =>
+  (what: string, match: (entry: string) => boolean) =>
+    new Promise<string>((resolve, reject) => {
+      let unsubscribe = () => {};
+      const check = () => {
+        const found = entriesOf(read()).find(match);
+        if (found === undefined) return;
+        clearTimeout(timer);
+        unsubscribe();
+        resolve(found);
+      };
+      // oxlint-disable-next-line t3code/no-real-time-wait-in-tests -- permanent (b): deadline raced against the log line, named in the failure
+      const timer = setTimeout(() => {
+        unsubscribe();
+        reject(new Error(`Timed out waiting for the server to log ${what}.`));
+      }, LOG_WAIT_MS);
+      unsubscribe = subscribe(check);
+      check();
+    });
+
+/** The shell host that keeps `home`'s shells, from the pid file it writes there (`shellHostPidPath`). */
+function shellHostPidIn(home: string): number | null {
+  try {
+    const file = NodePath.join(home, "userdata", "shell-host-v1.pid");
+    const pid = Number(NodeFS.readFileSync(file, "utf8").trim());
+    return Number.isInteger(pid) && pid > 0 && alive(pid) ? pid : null;
+  } catch {
+    return null;
+  }
+}
+
+async function stopShellHostIn(home: string, signal: NodeJS.Signals = "SIGTERM") {
+  const pid = shellHostPidIn(home);
+  if (pid === null) return;
+  NodeProcess.kill(pid, signal);
+  // Up to 5 s for the host to end its shells, then it is killed outright.
+  // oxlint-disable-next-line t3code/no-polling-loop-in-tests -- permanent (c): no exit event, the detached host is not our child and drops its pid file before it exits
+  for (let attempt = 0; alive(pid); attempt++) {
+    if (attempt === 100) {
+      NodeProcess.kill(pid, "SIGKILL");
+      break;
+    }
+    // oxlint-disable-next-line t3code/no-real-time-wait-in-tests -- permanent (c): no exit event, the detached host is not our child
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+}
+
 export async function startServer(options: {
   readonly home: string;
   readonly serverBin?: string | undefined;
@@ -199,6 +248,8 @@ export async function startServer(options: {
   readonly ambient?: NodeJS.ProcessEnv;
   /** Called once the server process exists, before it is ready, so a killed run can stop it. */
   readonly onSpawn?: (pid: number) => void;
+  /** Called with each chunk the server prints, across restarts. */
+  readonly onOutput?: (chunk: string) => void;
 }): Promise<ServerHandle> {
   const serverBin = options.serverBin ?? DEFAULT_SERVER_BIN;
   const port = await reservePort();
@@ -241,6 +292,7 @@ export async function startServer(options: {
     if (spawned.pid !== undefined) options.onSpawn?.(spawned.pid);
     try {
       await waitUntilServing(spawned, origin, (chunk) => {
+        options.onOutput?.(chunk);
         logs = (logs + chunk).slice(-LOG_LIMIT);
         for (const wake of logWaiters) wake();
       });
@@ -254,16 +306,7 @@ export async function startServer(options: {
   const stop = async () => {
     if (child) await stopChild(child);
   };
-  // Written by the server's shell host in this throwaway home (`shellHostPidPath`).
-  const shellHostPidFile = NodePath.join(options.home, "userdata", "shell-host-v1.pid");
-  const shellHostPid = () => {
-    try {
-      const pid = Number(NodeFS.readFileSync(shellHostPidFile, "utf8").trim());
-      return Number.isInteger(pid) && pid > 0 && alive(pid) ? pid : null;
-    } catch {
-      return null;
-    }
-  };
+  const shellHostPid = () => shellHostPidIn(options.home);
   const cli = (args: ReadonlyArray<string>) =>
     runCli(serverBin, [...args, "--base-dir", options.home], envFor());
   return {
@@ -282,23 +325,13 @@ export async function startServer(options: {
       await start(restartOptions?.env);
     },
     logs: () => logs,
-    logged: (what, match) =>
-      new Promise<string>((resolve, reject) => {
-        const check = () => {
-          const found = entriesOf(logs).find(match);
-          if (found === undefined) return;
-          clearTimeout(timer);
-          logWaiters.delete(check);
-          resolve(found);
-        };
-        // oxlint-disable-next-line t3code/no-real-time-wait-in-tests -- permanent (b): deadline raced against the log line, named in the failure
-        const timer = setTimeout(() => {
-          logWaiters.delete(check);
-          reject(new Error(`Timed out waiting for the server to log ${what}.`));
-        }, LOG_WAIT_MS);
-        logWaiters.add(check);
-        check();
-      }),
+    logged: waitForLog(
+      () => logs,
+      (wake) => {
+        logWaiters.add(wake);
+        return () => logWaiters.delete(wake);
+      },
+    ),
     pairingUrl: async () => {
       pairings += 1;
       const credential = parsePairingCredentialOutput(
@@ -316,20 +349,56 @@ export async function startServer(options: {
       }
     },
     shellHostPid,
-    stopShellHost: async (signal = "SIGTERM") => {
-      const pid = shellHostPid();
-      if (pid === null) return;
-      NodeProcess.kill(pid, signal);
-      // Up to 5 s for the host to end its shells, then it is killed outright.
-      // oxlint-disable-next-line t3code/no-polling-loop-in-tests -- permanent (c): no exit event, the detached host is not our child and drops its pid file before it exits
-      for (let attempt = 0; alive(pid); attempt++) {
-        if (attempt === 100) {
-          NodeProcess.kill(pid, "SIGKILL");
-          break;
-        }
-        // oxlint-disable-next-line t3code/no-real-time-wait-in-tests -- permanent (c): no exit event, the detached host is not our child
-        await new Promise((resolve) => setTimeout(resolve, 50));
-      }
+    stopShellHost: (signal) => stopShellHostIn(options.home, signal),
+  };
+}
+
+/**
+ * A handle on a sandbox's server, which another process owns: a run reads its logs from the file
+ * the sandbox writes, and anything that would end or replace the server fails with `refuse`.
+ */
+export function attachServer(
+  target: {
+    readonly home: string;
+    readonly origin: string;
+    readonly serverPid: number;
+    readonly logFile: string;
+  },
+  refuse: (need: string) => Error,
+): ServerHandle {
+  const readLogs = () => {
+    try {
+      return NodeFS.readFileSync(target.logFile, "utf8");
+    } catch {
+      return "";
+    }
+  };
+  let pairings = 0;
+  const cli = (args: ReadonlyArray<string>) =>
+    runCli(DEFAULT_SERVER_BIN, [...args, "--base-dir", target.home], childEnv());
+  const refused = (need: string) => () => Promise.reject(refuse(need));
+  return {
+    home: target.home,
+    origin: target.origin,
+    pid: () => target.serverPid,
+    stop: refused("a server stop"),
+    kill: refused("a server stop"),
+    restart: refused("a restart"),
+    logs: readLogs,
+    logged: waitForLog(readLogs, (wake) => {
+      const watcher = NodeFS.watch(target.logFile, wake);
+      return () => watcher.close();
+    }),
+    pairingUrl: async () => {
+      pairings += 1;
+      const credential = parsePairingCredentialOutput(
+        await cli(["auth", "pairing", "create", "--json"]),
+      );
+      return `${target.origin}/pair#${new URLSearchParams([["token", credential]]).toString()}`;
     },
+    pairings: () => pairings,
+    cli,
+    shellHostPid: () => shellHostPidIn(target.home),
+    stopShellHost: refused("stopping the shell host"),
   };
 }

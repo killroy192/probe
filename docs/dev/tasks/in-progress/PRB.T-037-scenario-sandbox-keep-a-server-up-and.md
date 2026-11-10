@@ -171,14 +171,53 @@ Verified by reading the code on 2026-11-10 (the `cocoindex-code` MCP was not ava
 
 | ID   | Statement | Kind (assumption / unknown) | Status (unverified / verified / false) | How and when to verify | Owner |
 | ---- | --------- | --------------------------- | -------------------------------------- | ---------------------- | ----- |
-| SA-1 | `@playwright/test` 1.60.0 runs with the cached `chromium_headless_shell-1223` and needs no browser download (epic A-5). | assumption | unverified | Spike, first step of this story (AC-1). | author |
-| SA-2 | Scenarios that pick their own names and folders per run can share one server one after another (epic A-4, sequential case). By desk reading, S4 and S5 need nothing but per-run names; S6 also matches the whole process table (`kill-shell.ts:34-44`), so it is not safe while another run is live; S1 needs a pristine home; E2-S4 changes the server's starting-script list, server-wide state. | assumption | unverified | Check, second step of this story (AC-2). | author |
+| SA-1 | `@playwright/test` 1.60.0 runs with the cached `chromium_headless_shell-1223` and needs no browser download (epic A-5). | assumption | verified (2026-11-10, Handoff) | Spike, first step of this story (AC-1). | author |
+| SA-2 | Scenarios that pick their own names and folders per run can share one server one after another (epic A-4, sequential case); verified for S5 then S4 (2026-11-10, Handoff). By desk reading, S4 and S5 need nothing but per-run names; S6 also matches the whole process table (`kill-shell.ts:34-44`), so it is not safe while another run is live; S1 needs a pristine home; E2-S4 changes the server's starting-script list, server-wide state. | assumption | unverified | Check, second step of this story (AC-2). Verified 2026-11-10 for S5 then S4. | author |
 | SA-3 | The server API can seed both fixtures (workspace, project, plain shells) with no UI. `seedWorkspace` already does workspaces and projects (`fixtures.ts:72-84`); shells are unchecked. | assumption | unverified | Plan stage; AC-5. | author |
 | SA-4 | Stopping the sandbox's own process can end the server, the shell host and its shells, which the sandbox records. | assumption | unverified | Harness test (AC-7). | author |
 | SA-5 | The existing leftover cleanup already leaves a live sandbox alone if the sandbox owns its manifest as a runner (`cleanup.ts:179`); a scenario run against the sandbox must not record the sandbox's server in its own manifest. | assumption | unverified | Harness test (AC-16). | author |
 | SA-6 | A running server serves a bundle rebuilt after it started correctly (`http.ts` reads files per request but loads the asset manifest once). This story refuses either way (EC-7); relaxing that for web-only changes is later work. | assumption | unverified | Not needed for this story; read `http.ts` if a later story wants the relaxation. | author |
 | SU-1 | Fixtures beyond `workspace` and `shells`; later stories add what they need. | unknown | unverified | Plan stage, and later stories. | TBD (author, plan stage) |
 | SU-2 | The command names (the analysis proposes `scenarios:sandbox`), the run-against-sandbox form, and the printed format (one JSON line or key=value lines). | unknown | unverified | Plan stage; must be readable without scraping logs and be one line each in the rules file. | TBD (author, plan stage) |
-| SU-3 | Whether the A-5 spike's files are kept in the repo (as the seed of PRB.T-040) or only its transcript. | unknown | unverified | Decide at the spike, record in the handoff. | TBD (author, at the spike) |
+| SU-3 | Whether the A-5 spike's files are kept in the repo (as the seed of PRB.T-040) or only its transcript. | decision | decided (author, 2026-11-10): transcript only; no `@playwright/test` dependency is added here | Handoff. | author |
 | SU-4 | If A-4 is false: whether the sandbox gives each scenario a fresh workspace or refuses scenarios that leave state behind (epic Fallback). | decision | decided (user, 2026-11-10): a fresh workspace per scenario | Applies only if AC-2 finds A-4 false. | user |
 | SU-5 | Whether stopping a sandbox can keep its home for post-mortem debugging. Failure artifacts are saved outside the home already. | decision | decided (user, 2026-11-10): yes, as an opt-in at start; the default removes the home | AC-7 | user |
+
+## Handoff
+
+### AC-1, the A-5 spike (2026-11-10): A-5 is true
+
+`@playwright/test` 1.60.0 runs one test against the cached `chromium_headless_shell-1223` with no browser download. Done outside the repo (a scratch folder, `npm install @playwright/test@1.60.0` with `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1`); the run had `PLAYWRIGHT_DOWNLOAD_HOST` pointed at a closed loopback port, so any download would have failed. The test set page content, asserted a heading with `expect(...).toBeVisible()`, and ran with `trace: "on"`. `~/.cache/ms-playwright` (listing with times and `du`) was identical before and after. Transcript (Node 26.12.1, Linux devcontainer):
+
+```
+$ node node_modules/@playwright/test/cli.js --version
+Version 1.60.0
+$ PLAYWRIGHT_DOWNLOAD_HOST=http://127.0.0.1:9 PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 node node_modules/@playwright/test/cli.js test
+(node) [DEP0205] DeprecationWarning: `module.register()` is deprecated. Use `module.registerHooks()` instead.
+Running 1 test using 1 worker
+browser version: 148.0.7778.0
+executable: /home/vscode/.cache/ms-playwright/chromium-1223/chrome-linux/chrome
+  ✓  1 tests/a5.spec.mjs:2:1 › opens a page in the cached headless shell (104ms)
+  1 passed (526ms)
+exit=0
+test-results/…/trace.zip written
+cache unchanged
+```
+
+For PRB.T-040: `browserType().executablePath()` names the full `chromium-1223` build, which is not installed, but a headless launch uses the headless shell and works; do not check that path. Node 26 prints the `DEP0205` warning on every worker start. A trace is written, so FR-6's trace is available. No Fallback.
+
+### AC-2, the A-4 check (2026-11-10): A-4 is true for S5 then S4
+
+The sandbox's first slice is built and was used for the check: `vp run scenarios:sandbox` (`scripts/scenarios/sandbox.ts`) starts one server on a throwaway home, records itself (origin, home, server pid, log file) in its own run manifest, prints `sandbox: <key>=<value>` lines with its own pid first, and stays up until its pid is stopped; `vp run test:scenarios -- --sandbox <pid> --only <id>` runs one saved scenario against it (`attachServer` in `server.ts`: no server started, restart/stop/second server/stopping the shell host fail naming the need). S4 and S5 were scoped first: `ScenarioContext.runId` is new for every run, and both put it in their workspace name (`sparta-<runId>`) and folders (`<home>/folders/<runId>/…`). No throwaway script was written.
+
+One sandbox (pid 65745, server pid 65756), then S5, then S4, each run once:
+
+```
+PASS    S5 close a tab and reopen it from the tree (8.0 s, teardown 4 ms)
+PASS    S4 run many shells, each with its own output (16.9 s, teardown 5 ms)
+```
+
+The server pid was 65756 before, between and after. What S4 met: S5's workspace `sparta-5529b9` with its plain project and two shells still running with their tabs closed; S4 made `sparta-723c87` beside it. S4's assertions that could see other state (six tabs, tabs and selection after a reload, the tree after a reload, the shell list) all held. Stopping pid 65745 ended the server, the shell host and all six shells, and removed the home, the manifest and the log file. No Fallback; SU-4's branch does not apply.
+
+Not covered by this check, still open for the rest of the story: the refusals, fixtures, the shell host pid line, EC-7 staleness, the one-run-at-a-time lock, keep-home, and the docs. `harness.test.ts` passed 20 of 21 on this slice; the SIGKILL cleanup case failed reading `userdata/shells/registry.json` (ENOENT) right after S2's `METRIC tree-node` line, a read that races the shell host's first write; not yet looked into.
+

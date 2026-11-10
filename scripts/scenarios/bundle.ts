@@ -1,5 +1,6 @@
-// @effect-diagnostics nodeBuiltinImport:off - Reads the checkout's file times to judge the web bundle.
+// @effect-diagnostics nodeBuiltinImport:off globalDate:off - Reads the checkout's file times to judge the web bundle, and rebuilds it.
 
+import * as NodeChildProcess from "node:child_process";
 import * as NodeFS from "node:fs";
 import * as NodePath from "node:path";
 
@@ -90,4 +91,46 @@ export function bundleState(root: string): BundleState {
     builtMs,
     newest,
   };
+}
+
+/** Rebuilds the web bundle when it is missing, older than its sources or `--rebuild` asks. */
+export async function ensureWebBundle(
+  root: string,
+  rebuild: boolean,
+  write: (line: string) => void,
+): Promise<BundleState> {
+  const before = bundleState(root);
+  const fromRoot = (path: string) => NodePath.relative(root, path);
+  const reason = rebuild
+    ? "--rebuild"
+    : before.state === "missing"
+      ? "no bundle yet"
+      : before.state === "stale" && before.newest !== null
+        ? `${fromRoot(before.newest.path)} is newer`
+        : null;
+  if (reason !== null) {
+    write(`scenarios: building the web bundle (${reason})`);
+    await new Promise<void>((resolve, reject) => {
+      const build = NodeChildProcess.spawn("vp", ["run", "--filter", "@t3tools/web", "build"], {
+        cwd: root,
+        stdio: ["ignore", "inherit", "inherit"],
+      });
+      build.once("error", (error) =>
+        reject(new Error(`Could not run the web build: ${error.message}`)),
+      );
+      build.once("exit", (code) =>
+        code === 0
+          ? resolve()
+          : reject(new Error(`The web build failed (exit code ${String(code)}).`)),
+      );
+    });
+  }
+  const after = bundleState(root);
+  const built = after.builtMs === null ? "never" : new Date(after.builtMs).toISOString();
+  write(
+    `scenarios: web bundle ${reason === null ? "current, reused" : "rebuilt"}, built ${built}${
+      after.state === "stale" ? " (a source changed during the build; run again to rebuild)" : ""
+    }`,
+  );
+  return after;
 }

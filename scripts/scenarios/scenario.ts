@@ -3,6 +3,11 @@ import type { ServerHandle } from "./server.ts";
 
 export interface ScenarioContext {
   readonly server: ServerHandle;
+  /**
+   * New for every run of a scenario. A scenario that may share a server puts it in the workspace
+   * names and folders it makes, so they never meet those of an earlier run on that server.
+   */
+  readonly runId: string;
   /** A fresh browser context signed in to this scenario's server. */
   readonly openPage: () => Promise<PointerPage>;
   /** A fresh browser context with no session. */

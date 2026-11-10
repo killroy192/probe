@@ -26,8 +26,9 @@ import {
 export const closeTabScenario: Scenario = {
   id: "S5",
   title: "close a tab and reopen it from the tree",
-  run: async ({ server, openPage }) => {
-    const plain = NodePath.join(server.home, "folders", "plain");
+  run: async ({ server, openPage, runId }) => {
+    const name = `sparta-${runId}`;
+    const plain = NodePath.join(server.home, "folders", runId, "plain");
     await NodeFSP.mkdir(plain, { recursive: true });
 
     const page = await openPage();
@@ -42,7 +43,7 @@ export const closeTabScenario: Scenario = {
     let stage = "setup";
 
     try {
-      await createWorkspace(page, "sparta");
+      await createWorkspace(page, name);
       check((await addProject(page, { import: plain })) === null, "Adding the folder failed.");
       const first = await startShell(page, shells, plain);
       const second = await startShell(page, shells, plain);
