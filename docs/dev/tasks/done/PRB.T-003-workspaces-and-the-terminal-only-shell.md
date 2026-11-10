@@ -10,196 +10,49 @@ updated: 2026-11-05
 
 # Workspaces and the terminal-only shell-tree screen
 
-## Business Goal
+## Goal
 
-**Problem:** Today the browser app is chat-first: opening it lands in a chat thread of the most recent project, and the sidebar is a project > thread tree. There is no workspace concept and no way to open the app without meeting chat. The terminal-first pivot cannot start until the user sees a different product.
+The app was chat-first and had no workspace concept, so the terminal-first product could not start.
+The app now opens on a terminal-only screen with saved workspaces, and chat is hidden everywhere.
 
-**Proposed solution:** The app opens on a terminal-only screen. With no workspace it offers "Open workspace" and "Create workspace"; once a workspace exists it shows that workspace as the root of an (empty) shell tree, a "Workspaces" button at the top left switches, creates, opens and removes workspaces, and chat is hidden: no control or address reaches a chat.
+## Delivered
 
-## Epic and Requirements
+Start screen with "Open workspace" and "Create workspace"; the "Workspaces" menu to switch,
+create, open and remove workspaces (workspaces live on the primary environment, one file each,
+removing never touches folders on disk); the workspace as root of an empty shell tree; every chat
+route, chat settings page and chat command hidden or redirected. Proved by scenario S1 in
+`scripts/scenarios/scenarios/boot.ts` and the `SavedWorkspaces` tests; the author's AC-10 manual
+pass (2026-11-05) passed on its second round.
 
-- **Epic:** PRB.E-001 Terminal-first workspace: shell tree with mock-agent shells
-- **Candidate story:** # 3 Workspaces and the terminal-only shell-tree screen
-- **Delivers:**
-  - FR-1: no visible control or route starts or opens a chat thread; chat screens, chat-related settings pages and the old project > thread sidebar are hidden; an old chat address (a bookmark or typed link to the former chat UI, such as /threads/<id>) lands on the current workspace, or on the start screen when none is shown (scenario S1). Deleting the chat code is a later epic.
-  - FR-2: the start screen with "Open workspace" (a scrollable dropdown of the saved workspaces, by name, parsed from the file names in Probe's internal folder) and "Create workspace" (named), and the workspace as root of the tree (S1).
-  - FR-24 (part): the "Workspaces" button to switch, create, open and remove workspaces; names are unique; removing the shown workspace returns to the start screen; opening a workspace from the list brings back its layout, and choosing the shown one changes nothing; a removed workspace is deleted with its file; removal never deletes folders on disk (S1). Not here: force-killing the workspace's shells (story 6, S6; no shells exist yet) and which workspace is shown after a browser reload (story 7); the list of saved workspaces already survives a reload here (AC-20).
-  - FR-7 (part): the tree and its grouping structure, with the workspace as root. With no folders and no shells yet, only the root is visible; shells appear (within 1 second) from story 4 and the worktree and branch levels from story 5.
-  - NFR-3: the S1 scenario uses throwaway data.
-  - NFR-4: the scenario runs in Playwright's headless Chromium.
-  - NFR-5: every action here is doable with mouse or touchpad.
-  - NFR-7: docs describe the terminal-first screen, in the same PR.
-- **One deployable outcome:** A user opens the app, creates or opens a workspace, switches between workspaces and removes one, sees an empty shell tree, and cannot reach a chat from any control or address; this makes S1 pass at full scope and puts the new product in front of the user, which is the epic goal's first half.
+Satisfies PRB.E-001: FR-1, FR-2, FR-24 (part), FR-7 (part), NFR-3, NFR-4, NFR-5.
 
-## Current Behavior
+## Decisions
 
-Verified by reading `../probe` (the code index was not used; Grep and Read).
+- Chat code stays and is hidden, not deleted, until the chat-removal epic (PRB.E-001 Out).
+- Old chat addresses land on the shown workspace, else the start screen; removing the shown
+  workspace returns to the start screen (user, 2026-11-02).
+- Workspace operations are server-side RPCs, one file per workspace (user, 2026-11-02).
+- The command palette is not mounted and the `chat.new*` and `usage.open` commands are not
+  installed (user, 2026-11-05).
+- Layout (user, after the AC-10 review, 2026-11-05): the app sidebar keeps its chrome; the thread
+  list is replaced by the workspace tree; the Workspaces menu sits where the new-thread icon was;
+  Search and Add project were shown disabled until PRB.T-004. Rows kept for later reuse:
+  project grouping and order, boring sidebar rows, `terminal.*` keybindings.
+- The shown workspace was first kept in memory only, so a reload returned to the start screen
+  (user, 2026-11-05); PRB.T-007 replaced that with a per-browser memory.
+- AC-19 (docs describing the full terminal-first product) deferred by the user, 2026-11-05: they
+  cannot be written before stories 4 to 8 exist. Chat-only user pages instead carry a "Not
+  relevant in the terminal-first build" note and are listed apart in `docs/README.md`.
 
-- **Entry route** (`apps/web/src/routes/_chat.index.tsx`): `/` starts a draft thread in the most recent project and navigates to it. With no project it shows `NoProjectsHero` (`apps/web/src/components/NoProjectsHero.tsx`): "What should we work on?", with "Add project" (opens the command palette add-project flow) and "Start without a project" (starts a scratch chat thread).
-- **Chat routes**: `_chat.$environmentId.$threadId.tsx`, `_chat.draft.$draftId.tsx`, `_chat.new.tsx`, all under the `_chat` layout (`apps/web/src/routes/_chat.tsx`), which renders `ThreadRouteView` when the URL carries a thread or draft target and redirects to `/pair` when not authenticated. `welcome.tsx` (onboarding wizard) also starts threads through `useNewThreadHandler`. `projects.$projectKey.tsx` redirects to `/settings/projects`.
-- **Other routes under `_chat`**: `/pull-requests`, `/usage` and about 25 `/settings/*` pages, including chat-related ones (`settings.chat`, `settings.threads`, `settings.archived`, `settings.providers`, `settings.scheduled-tasks`).
-- **Sidebar** (`apps/web/src/components/Sidebar.tsx`, hosted by `AppSidebarLayout.tsx`): a project > thread tree with an "Add project" button that opens the command palette add-project flow.
-- **Other chat entry points**: the command palette navigates to thread routes (`CommandPalette.tsx`); keybinding commands `chat.new`, `chat.newLocal`, `chat.newWithoutProject` exist (`packages/contracts/src/keybindings.ts`).
-- **No workspace concept**: searching `packages/contracts/src`, `apps/server/src` and `apps/web/src` found no workspace entity; "workspace" there means focus areas (`apps/web/src/lib/workspaceFocus.ts`) and similar. A project is an environment-local record rooted at a directory (`docs/internals/glossary.md`), created by the `project.create` command (`packages/client-runtime/src/operations/projects.ts`).
-- **Persistence**: view state is kept in browser localStorage (`apps/web/src/uiStateStore.ts`). No saved-workspace file exists in the code today (unverified: only a name search was done).
-- **Unverified**: the complete list of chat entry points (notifications, hover cards, deep links, prompt links, settings links, keybinding handlers); behavior on desktop and mobile (not required, NFR-4).
+## Docs
 
-## Expected Behavior
+- [Workspaces](../../../user/workspaces.md)
+- [Hidden chat](../../../internals/web-ui.md#hidden-chat)
+- [Glossary: Workspace](../../../internals/glossary.md)
+- [Roadmap decisions](../../roadmap.md)
 
-Once this ships, the browser app shows the terminal-only screen. A workspace is a named collection of folders plus the layout of its shells (epic vocabulary); in this story it holds no folders and no shells yet, so the tree shows only the workspace root. Chat code still exists but is hidden. Each workspace is one file in Probe's internal folder, named after the workspace; creating a workspace writes it, so the "Open workspace" list is read from that folder. Which workspace is shown after a browser reload and the layout inside the file are story 7.
+## Follow-ups
 
-### User Flow
-
-1. The user opens the app with no workspace. The screen shows only "Open workspace" (a dropdown of saved workspaces, empty at first launch) and "Create workspace".
-2. The user clicks "Create workspace", enters the name "sparta" and confirms. The screen shows workspace "sparta" as the root of an empty shell tree.
-3. From the "Workspaces" button at the top left the user creates a second workspace; it becomes the one shown.
-4. From the same button the user switches back to "sparta".
-5. From the same button the user removes the second workspace (not the shown one); "sparta" stays shown. No folder on disk is touched.
-6. The user opens a saved workspace by choosing its name in the scrollable "Open workspace" list, on the start screen (after step 7) or from the "Workspaces" button while a workspace is shown; that workspace is shown. Choosing the shown workspace changes nothing. No file is picked.
-7. The user removes the shown workspace; the app returns to the start screen of step 1.
-8. At no point does any visible control show a chat, and an old chat address (a bookmarked or typed link to the former chat UI, for example a thread link, draft or new-thread) lands on the shown workspace, or on the start screen when none is shown.
-
-All steps use mouse or touchpad.
-
-### Edge Cases
-
-- EC-1: A workspace with no folders and no shells shows an empty tree (the workspace root only), not an error.
-- EC-2: Removing the shown workspace returns to the start screen, also when other workspaces remain; the user reaches them through "Open workspace", whose list shows the remaining ones.
-- EC-3: Opening an old chat address (thread, draft, new-thread, and the other chat addresses) does not show a chat; the user lands on the shown workspace, or on the start screen when none is shown.
-- EC-4: Removing a workspace that is not the shown one leaves the shown workspace unchanged.
-- EC-5: Choosing the shown workspace in the "Open workspace" list changes nothing and adds no entry.
-
-### Error Handling
-
-- ER-1: An empty workspace name is rejected with a visible reason, and no workspace is created. A name over 64 characters, or one that is not valid as a file name, is rejected the same way (epic FR-24).
-- ER-2: A saved workspace whose file cannot be read or is not valid is rejected with a visible reason when chosen (it stays listed); no workspace is created or changed and the user stays on the screen they were on.
-- ER-3: If creating, removing or opening a workspace fails (for example the server is unreachable; applies only if these operations go through the server, SU-1), the user sees why and the list of workspaces is unchanged.
-- ER-4: A name equal to an existing workspace's name is rejected with a visible message, and no workspace is created.
-
-## Out Of Scope
-
-- Starting shells, the "+" button and modal, the mock CLI in a tab: stories 4 and 5 (FR-3, FR-5, FR-6, FR-21, FR-22).
-- Shells in the tree, the 1-second appearance rule, and the worktree and branch levels: stories 4 and 5 (FR-7 beyond the root).
-- Removing a workspace force-kills its running shells: story 6 (FR-24, S6). Here there are no shells to end.
-- Which workspace is shown after a browser reload, saving and restoring a layout after a restart, reopening a running workspace, unavailable folders: story 7 (FR-24, FR-15, FR-19).
-- Rename a shell (FR-16): story 6.
-- What a saved workspace file with folders or shells holds and shows: story 7 (FR-15, epic U-6). In this story the file holds the name only and the tree shows only the workspace root; saving the layout on every change is story 7.
-- Deleting chat, providers and orchestration code, and cleaning up the hidden pages: later cleanup epic (epic Out).
-- Verifying branch tracking (A-11) and add-project flow reuse (A-13): stories 5 and 4.
-- Desktop and mobile: not required (NFR-4, epic Out).
-- Grouping of folders inside a workspace: the epic keeps it a flat list.
-
-## Technical Scope
-
-- **Layers:** web app main screen and navigation (start screen, Workspaces button, empty tree, hiding chat screens, chat-related settings pages and the project > thread sidebar, redirecting old addresses); creation, switching, removal and opening of workspaces, stored one file per workspace in Probe's internal folder with the name taken from the file name (epic U-8); the file's inner format is decided in the plan (SU-1); the S1 scenario at full scope (the skeleton is story 1).
-- **Docs impact:** `docs/` pages describing the chat-first screen are rewritten for the terminal-first screen and workspaces (NFR-7); the scenario command is documented by story 1, and the S1 coverage is added here.
-- **Mobile impact:** none required (epic NFR-4, user decision 2026-11-02); mobile need not compile or work.
-
-## Non-functional Requirements and Constraints
-
-- NFR-5: every action (create, switch, remove, open) works with mouse or touchpad only; the scenario drives the UI with pointer actions. Shortcuts may exist but are optional.
-- NFR-4: the S1 scenario runs in Playwright's headless Chromium. S1 replaces the boot scenario in `scripts/scenarios/registry.ts` and owns replacing its "Add project" check (PRB.T-001 SU-4), which only holds while the chat-era first screen exists.
-- NFR-3: the scenario uses throwaway data and never the real Probe data (harness from story 1).
-- NFR-7: docs change in the same PR as the behavior.
-- Epic Out: chat code is not deleted here, so the app stays runnable.
-- Repo rules (`AGENTS.md`): no continuously repainting animations in the tree area (epic NFR-1 rule); tests follow the repo test rules (no sleeps or polling).
-
-## Acceptance Criteria
-
-| ID | Criterion (Given / When / Then) | Check (auto / manual) | Covers (FR / NFR / EC / ER) |
-| --- | --- | --- | --- |
-| AC-1 | Given no workspace exists, when the app is opened, then the screen offers "Open workspace" and "Create workspace" and no other way to start work | auto | FR-2 |
-| AC-2 | Given the start screen, when the user clicks "Create workspace", enters "sparta" and confirms with the mouse, then workspace "sparta" is shown as the root of an empty shell tree and no error | auto | FR-2, FR-7, EC-1, NFR-5 |
-| AC-3 | Given workspace "sparta", when the user creates a second workspace from the "Workspaces" button, then the second workspace is shown and both are listed | auto | FR-24, NFR-5 |
-| AC-4 | Given two workspaces, when the user switches back to "sparta" from the "Workspaces" button, then "sparta" is shown | auto | FR-24, NFR-5 |
-| AC-5 | Given two workspaces with "sparta" shown, when the user removes the second one from the "Workspaces" button, then it is no longer listed, "sparta" stays shown, and a throwaway directory created by the test beforehand still exists | auto | FR-24, EC-4, NFR-5 |
-| AC-6 | Given two workspaces with one shown, when the user removes the shown one, then a start screen with "Open workspace" and "Create workspace" is shown, and the "Open workspace" list contains the remaining workspace | auto | FR-24, FR-2, EC-2 |
-| AC-7 | Given a saved workspace "sparta" in Probe's internal folder, when the user opens the "Open workspace" list on the start screen and chooses "sparta" with the mouse, then "sparta" is shown with an empty tree (its content beyond the name is not shown here) | auto | FR-2, EC-1 |
-| AC-8 | Given a workspace is shown and another is saved, when the user chooses the other from the "Workspaces" button's open list, then it is shown | auto | FR-24 |
-| AC-9 | Given workspace "sparta" is shown, when the user chooses "sparta" in the open list, then "sparta" stays shown and the list has one "sparta" entry | auto | FR-24, EC-5 |
-| AC-10 | Given each screen of the app (start screen, workspace, Workspaces menu, every settings page that is still reachable), when every visible control is inspected, then none starts or opens a chat thread, no chat-related settings page is reachable, the old project > thread sidebar is not shown, and the welcome wizard (first-run chat setup) is not shown; the checklist is the entry-point list made in the plan stage (SA-1) | manual (author) | FR-1 |
-| AC-11 | Given the app is running, once with a workspace shown and once with none, when the browser visits each old chat address (thread, draft, new-thread and the other chat addresses), then no chat is shown and the shown workspace, or the start screen when none is shown, is displayed | auto | FR-1, EC-3 |
-| AC-12 | Given the app, when the command palette is opened and the commands new chat, new local chat and new chat without project are looked for or invoked, then the commands are absent or invoking them creates or opens no chat thread; the same holds for the `chat.new*` keybindings (checked by invoking their commands) | auto | FR-1 |
-| AC-13 | Given the start screen or the "Workspaces" button's create action, when the name field is empty and the user confirms, then a visible reason is shown and no workspace is created | auto | ER-1 |
-| AC-14 | Given a workspace named "sparta" exists, when the user creates a workspace named "sparta", then a visible message is shown and no second "sparta" is created | auto | ER-4, FR-24 |
-| AC-15 | Given a saved workspace file that is unreadable or invalid, when the user chooses it in "Open workspace" (start screen or "Workspaces" button), then a visible reason is shown, no workspace is created and the user stays on the same screen | auto | ER-2, FR-2 |
-| AC-16 | Given the operation is made to fail (fault injected by the test; applies if the operation is server-side, SU-1), when the user tries to create a workspace, then the user sees why and the list is unchanged | auto | ER-3 |
-| AC-17 | Given the operation is made to fail (same condition), when the user tries to remove or open a workspace, then the user sees why and the list is unchanged | auto | ER-3 |
-| AC-18 | Given scenario S1, when `vp run test:scenarios` is run from a clean shell, then S1 passes using pointer actions only in headless Chromium | auto | FR-1, FR-2, FR-24, NFR-3, NFR-4, NFR-5 |
-| AC-19 | Given the PR for this story, when its docs diff is reviewed, then the docs describe the terminal-first screen and workspaces | manual (reviewer in the PR) | NFR-7 |
-| AC-20 | Given two saved workspaces, when the page is reloaded, then the dropdown of saved workspaces still lists both names | auto | FR-24, SU-2 |
-
-AC-7, AC-8, AC-9 and AC-15 are re-checked after the file format is decided in the plan (SU-1), AC-10 and AC-11 after the plan-stage entry-point list (SA-1).
-
-## Dependencies
-
-| Depends on | Why | Status |
-| --- | --- | --- |
-| PRB.T-001 | The scenario harness, mock CLI and booting scenario skeleton that S1 extends | done (2026-11-03) |
-| PRB.T-002 | Ordering only (epic: story 3 after story 2); this story needs no shell, but the spike result (U-1) may shape the tree area | planned (not started) |
-
-Stories 4 to 8 depend on this one.
-
-## Assumptions
-
-| ID | Statement | Kind (assumption / unknown) | Status (unverified / verified / false) | How and when to verify | Owner |
-| --- | --- | --- | --- | --- | --- |
-| SA-1 | Chat can be hidden everywhere without breaking the app (routes, palette, settings links, sidebar); this is epic A-8 | assumption | verified | Entry-point list made in planning; hidden everywhere, checked by S1 and the author's AC-10 pass (2026-11-05) | author |
-| SA-2 | The chat routes and code can stay and be hidden, because the epic defers deletion | assumption | verified | Epic Out and Approach state it | author |
-| SA-3 | The S1 scenario can drive the "Open workspace" dropdown by pointer and seed saved workspaces into the throwaway Probe folder | assumption | verified | S1 seeds workspace files after start and drives the dropdown by pointer (2026-11-05) | author |
-| SU-1 | The inner format of a workspace file and whether workspace operations are server-side. Decided: files live in Probe's internal folder, one per workspace, name from the file name, dropdown list, no file picking (epic U-8) | unknown | verified | Decided in the plan stage 2026-11-05: operations are server-side over WS RPC (so AC-16 and AC-17 apply); each file is `<home>/userdata/workspaces/<name>.json` holding `{"version":1}`; storage decided by the user 2026-11-02 | author |
-| SU-2 | Decided: the list of saved workspaces persists across a reload already in this story (each is a saved file with its name); which workspace is shown after a reload and its layout are story 7 | unknown | verified | Follows from the user's 2026-11-02 decision that Open workspace lists saved workspace files | author |
-| SU-3 | Decided: an old chat address (a bookmarked or typed link to the former chat UI such as /threads/<id>) lands on the shown workspace, or on the start screen when none is shown | unknown | verified | Decided by the user 2026-11-02 (recommendation accepted by default; the user asked what the term meant) | author |
-| SU-4 | Decided: which workspace is shown after the shown one is removed | unknown | verified | Decided by the user: none; the app returns to the start screen (FR-24) | author |
-| SU-5 | Naming rules: unique, 1 to 64 characters, valid as a file name, with a visible reason on rejection | unknown | verified | Taken from the epic's FR-24 name rule (2026-11-02); fixed in the plan 2026-11-05: trimmed, 1 to 64 characters, none of `/ \ : * ? " < > |` or control characters, no trailing dot or space, not `.`, `..` or a Windows reserved name; unique ignoring case | author |
-| SU-6 | What a workspace file holds in this story: the name only (layout comes in story 7, FR-15); the disk-untouched check in AC-5 uses a directory the test creates | unknown | verified | Decided with the user's storage answer 2026-11-02; layout content is story 7 | author |
-| SU-7 | Decided: "Open workspace" is how the user reaches existing workspaces; after a removal the start screen lists the remaining ones | unknown | verified | Decided by the user 2026-11-02 | author |
-| SU-8 | What FR-7 "the tree and its grouping" can show in this story, given no folders or shells exist yet, and how it is verified | unknown | verified | Decided: in this story the tree shows only the workspace root (no folders or shells exist); grouping is checked in stories 4 and 5 where it first has content (FR-7) | author |
-
-## Implementation Status and Handoff
-
-Done (2026-11-05). The working plan is `.plans/PRB.T-003-workspaces.md` (gitignored, local); this section is enough to continue without it. Branch `feat/workspaces-prb-t-003`, stacked on `feat/standalone-shells-prb-t-002`; nothing pushed.
-
-**Decisions**
-- SU-1: workspace operations are server-side (`workspace.create`, `workspace.remove`, `workspace.open`, `subscribeWorkspaces`) in the `SavedWorkspaces` service (`apps/server/src/savedWorkspaces/`; the existing `workspace/` folder means project directories) modeled on `apps/server/src/environmentTheme.ts` (folder read, watch, change stream). The file is `<home>/userdata/workspaces/<name>.json` with `{"version":1}`; the list is the folder listing; an unreadable or invalid file stays listed and fails on open (ER-2). Workspaces live on the primary environment.
-- Shown workspace (user, 2026-11-05): kept in memory in the web app only; a reload returns to the start screen until story 7. So AC-11's "with a workspace shown" case is checked by in-app navigation (history push), not by a full page load.
-- Command palette (user, 2026-11-05): not mounted in the terminal-first screen; the `chat.new*` route commands and `usage.open` are not installed (AC-12).
-- Settings (user, 2026-11-05): reachable from a "Settings" item in the Workspaces menu. Hidden from nav, search and by redirect: chat, threads, archived, providers, scheduled-tasks, projects, browser, devices, diffs.
-- Chat code stays; each hidden chat route redirects to `/` through one helper in `apps/web/src/terminalFirst.ts`, so the cleanup epic finds them by one search.
-
-- Layout after the AC-10 review (user, 2026-11-05): the app sidebar stays (T3 Code brand, hide button, resize, Settings in its footer); its thread list is replaced by the workspace tree. The new-thread icon's place holds the Workspaces menu (create, open, remove). Search ("Search shells") and Add project are shown but disabled until story 4 wires them (folders in a workspace, FR-21, A-13). Pull requests and Usage leave the footer. The right panel (folders and file preview) returns in a later story; see `docs/dev/questions.md`. Settings is no longer in the Workspaces menu.
-- Settings rows (user, 2026-11-05): on visible pages, chat-only rows are hidden (`HIDDEN_SETTINGS_ROWS`): working section, unpin, archive and delete confirmations, thread details, effort display, render math, prompt font, composer context, word wrap, guest links, Simlock hosts, legacy plan mode, context window indicator, provider update checks, continue threads after restarts, agent credits, source control writing style and writer model, change request templates, review guides and their model and instructions, hold webhooks, publish agent activity, pull request sharing; the SnapShots page is hidden. Chat keybinding commands leave the keybindings page. Kept for shells and renamed: Chat width becomes Shell width, Thread notifications become Shell notifications. Kept unchanged for later reuse: project grouping and order, boring sidebar rows, `terminal.*` keybindings.
-
-**Chat entry points (SA-1 list)**
-- Routes redirected to `/`: thread, draft, `/new` (prompt links), `/pull-requests`, `/usage`, `/welcome`, `/projects/$projectKey`, `/guest` (guest links show a shared thread; added after the first verify run), the hidden settings pages. `/` shows the workspace screen instead of creating a draft.
-- Root shell (`routes/__root.tsx`): the command palette and the project > thread sidebar (`AppSidebarLayout`, `Sidebar.tsx`, `SidebarChrome` utilities) are replaced by the workspace shell; `EventRouter`'s bootstrap thread navigation, `FirstRunGate`'s welcome redirect, `ChatGptWelcomeCoordinator`, `RunningThreadKeepAlive`, `ProjectCloneToastCoordinator`, `AddProjectToMachineDialogHost`, `DevReplayHost`, `DesktopWebLinkCoordinator`, `DesktopAppActivationCoordinator` and `ReopenClosedViewShortcut` are not mounted.
-- `appInit.tsx`: `ThreadNotificationCoordinator` ("Open thread" toast), `BackgroundThreadAnnouncer` and guide-run notifications are not started.
-- Reached only inside the chat view (hidden with it): composer, timeline, PR dialogs, citation links.
-- The `/shell/$environmentId/$shellId` route (PRB.T-002) stays.
-
-**Done**
-- Contracts `packages/contracts/src/workspace.ts` (`workspaceNameProblem` is the one name rule, used by the schema and the create dialog), RPCs in `rpc.ts`, create and remove guarded by settings write on client and server, list and open by orchestration read.
-- `SavedWorkspaces` service with tests (`SavedWorkspaces.test.ts`: create, case-insensitive duplicate, skipped file names, remove leaves folders, unreadable and invalid files stay listed and fail to open, read-only folder makes create and remove fail with the list unchanged, change stream).
-- Client: `packages/client-runtime/src/state/workspaces.ts`; web `apps/web/src/state/workspaces.ts` (shown workspace in memory, cleared when its workspace leaves the list).
-- Web: `components/workspaces/` (start screen, Workspaces menu with create, open, remove and Settings, create dialog, the root-only tree). `/` renders it; settings open over it.
-- Chat hidden through `apps/web/src/terminalFirst.ts`: every chat route redirects to `/`; the root route mounts a `SidebarProvider` (settings need it) but no chat sidebar, palette, wizard or thread coordinator; `appInit.tsx` starts no chat commands or thread notifications; chat settings pages leave nav and search. Unmounted chat modules are listed in `knip.jsonc` until the chat-removal epic.
-- Scenario S1 (`scripts/scenarios/scenarios/boot.ts`) at full scope: AC-1 to AC-9, AC-11 to AC-17, AC-20 and the automated part of AC-10 (settings lists no chat page, no thread sidebar). It seeds files in `<home>/userdata/workspaces/` after start (SA-3 holds) and makes faults with chmod. The restart self-test now keeps a saved workspace. `--only <id>` runs one scenario; the bystander harness test uses it so it stays under the 60 s limit.
-- Docs: `docs/user/workspaces.md`, indexes, notes on the wizard and threads pages, glossary "Workspace", `docs/internals/web-ui.md` "Hidden chat".
-- `vp run test:scenarios --rebuild`: S1 PASS, T-002 PASS (1/8, 7 pending); `--selftest` T1 PASS, T2 FAIL by design; `harness.test.ts` 7/7.
-- `vp run check:changed`: format, lint, knip, tests (16 files) and react compiler pass. Its parallel typecheck step fails twice with no error printed; every affected package (server, web, mobile, contracts, client-runtime, scripts, marketing, provider-core, provider-acp) passes alone. Likely memory pressure on this 7.8 GB container.
-
-- AC-10 manual pass (author, 2026-11-05): the first pass found the layout and settings issues fixed above; the second pass over the restored sidebar and trimmed settings passed.
-- AC-19 (user, 2026-11-05): deferred. Docs cannot describe the terminal-first product fully before stories 4 to 8 build it. This story instead marks every chat-only user page "Not relevant in the terminal-first build", kept for history until the chat code is removed, and lists them apart in `docs/README.md`.
-
-**Not done**
-- Nothing for this story. Closed by the user 2026-11-05 after the AC-10 pass, with AC-19 deferred. The first verify run (2026-11-05) failed on AC-10 and AC-19 evidence, `/guest`, the AC-12 check and the permission gating; all but AC-19 were fixed and AC-10 passed; verify was not rerun.
-
-**Known gaps**
-- AC-11's typed-address case runs a full page load for two addresses; the rest go through in-app navigation, which runs the same redirect.
-- AC-12 dispatches the default `chat.new*` key events from the page and counts history navigations; S1 adds a project first so a still-installed command would act. Reinstalling the commands made S1 fail (checked 2026-11-05).
-- `apps/web/test/appScenarios.renders.tsx` mounts chat routes, which now redirect; it runs only through `report:renders`, not in CI.
-
-**Known risks**
-- Settings open as a modal over the last thread view (`routes/_chat.tsx`); with no thread it must show the workspace screen behind it.
-- Scenario faults (AC-15 to AC-17) use chmod on the throwaway home, which needs a non-root user.
-
+- The right panel (folders and file preview) returns in a later story: `docs/dev/questions.md`.
+- The verify run of 2026-11-05 failed on AC-10, AC-19 evidence, `/guest`, the AC-12 check and
+  permission gating; all but AC-19 were fixed and verify was not rerun.

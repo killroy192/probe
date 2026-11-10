@@ -148,7 +148,7 @@ Work areas, not steps:
 
 | ID | Statement | Kind (assumption / unknown) | Status (unverified / verified / false) | How and when to verify | Owner |
 | --- | --- | --- | --- | --- | --- |
-| SA-1 | A running shell can stay alive while no tab is open for it (epic A-6, depends on PRB.T-002) | assumption | verified | PRB.T-002: a shell outlives its viewers (scenario T-002, [spike](../../research/t-002-standalone-shell-spike.md)) | author |
+| SA-1 | A running shell can stay alive while no tab is open for it (epic A-6, depends on PRB.T-002) | assumption | verified | PRB.T-002: a shell outlives its viewers (scenario T-002) | author |
 | SA-2 | Ending the shell process also ends what it started (current code signals the pty process only) | assumption | false | False for background jobs (`sleep 1000 &` outlives a SIGKILLed shell); the kill therefore ends the shell's whole process tree and session. Verified by the kill test in `Manager.test.ts` (PRB.T-006 implementation) | author |
 | SU-1 | Name of the kill command and how it finds its own shell (epic U-5, designed in this story's plan stage) | unknown | verified | Decided by the user 2026-11-06: `probe kill`, a `probe` command with subcommands that Probe puts on each shell's PATH; it finds its shell by a per-shell token in the shell's environment | author |
 | SU-2 | Whether a shell exiting on its own (for example `exit`) while a tab is open closes the tab; the epic assigns the not-restored rule to PRB.T-007 and PRB.T-008 | unknown | verified | Decided at planning 2026-11-06: left to PRB.T-007 and PRB.T-008; this story keeps today's behaviour (an ended shell leaves the tree) | author |

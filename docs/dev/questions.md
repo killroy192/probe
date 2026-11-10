@@ -15,8 +15,7 @@ it is verified or decided; settled decisions go to `roadmap.md`.
 - Whether CI type-checks desktop and mobile after contract changes (PRB.T-008 SA-4). Locally,
   `vp run check:changed` type-checks both as dependents of `packages/contracts`.
 - Which story brings back the right panel (folders and file preview) next to shells. It lived in the
-  chat view, which PRB.T-003 hides; the user wants it back once shells and folders exist (2026-11-05).
-  PRB.T-002 builds it inside the ws layer (`apps/server/src/ws.ts`); deferred by the user.
+  chat view, which is now hidden; the user wants it back once shells and folders exist (2026-11-05).
 - PRB.E-002 A-2: Claude Code typed into a ready Probe shell starts and works like in a plain terminal
   (input, resize, exit back to the prompt). Checked by hand in PRB.E-002 story 1; phase 3 depends on it.
 - Claude Code's terminal title (spinner while working, `✳` otherwise) is undocumented: whether it is
