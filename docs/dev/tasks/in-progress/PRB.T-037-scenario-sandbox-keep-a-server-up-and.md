@@ -235,7 +235,8 @@ Not done: the lock takeover after a killed run is not atomic. Two runs taking ov
 
 - `scripts/scenarios/sandbox.test.ts`: 13 tests (6 unit, 7 spawned), first run 12/12, then the four tests changed after verification 4/4 (14 to 27 s each). Covers AC-3 to AC-20 and AC-24.
 - `vp run test:scenarios -- --selftest`: T1 and T4 pass, T2 fails by design (with its stage, expected and found), as before.
-- `vp run check:changed`: format, lint, knip, typecheck pass; tests 33/34. The one failure is `harness.test.ts` "cleans up after a runner killed with SIGKILL" (`userdata/shells/registry.json` ENOENT), PRB.T-036's open failure #2, which fails on `main` too ("fails as before" under AC-23).
+- `vp run check:changed`, after rebasing on PRB.T-036's merge (`112548d01`): every step passes, tests 144/144 in 5 files. The `harness.test.ts` SIGKILL cleanup failure seen before the rebase was PRB.T-036's, fixed on `main`. The rebase needed one change: the sandbox's server handle (`attachServer`) reads raw shell output (`rawOutput`, new on `main`) from the sandbox's home, as a harness server does.
+- No scenario or test failed because of a product bug.
 - verify-story-implementation: fail on AC-13 (fixed since by T6 and its test), AC-22 and the full-suite half of AC-23; no gate scored 0.
 
 Open:
