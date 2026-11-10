@@ -27,6 +27,11 @@ it is verified or decided; settled decisions go to `roadmap.md`.
   - PRB.E-004 A-7/A-9: a server bound to a non-loopback address is reachable through a published port, and the shell host socket and database work on a mounted state folder (topology 1), also shared with a host server. Decides what PRB.E-003 story 8 can verify against a real remote.
   - PRB.E-003 U-7 (also PRB.E-002 U-4): how a start request for a workspace on another server gets its command, and where the removed-or-disabled check runs. Settled in PRB.E-003 story 2; PRB.E-002 closes without it.
   - PRB.E-003 A-1/A-8: the connection registry can hold the default and several remote servers at once, and a server can list all its workspaces and signal changes. PRB.E-003 story 1.
+- From the PRB.T-029 container spike (`research/t-029-container-spike.md`), for PRB.T-030 and PRB.T-031:
+  - Whether the server should default the agent command when `PROBE_AGENT_COMMAND` is unset. Today no shell opens at all without it, in any install.
+  - What the startup banner and `pair` should print when the server is bound to `0.0.0.0` in a container: today they print the bridge IP, which the host cannot reach. The startup token also lands in the server log.
+  - The PID-based "already running" preflight (`apps/server/src/cli/config.ts`) cannot see a server in another PID namespace; the `server-owner.sqlite` lock caught it between containers. Unverified for a host server sharing the folder with a container server.
+  - The shell-host socket on a mounted state folder accepts connections from any container that mounts it. Whether the guide only warns, or the socket needs its own check.
 - Paradev CLA terms (not read; irrelevant unless we contribute).
 
 ## Decisions pending
