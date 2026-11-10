@@ -5,7 +5,7 @@ parent: PRB.E-002
 phase: 1
 labels: [terminal-first, implement]
 created: 2026-11-08
-updated: 2026-11-09
+updated: 2026-11-10
 ---
 
 # A missing program is named and an exiting command keeps the shell
