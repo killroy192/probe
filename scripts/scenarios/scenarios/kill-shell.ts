@@ -9,13 +9,13 @@ import type { ShellSummary } from "@t3tools/contracts";
 
 import { connectRpc } from "../rpc.ts";
 import type { Scenario } from "../scenario.ts";
-import { alive, gone, pageFrames } from "../support.ts";
+import { expectLogged } from "../fixtures.ts";
+import { alive, check, gone, pageFrames } from "../support.ts";
 import {
   addProject,
   allGone,
   answerConfirm,
   askToKill,
-  check,
   closeTab,
   createWorkspace,
   gitOk,
@@ -70,13 +70,13 @@ export const killShell: Scenario = {
       shells.lists.until(
         `shell ${shell.shellId} to leave the list`,
         (list) => list.every((entry) => entry.shellId !== shell.shellId),
-        Math.max(0, shells.lists.seen.length - 1),
+        Math.max(0, shells.lists.mark() - 1),
       );
     /** Leaves the mock agent, then runs `line` in the shell itself and waits for `echo`. */
     const runInShell = async (shell: ShellSummary, line: string, echo: string) => {
       await openFromTree(page, shell.shellId);
       await leaveAgent(page, rpc.client, shell.shellId);
-      const from = frames.seen.length;
+      const from = frames.mark();
       await typeLine(page, line);
       await frames
         .until(`"${echo}" in the shell`, (frame) => frame.includes(echo), from)
@@ -85,16 +85,15 @@ export const killShell: Scenario = {
           throw new Error(`${error instanceof Error ? error.message : error} Shell shows: ${tail}`);
         });
     };
-    const endedLog = (shell: ShellSummary) =>
-      server
-        .logs()
-        .split(/\n(?=\S)/)
-        .some(
-          (entry) =>
-            entry.includes("shell ended") &&
-            entry.includes(shell.shellId) &&
-            entry.includes(shell.cwd),
-        );
+    const endedLogged = (shell: ShellSummary, message: string) =>
+      expectLogged(
+        server,
+        message,
+        (entry) =>
+          entry.includes("shell ended") &&
+          entry.includes(shell.shellId) &&
+          entry.includes(shell.cwd),
+      );
     let stage = "setup";
 
     try {
@@ -125,7 +124,7 @@ export const killShell: Scenario = {
       await leftList(withJobs);
       check(await allGone([shellPid, ...jobs]), "The shell or one of its jobs survived (AC-9).");
       check((await shellTab(page, withJobs.shellId).count()) === 0, "The tab stayed open (AC-8).");
-      check(endedLog(withJobs), "The log has no end line with the id and folder (AC-20).");
+      await endedLogged(withJobs, "The log has no end line with the id and folder (AC-20).");
 
       // AC-8: a shell whose tab is closed only leaves the tree.
 
@@ -145,9 +144,12 @@ export const killShell: Scenario = {
       const worktree = forked.cwd;
       const neighbour = await startShell(page, shells, repo, { existing: worktree });
       await openFromTree(page, neighbour.shellId);
+      const typedNeighbour = frames.mark();
       await typeLine(page, "neighbour-line-s6");
-      await frames.until("the neighbour's line", (frame) =>
-        frame.includes("echo: neighbour-line-s6"),
+      await frames.until(
+        "the neighbour's line",
+        (frame) => frame.includes("echo: neighbour-line-s6"),
+        typedNeighbour,
       );
       const forkedPid = latest(forked)!.pid!;
       await openFromTree(page, forked.shellId);
@@ -164,7 +166,7 @@ export const killShell: Scenario = {
         "The other shell in the worktree lost its output (AC-11).",
       );
       await NodeFSP.access(worktree);
-      check(endedLog(forked), "The log has no end line for probe kill (AC-20).");
+      await endedLogged(forked, "The log has no end line for probe kill (AC-20).");
 
       stage = "AC-10";
       await killFromTree(page, neighbour.shellId);

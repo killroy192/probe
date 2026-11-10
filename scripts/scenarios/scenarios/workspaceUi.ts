@@ -10,21 +10,34 @@ import * as Fiber from "effect/Fiber";
 import * as Stream from "effect/Stream";
 
 import type { PointerPage } from "../browser.ts";
+import { gitEnv } from "../isolation.ts";
 import type { WsClient } from "../rpc.ts";
-import { follow, gone, recorder } from "../support.ts";
+import { check, follow, gone, recorder } from "../support.ts";
 
 // Pointer-only helpers for the workspace screen, shared by the scenarios that drive it.
 
-export function check(condition: boolean, message: string): asserts condition {
-  if (!condition) throw new Error(message);
-}
-
+/** Git for fixtures, with the harness's own config, never the developer's. */
 export const git = (cwd: string, args: ReadonlyArray<string>) =>
   new Promise<{ readonly ok: boolean; readonly stdout: string }>((resolve) => {
-    NodeChildProcess.execFile("git", args, { cwd, encoding: "utf8" }, (error, stdout) =>
-      resolve({ ok: error === null, stdout }),
+    NodeChildProcess.execFile(
+      "git",
+      args,
+      { cwd, encoding: "utf8", env: gitEnv() },
+      (error, stdout) => resolve({ ok: error === null, stdout }),
     );
   });
+
+/** The page's alerts, or the ones that say `text`. */
+export const alert = (page: PointerPage, text?: string) =>
+  text === undefined ? page.getByRole("alert") : page.getByRole("alert").filter({ hasText: text });
+
+/** A shell's ended row in the tree, for any reason or one. */
+export const endedRow = (page: PointerPage, shellId: string, reason?: "signal" | "lost") =>
+  page.locator(
+    reason === undefined
+      ? `[data-shell-id="${shellId}"][data-ended]`
+      : `[data-shell-id="${shellId}"][data-ended="${reason}"]`,
+  );
 
 // Toasts are dialogs too; the app's modals are the dialog popups.
 export const dialog = (page: PointerPage) =>
@@ -218,13 +231,15 @@ export async function shellsIn(
   const current = await list.until(
     `${count} shells in ${cwd}`,
     (shells) => shells.filter((shell) => shell.cwd === cwd).length === count,
+    // From the current list on: an older list describes a state that has passed.
+    Math.max(0, list.mark() - 1),
   );
   return current.filter((shell) => shell.cwd === cwd);
 }
 
 /** Follows the server's shell list over `client`. */
 export function shellList(client: WsClient) {
-  const lists = recorder<ReadonlyArray<ShellSummary>>();
+  const lists = recorder<ReadonlyArray<ShellSummary>>("shell lists");
   let list: ReadonlyArray<ShellSummary> = [];
   follow(client.subscribeShells({}), (event) => {
     if (event.type === "snapshot") list = event.shells;
@@ -251,12 +266,28 @@ export async function typeLine(page: PointerPage, text: string) {
   await input.press("Enter");
 }
 
+/** Fills the open create dialog and confirms; returns the dialog's refusal, or null once it closes. */
+export async function fillCreateWorkspace(page: PointerPage, name: string): Promise<string | null> {
+  const open = page.getByRole("dialog");
+  await open.getByRole("textbox").fill(name);
+  await open.getByRole("button", { name: "Create" }).click();
+  const refusal = open.getByRole("alert");
+  await Promise.race([refusal.waitFor(), open.waitFor({ state: "detached" })]);
+  if (await open.count()) {
+    const reason = await refusal.textContent();
+    await open.getByRole("button", { name: "Cancel" }).click();
+    await open.waitFor({ state: "detached" });
+    return reason;
+  }
+  return null;
+}
+
+/** Creates a workspace from the "Workspaces" menu and waits for the tree to show it. */
 export async function createWorkspace(page: PointerPage, name: string) {
   await page.getByRole("button", { name: "Workspaces" }).click();
   await page.getByRole("menuitem", { name: "Create workspace" }).click();
-  await dialog(page).getByRole("textbox").fill(name);
-  await dialog(page).getByRole("button", { name: "Create" }).click();
-  await dialog(page).waitFor({ state: "detached" });
+  const refusal = await fillCreateWorkspace(page, name);
+  check(refusal === null, `Creating ${name} was refused: ${refusal}`);
   await page.getByRole("tree").getByRole("treeitem", { level: 1, name }).waitFor();
 }
 
@@ -271,7 +302,7 @@ export async function runningIn(
   const found = await list.until(
     `${count} running shells in ${cwd}`,
     (shells) => running(shells).length === count,
-    Math.max(0, list.seen.length - 1),
+    Math.max(0, list.mark() - 1),
   );
   return running(found);
 }
@@ -384,28 +415,29 @@ export async function startShell(
   const list = await shells.lists.until(
     `a new running shell in ${project}`,
     (current) => current.some((shell) => !known.has(shell.shellId) && shell.status === "running"),
-    Math.max(0, shells.lists.seen.length - 1),
+    Math.max(0, shells.lists.mark() - 1),
   );
   const shell = list.find((entry) => !known.has(entry.shellId) && entry.status === "running")!;
   await shellRow(page, shell.shellId).waitFor();
   return shell;
 }
 
-/** The git fixture runner: commits need an identity, which the throwaway home lacks. */
+/** The git fixture runner; the harness's git config gives commits an identity. */
 export async function gitOk(cwd: string, ...args: Array<string>) {
-  const result = await git(cwd, ["-c", "user.name=t", "-c", "user.email=t@t", ...args]);
+  const result = await git(cwd, args);
   check(result.ok, `git ${args.join(" ")} failed in the fixture.`);
   return result.stdout.trim();
 }
 
 /** Waits until the shell's mock agent runs, so a typed line reaches the agent, not the shell. */
 export async function agentReady(client: WsClient, shellId: string) {
-  const output = recorder<string>();
+  const output = recorder<string>("agent output");
   const viewer = follow(client["shell.attach"]({ shellId }), (event) =>
     output.push(JSON.stringify(event)),
   );
   try {
-    await output.until("the agent's banner", (event) => event.includes("Mock Agent v1"));
+    // A fresh attach: its snapshot holds the shell's whole history, which is what counts here.
+    await output.until("the agent's banner", (event) => event.includes("Mock Agent v1"), 0);
   } finally {
     await Effect.runPromise(Fiber.interrupt(viewer));
   }
@@ -416,14 +448,16 @@ export async function agentReady(client: WsClient, shellId: string) {
  * line reaches the shell, not the agent's input buffer.
  */
 export async function leaveAgent(page: PointerPage, client: WsClient, shellId: string) {
-  const output = recorder<string>();
+  const output = recorder<string>("agent output");
   const viewer = follow(client["shell.attach"]({ shellId }), (event) =>
     output.push(JSON.stringify(event)),
   );
   try {
-    await output.until("the agent's banner", (event) => event.includes("Mock Agent v1"));
+    // A fresh attach: its snapshot holds the shell's whole history, which is what counts here.
+    await output.until("the agent's banner", (event) => event.includes("Mock Agent v1"), 0);
+    const typed = output.mark();
     await typeLine(page, "exit");
-    await output.until("the agent's goodbye", (event) => event.includes("mock-agent: bye"));
+    await output.until("the agent's goodbye", (event) => event.includes("mock-agent: bye"), typed);
   } finally {
     await Effect.runPromise(Fiber.interrupt(viewer));
   }

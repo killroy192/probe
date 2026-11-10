@@ -10,14 +10,16 @@ import * as Effect from "effect/Effect";
 import { connectRpc, type WsClient } from "../rpc.ts";
 import type { PointerPage } from "../browser.ts";
 import type { Scenario } from "../scenario.ts";
-import { alive, gone, pageFrames } from "../support.ts";
+import { alive, check, gone, pageFrames } from "../support.ts";
+import { expectLogged, unlessRoot } from "../fixtures.ts";
 import {
   addProject,
+  alert,
+  endedRow,
   agentReady,
   allGone,
   answerConfirm,
   askToKill,
-  check,
   closeTab,
   createShellButton,
   createWorkspace,
@@ -54,14 +56,8 @@ const selectedTab = (page: PointerPage) =>
 const shown = (page: PointerPage, name: string) =>
   page.getByRole("tree").getByRole("treeitem", { level: 1, name }).waitFor();
 
-const endedRow = (page: PointerPage, shellId: string, reason: "signal" | "lost") =>
-  page.locator(`[data-shell-id="${shellId}"][data-ended="${reason}"]`);
-
 const missingMark = (page: PointerPage, shellId: string) =>
   page.locator(`[data-shell-row="${shellId}"] [data-missing]`);
-
-const alert = (page: PointerPage, text: string) =>
-  page.getByRole("alert").filter({ hasText: text });
 
 const lastStartOf = async (client: WsClient, name: string) =>
   JSON.stringify((await Effect.runPromise(client["workspace.open"]({ name }))).lastStarts);
@@ -103,12 +99,13 @@ export const restartSurvival: Scenario = {
       await server.stop();
       if (endHost) await server.stopShellHost();
       await server.restart();
-      reloadedFrom = frames.seen.length;
+      reloadedFrom = frames.mark();
       await page.reload();
       await shown(page, "sparta");
       rpc = await connectRpc(server.origin, page);
       shells = shellList(rpc.client);
-      await shells.lists.until("the shell list after the restart", () => true);
+      // A fresh subscription: its first list is the server's state after the restart.
+      await shells.lists.until("the shell list after the restart", () => true, 0);
     };
     let stage = "setup";
 
@@ -125,13 +122,23 @@ export const restartSurvival: Scenario = {
       const agent = await startShell(page, shells, repo);
       await openFromTree(page, agent.shellId);
       await agentReady(rpc.client, agent.shellId);
+      const typedBefore = frames.mark();
       await typeLine(page, "before-restart-s7");
-      await frames.until("the agent's line", (frame) => frame.includes("echo: before-restart-s7"));
+      await frames.until(
+        "the agent's line",
+        (frame) => frame.includes("echo: before-restart-s7"),
+        typedBefore,
+      );
       const plainShell = await startShell(page, shells, plain);
       await openFromTree(page, plainShell.shellId);
       await leaveAgent(page, rpc.client, plainShell.shellId);
+      const typedPlain = frames.mark();
       await typeLine(page, "echo plain-$((40+2))-s7");
-      await frames.until("the plain shell's line", (frame) => frame.includes("plain-42-s7"));
+      await frames.until(
+        "the plain shell's line",
+        (frame) => frame.includes("plain-42-s7"),
+        typedPlain,
+      );
       const hidden = await startShell(page, shells, plain);
       await closeTab(page, hidden.shellId);
       const inLive = await startShell(page, shells, live);
@@ -154,11 +161,16 @@ export const restartSurvival: Scenario = {
       const exitFailed = await startShell(page, shells, plain);
       await openFromTree(page, exitFailed.shellId);
       await leaveAgent(page, rpc.client, exitFailed.shellId);
+      // Lists from before these shells started lack them too; the current one still has exitFailed.
+      const endsFrom = shells.lists.mark();
       await typeLine(page, "false; exit");
-      await shells.lists.until("the killed and exited shells to leave the list", (list) =>
-        [forked, byCommand, exitZero, exitFailed].every((shell) =>
-          list.every((entry) => entry.shellId !== shell.shellId),
-        ),
+      await shells.lists.until(
+        "the killed and exited shells to leave the list",
+        (list) =>
+          [forked, byCommand, exitZero, exitFailed].every((shell) =>
+            list.every((entry) => entry.shellId !== shell.shellId),
+          ),
+        endsFrom,
       );
 
       // Shells a signal ends, whose folders are then removed and moved.
@@ -166,14 +178,18 @@ export const restartSurvival: Scenario = {
       stage = "setup missing folders";
       const inRemoved = await startShell(page, shells, removed);
       const inMoved = await startShell(page, shells, moved);
+      const signalledFrom = shells.lists.mark();
       for (const shell of [inRemoved, inMoved]) {
         NodeProcess.kill(shell.pid!, "SIGKILL");
         check(await gone(shell.pid!), `Shell ${shell.shellId} survived SIGKILL.`);
       }
-      await shells.lists.until("the signalled shells to be listed as ended", (list) =>
-        [inRemoved, inMoved].every((shell) =>
-          list.some((entry) => entry.shellId === shell.shellId && entry.ended === "signal"),
-        ),
+      await shells.lists.until(
+        "the signalled shells to be listed as ended",
+        (list) =>
+          [inRemoved, inMoved].every((shell) =>
+            list.some((entry) => entry.shellId === shell.shellId && entry.ended === "signal"),
+          ),
+        signalledFrom,
       );
       await NodeFSP.rm(removed, { recursive: true });
       await NodeFSP.rename(moved, `${moved}-elsewhere`);
@@ -220,9 +236,12 @@ export const restartSurvival: Scenario = {
         (frame) => frame.includes("echo: before-restart-s7"),
         reloadedFrom,
       );
+      const typedAfter = frames.mark();
       await typeLine(page, "after-restart-s7");
-      await frames.until("input after the restart", (frame) =>
-        frame.includes("echo: after-restart-s7"),
+      await frames.until(
+        "input after the restart",
+        (frame) => frame.includes("echo: after-restart-s7"),
+        typedAfter,
       );
 
       stage = "AC-7";
@@ -257,17 +276,13 @@ export const restartSurvival: Scenario = {
       await shellRow(page, hidden.shellId).waitFor();
 
       stage = "AC-34";
-      check(
-        server
-          .logs()
-          .split(/\n(?=\S)/)
-          .some(
-            (entry) =>
-              entry.includes("shell reattached") &&
-              entry.includes(agent.shellId) &&
-              entry.includes(repo),
-          ),
+      await expectLogged(
+        server,
         "The log has no reattach line with the shell id and folder (AC-34).",
+        (entry) =>
+          entry.includes("shell reattached") &&
+          entry.includes(agent.shellId) &&
+          entry.includes(repo),
       );
 
       // AC-12, AC-13, AC-14, AC-23: killed and exited shells stay gone; a killed shell's
@@ -320,22 +335,29 @@ export const restartSurvival: Scenario = {
         "A shell in a deleted folder is marked elsewhere (AC-29).",
       );
       await openFromTree(page, inLive.shellId);
+      const typedLive = frames.mark();
       await typeLine(page, "still-here-s7");
-      await frames.until("the live shell's line", (frame) => frame.includes("echo: still-here-s7"));
+      await frames.until(
+        "the live shell's line",
+        (frame) => frame.includes("echo: still-here-s7"),
+        typedLive,
+      );
 
       // AC-18: a removal that cannot be saved says why and keeps the entry.
 
       stage = "AC-18";
       const shellsDir = NodePath.join(stateDir, "shells");
-      await NodeFSP.chmod(shellsDir, 0o555);
-      try {
-        await askToKill(page, inMoved.shellId);
-        await answerConfirm(page, "Confirm");
-        await alert(page, "could not save its shells").waitFor();
-        await endedRow(page, inMoved.shellId, "signal").waitFor();
-      } finally {
-        await NodeFSP.chmod(shellsDir, 0o755);
-      }
+      await unlessRoot("S7", "AC-18 removal that cannot be saved", async () => {
+        await NodeFSP.chmod(shellsDir, 0o555);
+        try {
+          await askToKill(page, inMoved.shellId);
+          await answerConfirm(page, "Confirm");
+          await alert(page, "could not save its shells").waitFor();
+          await endedRow(page, inMoved.shellId, "signal").waitFor();
+        } finally {
+          await NodeFSP.chmod(shellsDir, 0o755);
+        }
+      });
 
       // AC-17: removing the unavailable entries works, and they stay gone (checked below).
 
@@ -351,29 +373,33 @@ export const restartSurvival: Scenario = {
 
       stage = "AC-21";
       const workspacesDir = NodePath.join(stateDir, "workspaces");
-      await NodeFSP.chmod(workspacesDir, 0o555);
-      try {
-        await openFromTree(page, plainShell.shellId);
-        await alert(page, "The layout is not being saved").waitFor();
-        check(isRunning(latest(plainShell)), "A layout save failure ended a shell (AC-21).");
-      } finally {
-        await NodeFSP.chmod(workspacesDir, 0o755);
-      }
-      await openFromTree(page, agent.shellId);
-      await alert(page, "The layout is not being saved").waitFor({ state: "detached" });
+      await unlessRoot("S7", "AC-21 layout that cannot be saved", async () => {
+        await NodeFSP.chmod(workspacesDir, 0o555);
+        try {
+          await openFromTree(page, plainShell.shellId);
+          await alert(page, "The layout is not being saved").waitFor();
+          check(isRunning(latest(plainShell)), "A layout save failure ended a shell (AC-21).");
+        } finally {
+          await NodeFSP.chmod(workspacesDir, 0o755);
+        }
+        await openFromTree(page, agent.shellId);
+        await alert(page, "The layout is not being saved").waitFor({ state: "detached" });
+      });
 
       // AC-19: a workspace whose file became unreadable says why and changes nothing.
 
       stage = "AC-19";
       const athensFile = NodePath.join(workspacesDir, "athens.json");
-      await NodeFSP.chmod(athensFile, 0o000);
-      try {
-        await openWorkspace(page, "athens");
-        await alert(page, "cannot be opened").waitFor();
-        await shown(page, "sparta");
-      } finally {
-        await NodeFSP.chmod(athensFile, 0o644);
-      }
+      await unlessRoot("S7", "AC-19 unreadable workspace", async () => {
+        await NodeFSP.chmod(athensFile, 0o000);
+        try {
+          await openWorkspace(page, "athens");
+          await alert(page, "cannot be opened").waitFor();
+          await shown(page, "sparta");
+        } finally {
+          await NodeFSP.chmod(athensFile, 0o644);
+        }
+      });
 
       // AC-10: the other workspace's shell runs on and comes back with its own layout.
 

@@ -7,10 +7,9 @@ import * as Effect from "effect/Effect";
 
 import { connectRpc } from "../rpc.ts";
 import type { Scenario } from "../scenario.ts";
-import { alive, follow, pageFrames, recorder } from "../support.ts";
+import { alive, check, follow, pageFrames, recorder } from "../support.ts";
 import {
   addProject,
-  check,
   closeTab,
   createWorkspace,
   history,
@@ -71,15 +70,21 @@ export const closeTabScenario: Scenario = {
 
       stage = "AC-6";
       // The scenario's own viewer sees the output arrive; the page has no viewer for it now.
-      const output = recorder<string>();
+      const output = recorder<string>("attach events");
       follow(rpc.client["shell.attach"]({ shellId: first.shellId }), (event) =>
         output.push(JSON.stringify(event)),
       );
-      await output.until("the scenario's attach snapshot", () => true);
+      // The first event of a fresh attach is its snapshot.
+      await output.until("the scenario's attach snapshot", () => true, 0);
       // The page may keep receiving a closed tab's output, or get it as history on reopen.
-      const before = frames.seen.length;
+      const before = frames.mark();
+      const written = output.mark();
       await Effect.runPromise(rpc.client["shell.write"]({ shellId: first.shellId, data: "go\r" }));
-      await output.until("the closed shell's output", (event) => event.includes("after-go-s5"));
+      await output.until(
+        "the closed shell's output",
+        (event) => event.includes("after-go-s5"),
+        written,
+      );
       check(
         (await history(rpc.client, first.shellId)).includes("after-go-s5"),
         "The closed shell's history lacks its output (AC-6).",

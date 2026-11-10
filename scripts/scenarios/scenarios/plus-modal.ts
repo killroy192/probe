@@ -11,12 +11,20 @@ import * as Stream from "effect/Stream";
 import { connectionCutter, type PointerPage } from "../browser.ts";
 import { connectRpc } from "../rpc.ts";
 import type { Scenario } from "../scenario.ts";
-import { follow, gone, pageFrames, recorder } from "../support.ts";
+import {
+  agentTypedOnceAfterPrompt,
+  expectLogged,
+  shellOutput,
+  metric,
+  MOCK_AGENT_LINES,
+  unlessRoot,
+} from "../fixtures.ts";
+import { MOCK_AGENT_COMMAND } from "../server.ts";
+import { check, follow, gone, pageFrames, recorder } from "../support.ts";
 import {
   addProject,
   addStartingScript,
   cancelModal,
-  check,
   closeFolderList,
   createWorkspace,
   dialog,
@@ -103,11 +111,13 @@ export const plusModal: Scenario = {
       stage = "AC-17";
       const fileReason = await addProject(page, { import: notes });
       check(fileReason?.includes("not a folder") === true, `File path: ${fileReason} (AC-17).`);
-      const deniedReason = await addProject(page, { parent: locked, name: "app" });
-      check(
-        deniedReason?.includes("may not create") === true,
-        `Denied create: ${deniedReason} (AC-17).`,
-      );
+      await unlessRoot("S2", "AC-17 denied create", async () => {
+        const deniedReason = await addProject(page, { parent: locked, name: "app" });
+        check(
+          deniedReason?.includes("may not create") === true,
+          `Denied create: ${deniedReason} (AC-17).`,
+        );
+      });
       await cancelModal(page);
       check((await page.locator("[data-project]").count()) === 0, "A refused folder was added.");
 
@@ -130,25 +140,22 @@ export const plusModal: Scenario = {
       // AC-2, AC-3, AC-21: one click starts a shell; its node appears within 1 s.
 
       stage = "AC-2, AC-3, AC-21";
-      const framesBefore = frames.seen.length;
+      const framesBefore = frames.mark();
+      // Clock reads below are recorded metrics (FR-4), never compared.
       const clickedAt = Date.now();
       await startButton(page).click();
       await shellNodes(page, repo).first().waitFor();
-      const nodeMs = Date.now() - clickedAt;
-      check(nodeMs <= 1_000, `The tree node took ${nodeMs} ms (AC-3 needs 1000).`);
+      metric("S2", "tree-node", Date.now() - clickedAt, "AC-3, was a 1000 ms gate");
       await frames.until(
         "the mock CLI banner",
         (frame) => frame.includes("Mock Agent v1"),
         framesBefore,
       );
-      const bannerMs = Date.now() - clickedAt;
+      metric("S2", "start-to-banner", Date.now() - clickedAt);
       await frames.until(
         "the mock CLI session id",
         (frame) => /session: mock-[0-9a-f]{8}/.test(frame),
         framesBefore,
-      );
-      NodeProcess.stdout.write(
-        `scenarios: S2 start-to-banner ms=${bannerMs} (provisional limit 2000, not enforced)\n`,
       );
       await dialog(page).waitFor({ state: "detached" });
       const [first] = await shellsIn(shells.lists, repo, 1);
@@ -189,19 +196,24 @@ export const plusModal: Scenario = {
       // AC-5: a typed line is echoed by the mock CLI.
 
       stage = "AC-5";
+      const typedHello = frames.mark();
       await typeLine(page, "hello-probe");
-      await frames.until("the echoed line", (frame) => frame.includes("echo: hello-probe"));
+      await frames.until(
+        "the echoed line",
+        (frame) => frame.includes("echo: hello-probe"),
+        typedHello,
+      );
 
       // AC-6: after leaving the CLI, the shell's size equals the grid the view reports.
 
       stage = "AC-6";
-      const output = recorder<TerminalAttachStreamEvent>();
+      const output = recorder<TerminalAttachStreamEvent>("attach events");
       follow(rpc.client["shell.attach"]({ shellId: first.shellId }), output.push);
       await typeLine(page, "exit");
       await tabs(page)
         .filter({ hasText: /^Shell 1 · repo$/ })
         .waitFor();
-      const resizedFrom = output.seen.length;
+      const resizedFrom = output.mark();
       await page.setViewportSize({ width: 900, height: 600 });
       const grid = await output.until(
         "the narrower grid",
@@ -209,8 +221,13 @@ export const plusModal: Scenario = {
         resizedFrom,
       );
       check(grid.type === "activity", "No grid was reported.");
+      const typedSize = frames.mark();
       await typeLine(page, "echo sz:$(stty size)");
-      const size = await frames.until("the shell's size", (frame) => /sz:\d+ \d+/.test(frame));
+      const size = await frames.until(
+        "the shell's size",
+        (frame) => /sz:\d+ \d+/.test(frame),
+        typedSize,
+      );
       const [, , cols] = /sz:(\d+) (\d+)/.exec(size)!;
       check(
         Number(cols) === grid.cols,
@@ -226,13 +243,18 @@ export const plusModal: Scenario = {
         (await selectedKey(page, "Start in")) === repo,
         "The last choice is not preselected (AC-7).",
       );
+      const secondFrom = frames.mark();
       await startButton(page).dblclick();
       await dialog(page).waitFor({ state: "detached" });
       const two = await shellsIn(shells.lists, repo, 2);
       await shellNodes(page, repo).nth(1).waitFor();
       const second = two.find((shell) => shell.shellId !== first.shellId)!;
       check(second.title === "Shell 2", `The second shell is named ${second.title}.`);
-      await frames.until("the second banner", (frame) => frame.includes("Mock Agent v1"));
+      await frames.until(
+        "the second banner",
+        (frame) => frame.includes("Mock Agent v1"),
+        secondFrom,
+      );
       check(
         shells.current().filter((shell) => shell.cwd === repo).length === 2 &&
           (await shellNodes(page, repo).count()) === 2 &&
@@ -244,16 +266,13 @@ export const plusModal: Scenario = {
           !(await history(rpc.client, second.shellId)).includes("hello-probe"),
         "The two shells share output (AC-12).",
       );
-      // PRB.T-011: the agent command is typed once the prompt is ready, so it shows once, after it.
-      // The prompt scrolls a long line sideways, so only the start of the command is counted.
-      const shown = (await history(rpc.client, first.shellId)).replace(
-        /\u001b\][^\u0007\u001b]*(\u0007|\u001b\\)/g,
-        "",
-      );
+      // PRB.T-011: the agent command is typed once, after the shell's first prompt. The output runs
+      // on through the typed lines above, so a second typing would show by now.
+      const raw = shellOutput(frames.seen.slice(framesBefore), first.shellId);
+      const problem = agentTypedOnceAfterPrompt(raw, MOCK_AGENT_COMMAND, MOCK_AGENT_LINES);
       check(
-        (shown.match(/scripts\/mock-agent\/mock-agent/g) ?? []).length === 1 &&
-          !shown.startsWith("node "),
-        `The agent command is not shown once, after the prompt (PRB.T-011): ${JSON.stringify(shown.slice(0, 400))}`,
+        problem === null,
+        `The agent command was not typed once after the prompt (PRB.T-011): ${problem}: ${JSON.stringify(raw.slice(0, 600))}`,
       );
 
       // AC-9: a new folder gets git with no commit, and a shell starts in its own checkout.
@@ -348,23 +367,25 @@ export const plusModal: Scenario = {
       stage = "AC-19";
       const killed = shells.current().find((shell) => shell.shellId === second.shellId)!;
       check(killed.pid !== null, "The second shell has no pid.");
+      const killedFrom = shells.lists.mark();
       NodeProcess.kill(killed.pid, "SIGKILL");
       check(await gone(killed.pid), "The killed shell's process is still running.");
-      await shells.lists.until("the killed shell to end", (list) =>
-        list.some((shell) => shell.shellId === killed.shellId && shell.status === "exited"),
+      await shells.lists.until(
+        "the killed shell to end",
+        (list) =>
+          list.some((shell) => shell.shellId === killed.shellId && shell.status === "exited"),
+        killedFrom,
       );
-      // An entry starts with its time and continues with its fields on indented lines.
-      const logLines = () => server.logs().split(/\n(?=\S)/);
-      check(
-        logLines().some(
-          (line) =>
-            line.includes("shell started") && line.includes(killed.shellId) && line.includes(repo),
-        ),
+      await expectLogged(
+        server,
         "The log has no start line with the shell id and cwd (AC-19).",
+        (line) =>
+          line.includes("shell started") && line.includes(killed.shellId) && line.includes(repo),
       );
-      check(
-        logLines().some((line) => line.includes("shell ended") && line.includes(killed.shellId)),
+      await expectLogged(
+        server,
         "The log has no end line for the killed shell (AC-19).",
+        (line) => line.includes("shell ended") && line.includes(killed.shellId),
       );
 
       // AC-16, AC-17: a starting script whose program is missing, and a restart with a git
@@ -385,7 +406,8 @@ export const plusModal: Scenario = {
       await reopen(page);
       rpc = await connectRpc(server.origin, page);
       shells = shellList(rpc.client);
-      await shells.lists.until("the list after restart", () => true);
+      // A fresh subscription: its first list is the server's state after the restart.
+      await shells.lists.until("the list after restart", () => true, 0);
       await shellNodes(page).first().waitFor({ state: "detached" });
       await openModal(page, repo, { script: "unstartable" });
       await startButton(page).click();
@@ -399,9 +421,10 @@ export const plusModal: Scenario = {
         shells.current().length === 0 && (await shellNodes(page).count()) === 0,
         "An unstartable CLI left a shell or tree node (AC-16).",
       );
-      check(
-        logLines().some((line) => line.includes("shell failed to start") && line.includes(repo)),
+      await expectLogged(
+        server,
         "The log has no failure line with the cwd (AC-16).",
+        (line) => line.includes("shell failed to start") && line.includes(repo),
       );
 
       // AC-17: git init fails; the half-made folder is gone and not in the workspace.

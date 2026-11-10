@@ -9,10 +9,10 @@ import type { ShellSummary } from "@t3tools/contracts";
 import { connectRpc } from "../rpc.ts";
 import type { PointerPage } from "../browser.ts";
 import type { Scenario } from "../scenario.ts";
-import { gone, pageFrames } from "../support.ts";
+import { check, gone, pageFrames } from "../support.ts";
 import {
   addProject,
-  check,
+  endedRow,
   createWorkspace,
   history,
   killFromTree,
@@ -25,9 +25,6 @@ import {
   startShell,
   typeLine,
 } from "./workspaceUi.ts";
-
-const endedRow = (page: PointerPage, shellId: string) =>
-  page.locator(`[data-shell-id="${shellId}"][data-ended]`);
 
 const restoreButton = (page: PointerPage, shellId: string) =>
   page.locator(`[data-shell-row="${shellId}"]`).getByRole("button", { name: /^Restore / });
@@ -74,19 +71,25 @@ export const restoreShell: Scenario = {
       const first = await startShell(page, shells, plain);
       await openFromTree(page, first.shellId);
       await leaveAgent(page, rpc.client, first.shellId);
+      const typedFirst = frames.mark();
       await typeLine(page, "echo before-s8-$((40+2))");
-      await frames.until("the first line", (frame) => frame.includes("before-s8-42"));
+      await frames.until("the first line", (frame) => frame.includes("before-s8-42"), typedFirst);
       await signal(first);
       check(
         latest(first)?.restored === false && (await shellTab(page, first.shellId).count()) === 0,
         "An ended shell restored itself or kept its tab.",
       );
+      // Lists from before the signal show it running too; only lists after the restore count.
+      const restoredFrom = shells.lists.mark();
       await restoreFromTree(page, first.shellId);
       const again = await shells.lists.until(
         "the shell to run again",
         (list) =>
-          list.some((entry) => entry.shellId === first.shellId && entry.status === "running"),
-        Math.max(0, shells.lists.seen.length - 1),
+          list.some(
+            (entry) =>
+              entry.shellId === first.shellId && entry.status === "running" && entry.restored,
+          ),
+        restoredFrom,
       );
       const restored = again.find((entry) => entry.shellId === first.shellId)!;
       check(
@@ -102,8 +105,13 @@ export const restoreShell: Scenario = {
         "The restored shell shows the earlier output.",
       );
       await openFromTree(page, first.shellId);
+      const typedAfter = frames.mark();
       await typeLine(page, "echo after-s8-$((40+2))");
-      await frames.until("the restored shell's line", (frame) => frame.includes("after-s8-42"));
+      await frames.until(
+        "the restored shell's line",
+        (frame) => frame.includes("after-s8-42"),
+        typedAfter,
+      );
 
       // A shell lost with the whole host (a reboot) is restorable the same way.
 
@@ -115,7 +123,8 @@ export const restoreShell: Scenario = {
       await reloadShowing(page, "troy");
       rpc = await connectRpc(server.origin, page);
       shells = shellList(rpc.client);
-      await shells.lists.until("the shell list after the restart", () => true);
+      // A fresh subscription: its first list is the server's state after the restart.
+      await shells.lists.until("the shell list after the restart", () => true, 0);
       await endedRow(page, first.shellId).waitFor();
       // The ended shell keeps its number, so a new one does not take it (PRB.T-015).
       const next = await startShell(page, shells, plain);
@@ -129,9 +138,12 @@ export const restoreShell: Scenario = {
         check(row.includes(shell.title!), `The tree shows "${row}" for ${shell.title}.`);
       }
       await openFromTree(page, first.shellId);
+      const typedRebooted = frames.mark();
       await typeLine(page, "echo rebooted-s8-$((40+2))");
-      await frames.until("the shell after the restart", (frame) =>
-        frame.includes("rebooted-s8-42"),
+      await frames.until(
+        "the shell after the restart",
+        (frame) => frame.includes("rebooted-s8-42"),
+        typedRebooted,
       );
 
       // Shells that leave for good offer nothing to restore.

@@ -1,0 +1,7 @@
+# The only git config scenario fixtures and servers read (GIT_CONFIG_GLOBAL), so a developer's own
+# config never changes a run. Commits need an identity.
+[user]
+	name = Probe Scenario
+	email = scenario@probe.invalid
+[init]
+	defaultBranch = main

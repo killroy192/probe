@@ -44,16 +44,20 @@ export const standaloneShell: Scenario = {
       if (shell.status !== "running" || shell.pid === null) {
         throw new Error(`The shell did not start: ${JSON.stringify(shell)}`);
       }
-      await shells.until("the shell in the list", (current) =>
-        current.some(
-          (listed) =>
-            listed.shellId === shell.shellId &&
-            listed.cwd === workspace &&
-            listed.status === "running",
-        ),
+      // No earlier list can hold this new shell, so any list counts.
+      await shells.until(
+        "the shell in the list",
+        (current) =>
+          current.some(
+            (listed) =>
+              listed.shellId === shell.shellId &&
+              listed.cwd === workspace &&
+              listed.status === "running",
+          ),
+        0,
       );
 
-      const output = recorder<TerminalAttachStreamEvent>();
+      const output = recorder<TerminalAttachStreamEvent>("attach events");
       const text = () =>
         output.seen
           .flatMap((event) =>
@@ -65,8 +69,9 @@ export const standaloneShell: Scenario = {
           )
           .join("");
       follow(client["shell.attach"]({ shellId: shell.shellId }), output.push);
+      // Judges all the text so far, so each wait looks for a marker that is written only once.
       const waitForText = (what: string, match: RegExp) =>
-        output.until(what, () => match.test(text()));
+        output.until(what, () => match.test(text()), 0);
 
       await Effect.runPromise(
         client["shell.write"]({ shellId: shell.shellId, data: "echo before-$((40+2))\r" }),
@@ -74,14 +79,21 @@ export const standaloneShell: Scenario = {
       await waitForText("output written before the page opened", /before-42/);
 
       // AC-15 (automated part): the shell opens in the terminal view by its identity.
+      const openedFrom = frames.mark();
+      const gridFrom = output.mark();
       await page.goto(`${server.origin}/shell/${environment}/${shell.shellId}`);
       await page.getByTestId("shell-view").locator("canvas").waitFor();
-      await frames.until("earlier output in the page", (frame) => frame.includes("before-42"));
+      await frames.until(
+        "earlier output in the page",
+        (frame) => frame.includes("before-42"),
+        openedFrom,
+      );
 
       // AC-16: the shell's size follows the pane. The page reports its grid once it has attached.
       await output.until(
         "the page's grid",
         (event) => event.type === "activity" && event.cols !== undefined && event.cols !== 80,
+        gridFrom,
       );
       const sizeAfter = async (marker: string) => {
         await Effect.runPromise(
@@ -96,7 +108,7 @@ export const standaloneShell: Scenario = {
       if (wide.cols === 80 && wide.rows === 24) {
         throw new Error("The page did not resize the shell to its pane.");
       }
-      const resizedFrom = output.seen.length;
+      const resizedFrom = output.mark();
       await page.setViewportSize({ width: 700, height: 500 });
       await output.until(
         "a narrower grid",
@@ -109,7 +121,7 @@ export const standaloneShell: Scenario = {
       }
 
       // AC-5: a reload reattaches and shows the earlier output again.
-      const reloadedFrom = frames.seen.length;
+      const reloadedFrom = frames.mark();
       await page.reload();
       await page.getByTestId("shell-view").locator("canvas").waitFor();
       await frames.until(
@@ -120,9 +132,12 @@ export const standaloneShell: Scenario = {
       if (!alive(shell.pid)) throw new Error("The shell ended when the page reloaded.");
 
       // AC-7: ending a shell removes it and its process.
+      const killedFrom = shells.mark();
       await Effect.runPromise(client["shell.kill"]({ shellId: shell.shellId }));
-      await shells.until("the closed shell to leave the list", (current) =>
-        current.every((listed) => listed.shellId !== shell.shellId),
+      await shells.until(
+        "the closed shell to leave the list",
+        (current) => current.every((listed) => listed.shellId !== shell.shellId),
+        killedFrom,
       );
       if (!(await gone(shell.pid))) throw new Error(`Shell process ${shell.pid} is still running.`);
 
