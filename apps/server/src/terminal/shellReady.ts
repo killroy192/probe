@@ -37,6 +37,48 @@ export function makeReadyScanner(): ReadyScanner {
   };
 }
 
+/**
+ * The env var that names the program a starting script runs. The wrapper takes it out of the
+ * environment first and looks it up at the first prompt, after the startup files ran.
+ */
+export const START_PROGRAM_ENV = "PROBE_START_PROGRAM";
+
+// A private OSC the wrapper prints once, before the first input-start mark: whether the shell can
+// run the start program. 6973 is unassigned; terminals ignore an OSC they do not know.
+const START_REPORT = "\u001b]6973;start;";
+
+export type StartProgramReport = "found" | "missing";
+
+/** Finds the wrapper's report on the start program; the report may be split across chunks. */
+export function makeStartReportScanner() {
+  let matched = 0;
+  let value: string | null = null;
+  let report: StartProgramReport | null = null;
+  return {
+    feed: (chunk: string) => {
+      for (const char of chunk) {
+        if (report !== null) return;
+        if (value !== null) {
+          if (char === "\u0007" || char === "\u001b") {
+            if (value === "found" || value === "missing") report = value;
+            value = null;
+          } else if (value.length < 8) value += char;
+          else value = null;
+        } else if (char === START_REPORT[matched]) {
+          matched += 1;
+          if (matched === START_REPORT.length) {
+            matched = 0;
+            value = "";
+          }
+        } else {
+          matched = char === START_REPORT[0] ? 1 : 0;
+        }
+      }
+    },
+    report: () => report,
+  };
+}
+
 export interface ShellReadyLaunch {
   /** Goes before the shell's own arguments. */
   readonly args: ReadonlyArray<string>;
@@ -74,8 +116,13 @@ export function shellReadyLaunch(input: {
 // Each zsh file runs the user's own with the user's ZDOTDIR, so a file that reads it still works.
 // The mark goes out from a line-init hook: zsh has put the terminal in raw mode by then, and a
 // precmd hook runs too early, so input typed on seeing it would be echoed before the prompt.
+// A resize with `redraw=1` clears the prompt rows, so the command-start mark C must end them.
 const ZSH_FILES = {
   ".zshenv": `__probe_dir="$ZDOTDIR"
+if (( \${+${START_PROGRAM_ENV}} )); then
+  __probe_start_program="$${START_PROGRAM_ENV}"
+  unset ${START_PROGRAM_ENV}
+fi
 ZDOTDIR="\${PROBE_ORIG_ZDOTDIR:-$HOME}"
 [[ -r "$ZDOTDIR/.zshenv" ]] && source "$ZDOTDIR/.zshenv"
 ZDOTDIR="$__probe_dir"
@@ -89,7 +136,19 @@ ZDOTDIR="$__probe_dir"
 __probe_prompt_mark=$'%{\\e]133;A;redraw=1\\a%}'
 __probe_mark_prompt() { [[ "$PS1" == "$__probe_prompt_mark"* ]] || PS1="$__probe_prompt_mark$PS1" }
 precmd_functions+=(__probe_mark_prompt)
-__probe_ready() { printf '\\033]133;B\\a' }
+__probe_command_start() { printf '\\033]133;C\\a' }
+preexec_functions+=(__probe_command_start)
+__probe_ready() {
+  if (( \${+__probe_start_program} )); then
+    if whence -w -- "$__probe_start_program" >/dev/null 2>&1; then
+      printf '\\033]6973;start;found\\a'
+    else
+      printf '\\033]6973;start;missing\\a'
+    fi
+    unset __probe_start_program
+  fi
+  printf '\\033]133;B\\a'
+}
 if autoload -Uz add-zle-hook-widget 2>/dev/null; then
   add-zle-hook-widget line-init __probe_ready
 else
@@ -105,11 +164,24 @@ unset __probe_dir
 // bash prints PS1 after readline has put the terminal in raw mode, so the mark rides on the end of
 // PS1. A PROMPT_COMMAND runs before that point and would let typed input be echoed twice. The hook
 // runs after the user's PROMPT_COMMAND, which prompt themes use to rebuild PS1 before every prompt,
-// and adds the marks again when they are gone.
-const BASHRC = `[ -r "$HOME/.bashrc" ] && . "$HOME/.bashrc"
+// and adds the marks again when they are gone. PS0 (bash 4.4 and later) prints the command start.
+const BASHRC = `if [ -n "\${${START_PROGRAM_ENV}+x}" ]; then
+  __probe_start_program="$${START_PROGRAM_ENV}"
+  unset ${START_PROGRAM_ENV}
+fi
+[ -r "$HOME/.bashrc" ] && . "$HOME/.bashrc"
 __probe_ready() {
+  if [ -n "\${__probe_start_program+x}" ]; then
+    if type -t -- "$__probe_start_program" >/dev/null 2>&1; then
+      printf '\\033]6973;start;found\\a'
+    else
+      printf '\\033]6973;start;missing\\a'
+    fi
+    unset __probe_start_program
+  fi
   case "$PS1" in *'133;A'*) ;; *) PS1="\\[\\033]133;A;redraw=1\\a\\]\${PS1}" ;; esac
   case "$PS1" in *'133;B'*) ;; *) PS1="\${PS1}\\[\\033]133;B\\a\\]" ;; esac
+  case "$PS0" in *'133;C'*) ;; *) PS0="\${PS0}\\033]133;C\\a" ;; esac
 }
 if [[ "$(declare -p PROMPT_COMMAND 2>/dev/null)" == "declare -a"* ]]; then
   PROMPT_COMMAND+=(__probe_ready)
@@ -134,22 +206,29 @@ export type ShellOutputEvent =
   | { readonly type: "exited" };
 
 /**
- * Waits for the shell's first prompt mark. The shell may end first, and a shell that never prints
- * the mark (a startup file that replaced the wrapper, or a very slow one) ends the wait on `timeout`.
+ * Waits for the shell's first prompt mark, and reads the start program report printed before it
+ * (null when there was none). The shell may end first, and a shell that never prints the mark (a
+ * startup file that replaced the wrapper, or a very slow one) ends the wait on `timeout`.
  */
 export const waitForPromptMark = Effect.fn("shellReady.waitForPromptMark")(function* (
   events: Stream.Stream<ShellOutputEvent>,
   timeout: Duration.Input,
 ) {
   const scanner = makeReadyScanner();
-  const outcome = yield* events.pipe(
-    Stream.map((event) =>
-      event.type === "exited" ? "exited" : scanner.feed(event.data) ? "mark" : null,
-    ),
-    Stream.filter((found) => found !== null),
+  const reports = makeStartReportScanner();
+  const found = yield* events.pipe(
+    Stream.map((event) => {
+      if (event.type === "exited") return "exited";
+      reports.feed(event.data);
+      return scanner.feed(event.data) ? "mark" : null;
+    }),
+    Stream.filter((outcome) => outcome !== null),
     Stream.take(1),
     Stream.runHead,
     Effect.timeoutOption(timeout),
   );
-  return Option.isNone(outcome) ? "timeout" : Option.getOrElse(outcome.value, () => "exited");
+  const outcome = Option.isNone(found)
+    ? "timeout"
+    : Option.getOrElse(found.value, () => "exited" as const);
+  return { outcome, program: outcome === "mark" ? reports.report() : null };
 });

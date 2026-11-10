@@ -13,6 +13,8 @@ import * as TestClock from "effect/testing/TestClock";
 
 import {
   makeReadyScanner,
+  makeStartReportScanner,
+  START_PROGRAM_ENV,
   shellReadyLaunch,
   waitForPromptMark,
   writeShellReadyFiles,
@@ -63,6 +65,22 @@ describe("ready scanner", () => {
   });
 });
 
+describe("start program report", () => {
+  const read = (chunks: ReadonlyArray<string>) => {
+    const scanner = makeStartReportScanner();
+    for (const chunk of chunks) scanner.feed(chunk);
+    return scanner.report();
+  };
+
+  it("reads found or missing, also split across chunks, and ignores anything else", () => {
+    assert.strictEqual(read(["\u001b]6973;start;found\u0007"]), "found");
+    assert.strictEqual(read(["x\u001b]69", "73;start;mis", "sing\u0007"]), "missing");
+    assert.strictEqual(read(["\u001b]6973;start;maybe\u0007"]), null);
+    assert.strictEqual(read(["\u001b]6973;start;found"]), null);
+    assert.strictEqual(read(["\u001b]133;B\u0007"]), null);
+  });
+});
+
 describe("waiting for the prompt mark", () => {
   const start = () =>
     Effect.gen(function* () {
@@ -80,7 +98,7 @@ describe("waiting for the prompt mark", () => {
       yield* Queue.offer(events, output("noise\r\n\u001b]13"));
       assert.isUndefined(waiting.pollUnsafe());
       yield* Queue.offer(events, output("3;B\u0007"));
-      assert.strictEqual(yield* Fiber.join(waiting), "mark");
+      assert.deepStrictEqual(yield* Fiber.join(waiting), { outcome: "mark", program: null });
     }),
   );
 
@@ -91,7 +109,7 @@ describe("waiting for the prompt mark", () => {
       yield* TestClock.adjust("14 seconds");
       assert.isUndefined(waiting.pollUnsafe());
       yield* TestClock.adjust("1 second");
-      assert.strictEqual(yield* Fiber.join(waiting), "timeout");
+      assert.deepStrictEqual(yield* Fiber.join(waiting), { outcome: "timeout", program: null });
     }),
   );
 
@@ -99,7 +117,15 @@ describe("waiting for the prompt mark", () => {
     Effect.gen(function* () {
       const { events, waiting } = yield* start();
       yield* Queue.offer(events, { type: "exited" });
-      assert.strictEqual(yield* Fiber.join(waiting), "exited");
+      assert.deepStrictEqual(yield* Fiber.join(waiting), { outcome: "exited", program: null });
+    }),
+  );
+
+  it.effect("carries the start program report printed before the mark", () =>
+    Effect.gen(function* () {
+      const { events, waiting } = yield* start();
+      yield* Queue.offer(events, output("\u001b]6973;start;missing\u0007prompt\u001b]133;B\u0007"));
+      assert.deepStrictEqual(yield* Fiber.join(waiting), { outcome: "mark", program: "missing" });
     }),
   );
 });
@@ -182,7 +208,9 @@ const runUnderWrapper = (
           let markAt = -1;
           let resizedAt = -1;
           const report = () =>
-            proc.write('printf \'RESULT[%s][%s]\\n\' "$PROBE_TEST_USER_RC" "${ZDOTDIR-unset}"\r');
+            proc.write(
+              `printf 'RESULT[%s][%s][%s]\\n' "$PROBE_TEST_USER_RC" "\${ZDOTDIR-unset}" "$(printenv ${START_PROGRAM_ENV} || echo none)"\r`,
+            );
           proc.onData((data) => {
             output += data;
             seen = output;
@@ -327,5 +355,56 @@ describe("shell ready wrapper in a real shell", () => {
       assert.include(result.output, "RESULT[rc][unset]");
       assertRanOnceAfterMark(result);
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
+  );
+  // U-1 (PRB.T-016): the shell, after its startup files, decides what it can run (PRB.T-017 AC-6 to AC-8).
+  const startCases = [
+    ["a program only on a PATH the rc file adds", "rc-tool", "found"],
+    ["an alias from the rc file", "probe-alias", "found"],
+    ["a function from the rc file", "probe_fn", "found"],
+    ["a builtin", "export", "found"],
+    ["an executable path in the cwd", "./bin/local-tool", "found"],
+    ["a missing path in the cwd", "./bin/absent", "missing"],
+    ["a name nothing defines", "no-such-program-probe", "missing"],
+  ] as const;
+  const startHome = Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const home = yield* fs.makeTempDirectoryScoped({ prefix: "probe-home-" });
+    for (const file of [`${home}/rcbin/rc-tool`, `${home}/bin/local-tool`]) {
+      yield* fs.makeDirectory(file.replace(/\/[^/]*$/, ""), { recursive: true });
+      yield* fs.writeFileString(file, "#!/bin/sh\n");
+      yield* fs.chmod(file, 0o755);
+    }
+    const rc = `export PROBE_TEST_USER_RC=rc\nPATH="$HOME/rcbin:$PATH"\nalias probe-alias=true\nprobe_fn() { :; }\n`;
+    yield* fs.writeFileString(`${home}/.zshrc`, rc);
+    yield* fs.writeFileString(`${home}/.bashrc`, rc);
+    return home;
+  });
+  const assertStartReports = (shell: "zsh" | "bash") =>
+    Effect.gen(function* () {
+      const home = yield* startHome;
+      for (const [what, program, expected] of startCases) {
+        const result = yield* runUnderWrapper(shell, home, { [START_PROGRAM_ENV]: program });
+        const reports = [...result.output.matchAll(/\u001b\]6973;start;(\w+)\u0007/g)];
+        assert.deepStrictEqual(
+          reports.map((match) => match[1]),
+          [expected],
+          what,
+        );
+        assert.isBelow(reports[0]!.index, result.markAt, what);
+        // The program is not left in the environment of what the shell runs.
+        const ran = result.output.indexOf("RESULT[rc][unset][none]");
+        assert.isAbove(ran, result.markAt, what);
+        // The typed command's output follows a command-start mark, so a resize keeps it.
+        const commandStart = result.output.indexOf("\u001b]133;C", result.markAt);
+        assert.isTrue(commandStart >= 0 && commandStart < ran, `${what}: no command-start mark`);
+      }
+      const plain = yield* runUnderWrapper(shell, home, {});
+      assert.notInclude(plain.output, "\u001b]6973;");
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer));
+  zsh("zsh reports once, before the first mark, whether it can run the start program", () =>
+    assertStartReports("zsh"),
+  );
+  bash("bash reports once, before the first mark, whether it can run the start program", () =>
+    assertStartReports("bash"),
   );
 });

@@ -2206,37 +2206,6 @@ it.layer(
     });
     return { lines, layer: Logger.layer([logger], { mergeWithExisting: false }) };
   };
-  const nodeDir = process.execPath.replace(/[\\/][^\\/]*$/, "");
-
-  it.effect("refuses to start a script whose program cannot be found", () => {
-    const logs = captureLogs();
-    return Effect.gen(function* () {
-      const { manager, ptyAdapter } = yield* createManager();
-      const shells = yield* makeShells(manager, { searchPath: nodeDir });
-      const events = yield* collectList(shells);
-      const start = (command: string) =>
-        Effect.flip(shells.open({ cwd: process.cwd() }, { script: { name: "agent", command } }));
-
-      const notFound = yield* start("no-such-agent-cli --resume");
-      const empty = yield* start("   ");
-
-      assert.equal(notFound._tag, "ShellLaunchError");
-      expect(notFound.message).toContain("no-such-agent-cli");
-      expect(empty.message).toContain("not found");
-      expect(ptyAdapter.spawnInputs).toHaveLength(0);
-      expect((yield* events).filter((e) => e.type === "upsert")).toEqual([]);
-      expect(logs.lines.filter((line) => line.message === "shell failed to start")).toEqual([
-        {
-          message: "shell failed to start",
-          fields: expect.objectContaining({ cwd: process.cwd() }),
-        },
-        {
-          message: "shell failed to start",
-          fields: expect.objectContaining({ cwd: process.cwd() }),
-        },
-      ]);
-    }).pipe(Effect.provide(logs.layer));
-  });
 
   it.effect("shows the worktree's current branch and marks a shell that left it", () => {
     const logs = captureLogs();
@@ -2378,75 +2347,203 @@ it.layer(
     }),
   );
 
-  // A starting script is typed in the background, once the shell is ready; these wait for the write.
+  // A script shell is listed at once and returns at its first prompt, once the wrapper said the
+  // shell can run the program.
   const AGENT = { name: "agent", command: "node agent.ts" };
   {
     const MARK = "\u001b]133;B\u0007";
+    const report = (program: "found" | "missing") => `\u001b]6973;start;${program}\u0007`;
 
-    const openAgent = (shell: string, options?: { readonly promptTimeout?: "1 millis" }) =>
+    /** Opens a script shell in the background and returns once its terminal takes output. */
+    const openStarted = (
+      manager: TerminalManager.TerminalManager["Service"],
+      shells: ShellsService,
+      script: { readonly name: string; readonly command: string },
+    ) =>
+      Effect.gen(function* () {
+        const started = yield* Deferred.make<void>();
+        const stop = yield* manager.subscribe((event) =>
+          event.type === "started" ? Deferred.succeed(started, undefined) : Effect.void,
+        );
+        const opening = yield* shells
+          .open({ cwd: process.cwd() }, { script })
+          .pipe(Effect.forkChild({ startImmediately: true }));
+        yield* Deferred.await(started);
+        stop();
+        return opening;
+      });
+
+    const startAgent = (
+      shell: string,
+      script: { readonly name: string; readonly command: string } = AGENT,
+      options?: Parameters<typeof makeShells>[1],
+    ) =>
       Effect.gen(function* () {
         const { manager, ptyAdapter } = yield* createManager(5, {
           shellResolver: () => shell,
           shellReadyDir: "/ready",
         });
-        const wrote = yield* Deferred.make<void>();
-        ptyAdapter.onWrite = () => Deferred.doneUnsafe(wrote, Effect.void);
-        const shells = yield* makeShells(manager, { searchPath: nodeDir, ...options });
-        yield* shells.open({ cwd: process.cwd() }, { script: AGENT });
-        return { wrote, pty: ptyAdapter.processes[0]! };
+        const shells = yield* makeShells(manager, options);
+        const events = yield* collectList(shells);
+        const opening = yield* openStarted(manager, shells, script);
+        return { manager, shells, events, opening, ptyAdapter };
       });
 
-    it.effect("starts at once and types the agent command when the prompt mark comes", () =>
+    it.effect("types the script only once the shell says it can run the program", () =>
       Effect.gen(function* () {
-        const { wrote, pty } = yield* openAgent("/bin/zsh");
-        // Opening did not wait for the prompt; the mark arrives in pieces, like real output.
-        pty.emitData("startup noise\r\n$ \u001b]13");
-        pty.emitData("3;B\u0007");
-        yield* Deferred.await(wrote);
-        pty.emitData(MARK);
-        assert.deepEqual(pty.writes, ["node agent.ts\r"]);
-      }).pipe(Effect.scoped),
-    );
-
-    it.effect("holds input for the shell until the agent command has been typed", () =>
-      Effect.gen(function* () {
-        const { manager, ptyAdapter } = yield* createManager(5, {
-          shellResolver: () => "/bin/zsh",
-          shellReadyDir: "/ready",
+        const { shells, events, opening, ptyAdapter } = yield* startAgent("/bin/zsh", {
+          name: "agent",
+          command: "FOO=1 node agent.ts",
         });
-        const wrote = yield* Deferred.make<void>();
-        ptyAdapter.onWrite = () => Deferred.doneUnsafe(wrote, Effect.void);
-        const shells = yield* makeShells(manager, { searchPath: nodeDir });
-        const opened = yield* shells.open({ cwd: process.cwd() }, { script: AGENT });
         const pty = ptyAdapter.processes[0]!;
-        // A line typed before the prompt would reach the bare shell ahead of the agent.
+        // The program after the env assignment is what the shell looks up (AC-6).
+        assert.equal(ptyAdapter.spawnInputs[0]?.env?.PROBE_START_PROGRAM, "node");
+        pty.emitData("startup noise\r\n");
+        // The shell is listed while it starts, so its node shows at once.
+        const [listed] = yield* shells.list;
+        assert.isDefined(listed);
+        expect(yield* events).toContainEqual({
+          type: "upsert",
+          shell: expect.objectContaining({ shellId: listed!.shellId }),
+        });
+        // A line typed before the prompt would reach the bare shell ahead of the script.
         const typing = yield* shells
-          .write({ shellId: opened.shellId, data: "exit\r" })
+          .write({ shellId: listed!.shellId, data: "exit\r" })
           .pipe(Effect.forkChild({ startImmediately: true }));
         assert.deepEqual(pty.writes, []);
-        pty.emitData(MARK);
-        yield* Deferred.await(wrote);
+        // The report and the mark arrive in pieces, like real output.
+        pty.emitData(`${report("found")}$ \u001b]13`);
+        pty.emitData("3;B\u0007");
+        const opened = yield* Fiber.join(opening);
         yield* Fiber.join(typing);
-        assert.deepEqual(pty.writes, ["node agent.ts\r", "exit\r"]);
-        // Once the agent is typed, input goes straight through.
+        assert.equal(opened.shellId, listed!.shellId);
+        assert.deepEqual(pty.writes, ["FOO=1 node agent.ts\r", "exit\r"]);
+        // Once the script is typed, input goes straight through.
         yield* shells.write({ shellId: opened.shellId, data: "more\r" });
-        assert.deepEqual(pty.writes, ["node agent.ts\r", "exit\r", "more\r"]);
+        assert.deepEqual(pty.writes, ["FOO=1 node agent.ts\r", "exit\r", "more\r"]);
       }).pipe(Effect.scoped),
     );
 
-    it.effect("types anyway when the mark never comes", () =>
+    it.effect("leaves no shell behind when the program is missing, also across a restart", () => {
+      const logs = captureLogs();
+      return Effect.gen(function* () {
+        const registryPath = yield* registryIn();
+        const { host, forgotten } = yield* fakeHost([]);
+        // Two scripts may share a name; each start is judged on its own program (AC-14).
+        const missing = { name: "agent", command: "TOKEN=s3cret missing-cli --flag" };
+        const kept = yield* makeShells((yield* createManager()).manager, { registryPath });
+        const before = yield* kept.open({ cwd: process.cwd() });
+        killedTrees.length = 0;
+        const { manager, shells, events, opening, ptyAdapter } = yield* startAgent("/bin/bash", missing, {
+          registryPath,
+          host,
+        });
+        const pty = ptyAdapter.processes[0]!;
+        pty.emitData(`${report("missing")}$ ${MARK}`);
+        const refused = yield* Effect.flip(Fiber.join(opening));
+
+        assert.equal(refused._tag, "ShellLaunchError");
+        expect(refused.message).toContain("missing-cli was not found");
+        expect(refused.message).not.toContain("--flag");
+        expect(pty.writes).toEqual([]);
+        expect(killedTrees).toEqual([pty.pid]);
+        expect(yield* Queue.take(forgotten)).toBe(pty.pid);
+        // It was listed while it started and is removed with the refusal.
+        const refusedId = (yield* events).find((event) => event.type === "upsert");
+        assert.isDefined(refusedId);
+        expect(yield* events).toContainEqual({
+          type: "remove",
+          shellId: refusedId!.type === "upsert" ? refusedId!.shell.shellId : "",
+        });
+        expect((yield* shells.list).map((shell) => shell.shellId)).toEqual([before.shellId]);
+        expect(logs.lines.filter((line) => line.message === "shell failed to start")).toEqual([
+          {
+            message: "shell failed to start",
+            fields: {
+              cwd: process.cwd(),
+              reason: "missing-cli was not found.",
+              script: "agent",
+              program: "missing-cli",
+            },
+          },
+        ]);
+        const logged = JSON.stringify(logs.lines);
+        for (const secret of ["s3cret", "TOKEN", "--flag"]) expect(logged).not.toContain(secret);
+
+        // The same name with a program the shell has opens a shell.
+        const second = yield* openStarted(manager, shells, AGENT);
+        ptyAdapter.processes[1]!.emitData(`${report("found")}${MARK}`);
+        const opened = yield* Fiber.join(second);
+
+        // A restart lists what was there before plus the shell that opened, never the refused one.
+        const next = yield* makeShells((yield* createManager()).manager, {
+          registryPath,
+          host: (yield* fakeHost([])).host,
+        });
+        expect((yield* next.list).map((shell) => shell.shellId).sort()).toEqual(
+          [before.shellId, opened.shellId].sort(),
+        );
+      }).pipe(Effect.provide(logs.layer), Effect.scoped);
+    });
+
+    it.effect("refuses a script with no command before starting a shell", () =>
       Effect.gen(function* () {
-        const { wrote, pty } = yield* openAgent("/bin/bash", { promptTimeout: "1 millis" });
-        yield* Deferred.await(wrote);
-        assert.deepEqual(pty.writes, ["node agent.ts\r"]);
+        const { manager, ptyAdapter } = yield* createManager();
+        const shells = yield* makeShells(manager);
+        const refused = yield* Effect.flip(
+          shells.open({ cwd: process.cwd() }, { script: { name: "empty", command: "  " } }),
+        );
+        expect(refused.message).toContain("no command");
+        expect(ptyAdapter.spawnInputs).toHaveLength(0);
+      }),
+    );
+
+    it.effect("types the script when the shell cannot say whether the program exists", () =>
+      Effect.gen(function* () {
+        // A mark with no report: the wrapper was replaced by the user's own config.
+        const silent = yield* startAgent("/bin/zsh");
+        silent.ptyAdapter.processes[0]!.emitData(MARK);
+        yield* Fiber.join(silent.opening);
+        assert.deepEqual(silent.ptyAdapter.processes[0]!.writes, ["node agent.ts\r"]);
+
+        // No mark in time: a slow startup file.
+        const slow = yield* startAgent("/bin/bash", AGENT, { promptTimeout: "1 millis" });
+        yield* Fiber.join(slow.opening);
+        assert.deepEqual(slow.ptyAdapter.processes[0]!.writes, ["node agent.ts\r"]);
+
+        // A shell the wrapper does not serve is typed into at once.
+        const { manager, ptyAdapter } = yield* createManager(5, {
+          shellResolver: () => "/bin/sh",
+          shellReadyDir: "/ready",
+        });
+        yield* (yield* makeShells(manager)).open({ cwd: process.cwd() }, { script: AGENT });
+        assert.deepEqual(ptyAdapter.processes[0]!.writes, ["node agent.ts\r"]);
       }).pipe(Effect.scoped),
     );
 
-    it.effect("types at once in a shell that cannot print the mark", () =>
+    it.effect("keeps the shell open and running after its command exits non-zero", () =>
       Effect.gen(function* () {
-        const { wrote, pty } = yield* openAgent("/bin/sh");
-        yield* Deferred.await(wrote);
-        assert.deepEqual(pty.writes, ["node agent.ts\r"]);
+        const { shells, opening, ptyAdapter } = yield* startAgent("/bin/zsh");
+        const pty = ptyAdapter.processes[0]!;
+        pty.emitData(`${report("found")}${MARK}`);
+        const opened = yield* Fiber.join(opening);
+        // The command ran in the shell and ended with code 3; the shell prints its next prompt.
+        pty.emitData("node: exit 3\r\n$ ");
+        pty.emitData(MARK);
+        expect(yield* liveStatus(shells, opened.shellId)).toBe("running");
+        expect(yield* shells.list).toEqual([
+          expect.objectContaining({ shellId: opened.shellId, ended: null }),
+        ]);
+      }).pipe(Effect.scoped),
+    );
+
+    it.effect("ends the start when the shell ends before its first prompt", () =>
+      Effect.gen(function* () {
+        const { shells, opening, ptyAdapter } = yield* startAgent("/bin/zsh");
+        ptyAdapter.processes[0]!.emitExit({ exitCode: 1, signal: 0 });
+        const refused = yield* Effect.flip(Fiber.join(opening));
+        expect(refused.message).toContain("ended before its first prompt");
+        expect(yield* shells.list).toEqual([]);
       }).pipe(Effect.scoped),
     );
   }
@@ -2457,7 +2554,7 @@ it.layer(
       const logs = captureLogs();
       return Effect.gen(function* () {
         const { manager, ptyAdapter } = yield* createManager();
-        const shells = yield* makeShells(manager, { searchPath: nodeDir });
+        const shells = yield* makeShells(manager);
         const secret = { name: "agent", command: "API_TOKEN=s3cret node agent.ts --key s3cret" };
         const agent = yield* shells.open({ cwd: process.cwd() }, { script: secret });
         const plain = yield* shells.open({ cwd: process.cwd() });
