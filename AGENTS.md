@@ -113,6 +113,20 @@ machine. The checkout is at `/workspaces/<folder>`. Setup: [Dev container](docs/
 - Never pass `--host` to the dev runner: a relay binds the container's address for the published
   ports.
 
+## Use subagents
+
+Use subagents as much as your harness allows. They keep your context window small and finish
+independent work in parallel.
+
+- Hand off any self-contained piece: searches across many files, reading long files or logs and
+  reporting what matters, counts and inventories, reviews, and implementation slices that do not
+  touch the same files. Start independent ones together.
+- A subagent starts without your context. Brief it fully: the goal, the files or tickets, the rules
+  here that apply, what it must not touch, and the shape of the answer you want back.
+- Keep decisions, integration and anything the user must approve in the main session. A subagent's
+  report is a claim: check what your next step depends on before acting on it.
+- Subagents follow this file too, and do not launch their own dev servers (see Verifying).
+
 ## Hit every surface
 
 The most common defect in this repo is a change that works on the path you tested and is missing everywhere else. Before calling frontend work done, walk this list and say which entries applied:
