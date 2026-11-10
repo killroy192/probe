@@ -478,12 +478,12 @@ export async function killFromTree(page: PointerPage, shellId: string) {
 }
 
 /**
- * Whether every pid has ended, for processes the server does not own (a shell's background jobs,
+ * The pids still running after the bounded wait, for processes the server does not own (a shell's background jobs,
  * shells whose host was stopped), which have no end event; see `gone`.
  */
-export async function allGone(pids: ReadonlyArray<number>) {
+export async function survivors(pids: ReadonlyArray<number>) {
   const results = await Promise.all(pids.map((pid) => gone(pid)));
-  return results.every(Boolean);
+  return pids.filter((_, index) => !results[index]);
 }
 
 /**
@@ -497,6 +497,7 @@ export async function shellEnded(
   await shells.lists.until(
     `the end of shell ${shell.shellId}`,
     (list) => !list.some((entry) => entry.shellId === shell.shellId && entry.ended === null),
+    // Each list is the whole state, so the current one already counts; older ones have passed.
     Math.max(0, shells.lists.mark() - 1),
   );
   check(

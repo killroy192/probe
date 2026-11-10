@@ -96,6 +96,12 @@ const savingAtom = Atom.make<Readonly<Record<string, number>>>({}).pipe(
   Atom.withLabel("web-workspace-layout-saving"),
 );
 
+// The workspaces whose last tab save from this page failed.
+const saveFailedAtom = Atom.make<Readonly<Record<string, true>>>({}).pipe(
+  Atom.keepAlive,
+  Atom.withLabel("web-workspace-layout-save-failed"),
+);
+
 // Whether this page already tried to show the workspace it showed before a reload.
 const restoredAtom = Atom.make<"no" | "pending" | "done">("no").pipe(
   Atom.keepAlive,
@@ -238,6 +244,8 @@ export function useWorkspaces(): WorkspacesView {
   const setLayoutError = useAtomSet(layoutErrorAtom);
   const saving = useAtomValue(savingAtom);
   const setSaving = useAtomSet(savingAtom);
+  const saveFailed = useAtomValue(saveFailedAtom);
+  const setSaveFailed = useAtomSet(saveFailedAtom);
   const restored = useAtomValue(restoredAtom);
   const setRestored = useAtomSet(restoredAtom);
   const canChange = useAtomValue(workspaceEnvironment.create.permissionAtom(environmentId));
@@ -288,6 +296,16 @@ export function useWorkspaces(): WorkspacesView {
         return next;
       });
     count(1);
+    const settle = (error: string | null) => {
+      setLayoutError(error);
+      setSaveFailed((all) => {
+        if ((all[key] === true) === (error !== null)) return all;
+        const next = { ...all };
+        if (error === null) delete next[key];
+        else next[key] = true;
+        return next;
+      });
+    };
     const save = (pendingSaves.get(key) ?? Promise.resolve())
       .then(() =>
         saveTabsCommand({
@@ -296,14 +314,14 @@ export function useWorkspaces(): WorkspacesView {
         }),
       )
       .then((result) =>
-        setLayoutError(
+        settle(
           result._tag === "Failure"
             ? `The layout is not being saved: ${formatEnvironmentQueryError(result.cause)}`
             : null,
         ),
       )
       // A save that throws must not stop the ones queued after it.
-      .catch((error: unknown) => setLayoutError(`The layout is not being saved: ${String(error)}`))
+      .catch((error: unknown) => settle(`The layout is not being saved: ${String(error)}`))
       .finally(() => count(-1));
     pendingSaves.set(key, save);
   };
@@ -350,11 +368,13 @@ export function useWorkspaces(): WorkspacesView {
     tabs,
     layoutError,
     layoutSave:
-      shown !== null && environmentId !== null && saving[tabsKey(environmentId, shown.name)]
-        ? "pending"
-        : layoutError === null
-          ? "saved"
-          : "failed",
+      shown === null || environmentId === null
+        ? "saved"
+        : saving[tabsKey(environmentId, shown.name)]
+          ? "pending"
+          : saveFailed[tabsKey(environmentId, shown.name)]
+            ? "failed"
+            : "saved",
     create: (name) =>
       run(
         (id) => createCommand({ environmentId: id, input: { name } }),

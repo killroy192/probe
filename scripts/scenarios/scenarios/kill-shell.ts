@@ -13,7 +13,6 @@ import { expectLogged, shellOutput } from "../fixtures.ts";
 import { alive, check, pageFrames } from "../support.ts";
 import {
   addProject,
-  allGone,
   answerConfirm,
   askToKill,
   closeTab,
@@ -27,6 +26,7 @@ import {
   shellList,
   shellRow,
   shellTab,
+  survivors,
   startShell,
   typeLine,
 } from "./workspaceUi.ts";
@@ -130,7 +130,8 @@ export const killShell: Scenario = {
       await leftList(withJobs);
       await shellEnded(shells, { shellId: withJobs.shellId, pid: shellPid });
       // The jobs are not the server's to report on, so only a bounded check can see them end.
-      check(await allGone(jobs), "One of the shell's jobs survived (AC-9).");
+      const jobsLeft = await survivors(jobs);
+      check(jobsLeft.length === 0, `The shell's jobs ${jobsLeft.join(", ")} survived (AC-9).`);
       check((await shellTab(page, withJobs.shellId).count()) === 0, "The tab stayed open (AC-8).");
       await endedLogged(withJobs, "The log has no end line with the id and folder (AC-20).");
 

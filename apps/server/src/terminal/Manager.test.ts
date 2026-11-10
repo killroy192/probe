@@ -2741,8 +2741,11 @@ it.layer(
           shellResolver: () => "/bin/sh",
           shellReadyDir: "/ready",
         });
-        const plainSh = yield* (yield* makeShells(unwrapped.manager)).open({ cwd: process.cwd() });
+        const unwrappedShells = yield* makeShells(unwrapped.manager);
+        const unwrappedEvents = yield* collectList(unwrappedShells);
+        const plainSh = yield* unwrappedShells.open({ cwd: process.cwd() });
         unwrapped.ptyAdapter.processes[0]!.emitData(MARK);
+        yield* liveStatus(unwrappedShells, plainSh.shellId);
 
         // Wrapped, but the mark comes after the timeout: plain and script shells alike (EC-12).
         const slow = yield* startAgent("/bin/bash", AGENT, { promptTimeout: "1 millis" });
@@ -2754,6 +2757,10 @@ it.layer(
         for (const shell of [scripted, plain]) yield* liveStatus(slow.shells, shell.shellId);
 
         expect(plainSh.promptReady).toBe(false);
+        expect((yield* unwrappedShells.list)[0]?.promptReady).toBe(false);
+        expect(
+          upsertsOf(yield* unwrappedEvents, plainSh.shellId).some((shell) => shell.promptReady),
+        ).toBe(false);
         expect(scripted.promptReady).toBe(false);
         const listed = yield* slow.shells.list;
         expect(listed.map((shell) => shell.promptReady)).toEqual([false, false]);

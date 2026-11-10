@@ -34,7 +34,7 @@ A scenario (`scripts/scenarios/scenarios/`) starts a real Probe server on a thro
 - **Before typing into a shell**, wait until the page shows its tab attached and the shell at its first prompt: the tab panel's `data-shell-ready="ready"` and, inside it, `data-terminal-attached="yes"`, hidden tabs included. `typeLine` does this through `shellReady`, which fails at once when the shell ends. "Back at a prompt" after a command has no page state: wait for the next prompt mark in the shell's output after a `mark()`, as `leaveAgent` does.
 - **Before a reload or a server stop** that follows a tab change, wait until the page shows the layout saved (`data-layout-save="saved"` on the workspace screen) with `layoutSaved`; `reloadShowing` and `restartAndReload` do it. `frameHolder` holds a request back from the test's side, to make a save slow on purpose.
 - **After ending a shell the server owns** (a kill, or a signal from outside), wait for its end event, its removal or its ended entry, then check the pid once: `shellEnded`. The server sends the removal only after the process ended.
-- A bounded check loop is allowed only where no event exists to subscribe to: processes the server does not own, such as a shell's background jobs or shells whose shell host was stopped (`gone`, `allGone`).
+- A bounded check loop is allowed only where no event exists to subscribe to: processes the server does not own, such as a shell's background jobs or shells whose shell host was stopped (`gone`, `survivors`).
 - The test wait lint rules also run on every file here; a `.perf.ts` file may read the clock but not sleep or poll. A suppression states its reason in one of these forms; a fixed sleep that waits and hopes is fixed, never suppressed:
   - `permanent (a): …` runner bookkeeping that waits for nothing (printed timing, timestamps);
   - `permanent (b): …` a deadline raced against the event it names;
@@ -73,7 +73,7 @@ A sandbox keeps one harness server up on a throwaway home so saved scenarios run
 ## Running
 
 - `vp run test:scenarios` runs the suite and exits non-zero when a scenario fails; `-- --only <id>` runs one scenario.
-- `-- --selftest` runs the harness self-tests `T1`, `T2`, `T4`; `-- --selftest --only T3` runs `T3`; `T5` (tries needs it did not state) and `T6` (names what it makes by its run) run the same way or on a sandbox. `T2`, `T3` and `T5` fail on purpose, so they exit non-zero.
+- `-- --selftest` runs the harness self-tests `T1`, `T2`, `T4` and `T7` to `T9`; `-- --selftest --only T3` runs `T3`; `T5` (tries needs it did not state) and `T6` (names what it makes by its run) run the same way or on a sandbox. `T2`, `T3` and `T5` fail on purpose, so they exit non-zero.
 - Chromium is the web browser tests' Playwright Chromium: `node scripts/node_modules/playwright-core/cli.js install --only-shell chromium` once, or `--browser <path>`.
 - The web bundle is rebuilt when an input is newer than `apps/web/dist`; `--rebuild` forces it.
 - `scripts/scenarios/harness.test.ts` (Vitest) covers the runner's failure paths and the throwaway-home guard; `sandbox.test.ts` covers the sandbox.

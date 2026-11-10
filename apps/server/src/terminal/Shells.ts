@@ -461,6 +461,7 @@ export const makeShells = Effect.fn("Shells.make")(function* (
   });
 
   /** A shell's output from now on, so a first prompt printed right after cannot slip past. */
+  // Untraced: it only subscribes, inside the caller's span (open, restore or the takeover).
   const watchOutput = Effect.fnUntraced(function* (shellId: string) {
     const { threadId } = session(shellId);
     const output = yield* Queue.unbounded<ShellOutputEvent>();

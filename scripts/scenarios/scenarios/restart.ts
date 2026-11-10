@@ -17,7 +17,6 @@ import {
   alert,
   endedRow,
   agentReady,
-  allGone,
   answerConfirm,
   askToKill,
   closeTab,
@@ -39,6 +38,7 @@ import {
   shellRow,
   shellTab,
   startShell,
+  survivors,
   typeLine,
   modeButton,
 } from "./workspaceUi.ts";
@@ -430,7 +430,8 @@ export const restartSurvival: Scenario = {
       for (const shell of [agent, plainShell, hidden, inLive]) {
         await endedRow(page, shell.shellId, "lost").waitFor();
       }
-      check(await allGone([...pids.values()]), "A shell survived the end of its shell host.");
+      const left = await survivors([...pids.values()]);
+      check(left.length === 0, `Shells ${left.join(", ")} survived the end of their shell host.`);
       await removeFromTree(page, hidden.shellId);
 
       // AC-17, AC-12: removed and killed shells stay gone after another restart.
