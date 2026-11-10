@@ -29,7 +29,10 @@ export interface SandboxRecord {
   readonly serverPid: number;
   /** Where the sandbox writes its server's output, for a run's log waits and failure artifacts. */
   readonly logFile: string;
+  /** Before the sandbox looked at its sources; a source newer than this needs a new sandbox. */
   readonly startedMs: number;
+  /** The bundle the server serves; another time on `dist/index.html` means it was rebuilt since. */
+  readonly bundleBuiltMs: number | null;
 }
 
 interface Manifest {
@@ -40,6 +43,14 @@ interface Manifest {
 
 /** The sandbox's server output file, next to its manifest and removed with it. */
 export const sandboxLogFile = (pid: number, dir = RUNS_DIR) => NodePath.join(dir, `${pid}.log`);
+/** Held by the one scenario run a sandbox runs at a time. */
+const sandboxLockFile = (pid: number, dir = RUNS_DIR) => NodePath.join(dir, `${pid}.lock`);
+
+/** Removes what a runner kept beside its manifest. */
+function removeSideFiles(pid: number, dir: string) {
+  NodeFS.rmSync(sandboxLogFile(pid, dir), { force: true });
+  NodeFS.rmSync(sandboxLockFile(pid, dir), { force: true });
+}
 
 /** The process's start, as the OS reports it; null when no such process runs. */
 export function processStartTime(pid: number): string | null {
@@ -118,18 +129,20 @@ export function openManifest(dir = RUNS_DIR) {
     },
     close: () => {
       NodeFS.rmSync(path, { force: true });
-      NodeFS.rmSync(sandboxLogFile(runner.pid, dir), { force: true });
+      removeSideFiles(runner.pid, dir);
     },
   };
 }
 
 /**
  * The live sandbox whose own pid is `pid`, from the harness's record; a reason when there is none.
- * A sandbox is never found by an address, only by the manifest its process wrote.
+ * A sandbox is never found by an address, only by the manifest its process wrote, and only one on
+ * loopback with a throwaway home counts.
  */
 export function findSandbox(
   pid: number,
   dir = RUNS_DIR,
+  homeDirectory = NodeOS.homedir(),
 ): { readonly sandbox: SandboxRecord } | { readonly refusal: string } {
   let manifest: Manifest;
   try {
@@ -139,13 +152,69 @@ export function findSandbox(
   } catch {
     return { refusal: `No sandbox this harness started has the pid ${pid}.` };
   }
-  if (manifest.sandbox === undefined) {
+  const { sandbox } = manifest;
+  if (sandbox === undefined) {
     return { refusal: `Process ${pid} is a scenario run, not a sandbox.` };
   }
   if (!isSameProcess(manifest.runner.pid, manifest.runner.startTime)) {
     return { refusal: `The sandbox ${pid} is no longer running; start a new one.` };
   }
-  return { sandbox: manifest.sandbox };
+  if (new URL(sandbox.origin).hostname !== "127.0.0.1") {
+    return {
+      refusal: `The sandbox ${pid} records ${sandbox.origin}; scenarios only run on loopback.`,
+    };
+  }
+  const home = NodePath.resolve(sandbox.home);
+  if (isUnder(home, NodePath.join(homeDirectory, ".t3")) || !isUnder(home, NodeOS.tmpdir())) {
+    return {
+      refusal: `The sandbox ${pid} records the home ${sandbox.home}; scenarios only use a throwaway home.`,
+    };
+  }
+  return { sandbox };
+}
+
+const isUnder = (child: string, parent: string) => {
+  const relative = NodePath.relative(parent, child);
+  return relative !== "" && !relative.startsWith("..") && !NodePath.isAbsolute(relative);
+};
+
+/**
+ * Takes the sandbox's run lock for this process; a reason when a live run holds it. A lock whose
+ * owner is gone (a killed run) is taken over.
+ */
+export function lockSandbox(
+  sandboxPid: number,
+  dir = RUNS_DIR,
+): { readonly release: () => void } | { readonly refusal: string } {
+  const path = sandboxLockFile(sandboxPid, dir);
+  const owner = { pid: NodeProcess.pid, startTime: processStartTime(NodeProcess.pid) ?? "" };
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      NodeFS.writeFileSync(path, JSON.stringify(owner), { flag: "wx" });
+      return { release: () => NodeFS.rmSync(path, { force: true }) };
+    } catch {
+      let holder: { readonly pid?: unknown; readonly startTime?: unknown } = {};
+      try {
+        holder = JSON.parse(NodeFS.readFileSync(path, "utf8")) as typeof holder;
+      } catch {
+        // Unreadable: a lock being written right now, or a broken one; treated as held.
+        return {
+          refusal: `One scenario runs at a time on a sandbox; sandbox ${sandboxPid} is busy.`,
+        };
+      }
+      if (
+        typeof holder.pid === "number" &&
+        typeof holder.startTime === "string" &&
+        isSameProcess(holder.pid, holder.startTime)
+      ) {
+        return {
+          refusal: `One scenario runs at a time on a sandbox; run ${holder.pid} is running on sandbox ${sandboxPid}.`,
+        };
+      }
+      NodeFS.rmSync(path, { force: true });
+    }
+  }
+  return { refusal: `Could not take the run lock of sandbox ${sandboxPid}.` };
 }
 
 function readNumber(file: string): number | null {
@@ -204,7 +273,7 @@ const kill = (pid: number, group = false) => {
  * PTY session leader, so its whole group), and removes the home. A pid found through the home
  * only counts when its process started after the home was made.
  */
-export function killServerTree(entry: ManifestEntry) {
+export function killServerTree(entry: ManifestEntry, { keepHome = false } = {}) {
   if (isSameProcess(entry.pid, entry.startTime)) kill(entry.pid);
   for (const pid of pidsInHome(entry.home)) {
     const started = processStartMs(pid);
@@ -214,7 +283,9 @@ export function killServerTree(entry: ManifestEntry) {
       kill(pid);
     }
   }
-  NodeFS.rmSync(entry.home, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+  if (!keepHome) {
+    NodeFS.rmSync(entry.home, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+  }
 }
 
 /** Cleans up after runs that ended without doing it themselves; returns what it printed. */
@@ -242,7 +313,7 @@ export function cleanLeftovers(write: (line: string) => void, dir = RUNS_DIR) {
     if (isSameProcess(manifest.runner.pid, manifest.runner.startTime)) continue;
     for (const entry of manifest.entries) killServerTree(entry);
     NodeFS.rmSync(path, { force: true });
-    NodeFS.rmSync(sandboxLogFile(manifest.runner.pid, dir), { force: true });
+    removeSideFiles(manifest.runner.pid, dir);
     write(
       `scenarios: cleaned up after run ${manifest.runner.pid}: ${manifest.entries.length} server(s) and their homes`,
     );

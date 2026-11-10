@@ -20,6 +20,7 @@ const readJson = (file: string) =>
   JSON.parse(NodeFS.readFileSync(file, "utf8")) as {
     readonly name?: string;
     readonly dependencies?: Record<string, string>;
+    readonly devDependencies?: Record<string, string>;
   };
 
 /** Workspace packages by name, from `<root>/packages/*`. */
@@ -35,26 +36,46 @@ function workspacePackages(root: string): ReadonlyMap<string, string> {
   return found;
 }
 
-/** The web app's inputs and those of every workspace package it uses, directly or not. */
-export function bundleInputs(root: string): ReadonlyArray<string> {
+/**
+ * An app's inputs and those of every workspace package it uses, directly or not. Only runtime
+ * dependencies count past the app itself; `withDev` adds the app's own dev ones.
+ */
+function appInputs(
+  root: string,
+  app: string,
+  appEntries: ReadonlyArray<string>,
+  withDev: boolean,
+): ReadonlyArray<string> {
   const packages = workspacePackages(root);
-  const web = NodePath.join(root, "apps", "web");
-  const inputs = WEB_INPUTS.map((input) => NodePath.join(web, input));
-  const queue = [NodePath.join(web, "package.json")];
+  const dir = NodePath.join(root, "apps", app);
+  const inputs = appEntries.map((input) => NodePath.join(dir, input));
+  const appManifest = readJson(NodePath.join(dir, "package.json"));
+  const queue = [
+    { ...appManifest.dependencies, ...(withDev ? appManifest.devDependencies : undefined) },
+  ];
   const seen = new Set<string>();
   while (queue.length > 0) {
-    const manifest = readJson(queue.shift()!);
-    // Only runtime dependencies end up in the bundle; dev ones (test kits) do not.
-    for (const [name, version] of Object.entries(manifest.dependencies ?? {})) {
-      const dir = packages.get(name);
-      if (!version.startsWith("workspace:") || dir === undefined || seen.has(dir)) continue;
-      seen.add(dir);
-      inputs.push(...PACKAGE_INPUTS.map((input) => NodePath.join(dir, input)));
-      queue.push(NodePath.join(dir, "package.json"));
+    for (const [name, version] of Object.entries(queue.shift()!)) {
+      const packageDir = packages.get(name);
+      if (!version.startsWith("workspace:") || packageDir === undefined || seen.has(packageDir)) {
+        continue;
+      }
+      seen.add(packageDir);
+      inputs.push(...PACKAGE_INPUTS.map((input) => NodePath.join(packageDir, input)));
+      queue.push(readJson(NodePath.join(packageDir, "package.json")).dependencies ?? {});
     }
   }
   return inputs;
 }
+
+/** The web app's inputs and those of every workspace package it uses; dev ones (test kits) are not bundled. */
+export const bundleInputs = (root: string) => appInputs(root, "web", WEB_INPUTS, false);
+
+/** What the server loads from source when it starts; it runs with its dev dependencies linked. */
+export const serverInputs = (root: string) =>
+  appInputs(root, "server", PACKAGE_INPUTS, true).filter(
+    (input) => !input.startsWith(NodePath.join(root, "apps", "web") + NodePath.sep),
+  );
 
 function newestUnder(path: string, newest: { path: string; mtimeMs: number } | null) {
   let stat: NodeFS.Stats;
@@ -76,16 +97,27 @@ function newestUnder(path: string, newest: { path: string; mtimeMs: number } | n
   return result;
 }
 
+/** The newest file under `inputs`, or null when none exists. */
+export function newestOf(inputs: ReadonlyArray<string>) {
+  let newest: { path: string; mtimeMs: number } | null = null;
+  for (const input of inputs) newest = newestUnder(input, newest);
+  return newest;
+}
+
+/** When `<root>/apps/web/dist/index.html` was written; null when it is missing. */
+export function bundleBuiltMs(root: string): number | null {
+  try {
+    return NodeFS.statSync(NodePath.join(root, "apps", "web", "dist", "index.html")).mtimeMs;
+  } catch {
+    return null;
+  }
+}
+
 /** Whether `<root>/apps/web/dist` is older than any of its inputs. */
 export function bundleState(root: string): BundleState {
-  let newest: { path: string; mtimeMs: number } | null = null;
-  for (const input of bundleInputs(root)) newest = newestUnder(input, newest);
-  let builtMs: number | null = null;
-  try {
-    builtMs = NodeFS.statSync(NodePath.join(root, "apps", "web", "dist", "index.html")).mtimeMs;
-  } catch {
-    return { state: "missing", builtMs: null, newest };
-  }
+  const newest = newestOf(bundleInputs(root));
+  const builtMs = bundleBuiltMs(root);
+  if (builtMs === null) return { state: "missing", builtMs: null, newest };
   return {
     state: newest !== null && newest.mtimeMs > builtMs ? "stale" : "current",
     builtMs,

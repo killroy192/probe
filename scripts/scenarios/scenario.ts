@@ -19,9 +19,24 @@ export interface ScenarioContext {
   readonly startSecondServer: (options?: { readonly serverBin?: string }) => Promise<ServerHandle>;
 }
 
+/**
+ * What a scenario needs from its server beyond running steps on it. A sandbox (a server other runs
+ * share) refuses every need, and a scenario that states none (`needs` absent) as not yet checked.
+ */
+export interface ScenarioNeeds {
+  readonly restart?: true;
+  readonly secondServer?: true;
+  /** It asserts on an empty home: nothing another run made may be there. */
+  readonly pristineHome?: true;
+  /** Why it is not yet safe on a server other runs share, until PRB.T-039 converts it. */
+  readonly unshared?: string;
+}
+
 export interface Scenario {
   readonly id: string;
   readonly title: string;
+  /** `{}` when it needs nothing and is safe on a shared server: its names and folders use `runId`. */
+  readonly needs?: ScenarioNeeds;
   /** Absent while the story that delivers the scenario is not built. */
   readonly run?: (context: ScenarioContext) => Promise<void>;
 }

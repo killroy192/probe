@@ -213,7 +213,7 @@ const waitForLog =
     });
 
 /** The shell host that keeps `home`'s shells, from the pid file it writes there (`shellHostPidPath`). */
-function shellHostPidIn(home: string): number | null {
+export function shellHostPidIn(home: string): number | null {
   try {
     const file = NodePath.join(home, "userdata", "shell-host-v1.pid");
     const pid = Number(NodeFS.readFileSync(file, "utf8").trim());
@@ -250,6 +250,8 @@ export async function startServer(options: {
   readonly onSpawn?: (pid: number) => void;
   /** Called with each chunk the server prints, across restarts. */
   readonly onOutput?: (chunk: string) => void;
+  /** Called whenever a server process ends, including the stops and restarts the harness makes. */
+  readonly onExit?: (how: string) => void;
 }): Promise<ServerHandle> {
   const serverBin = options.serverBin ?? DEFAULT_SERVER_BIN;
   const port = await reservePort();
@@ -289,6 +291,9 @@ export async function startServer(options: {
       { cwd: REPO_ROOT, env: envFor(env), stdio: ["ignore", "pipe", "pipe"] },
     );
     child = spawned;
+    spawned.once("exit", (code, signal) =>
+      options.onExit?.(signal === null ? `code ${String(code)}` : signal),
+    );
     if (spawned.pid !== undefined) options.onSpawn?.(spawned.pid);
     try {
       await waitUntilServing(spawned, origin, (chunk) => {

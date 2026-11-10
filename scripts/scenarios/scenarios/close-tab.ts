@@ -26,6 +26,7 @@ import {
 export const closeTabScenario: Scenario = {
   id: "S5",
   title: "close a tab and reopen it from the tree",
+  needs: {},
   run: async ({ server, openPage, runId }) => {
     const name = `sparta-${runId}`;
     const plain = NodePath.join(server.home, "folders", runId, "plain");

@@ -54,6 +54,50 @@ export function parseArgs(argv: ReadonlyArray<string>): RunOptions {
   };
 }
 
+export interface SandboxOptions {
+  readonly fixture: string | undefined;
+  /** Leaves the home in place when the sandbox stops, for reading after a failure. */
+  readonly keepHome: boolean;
+  readonly rebuild: boolean;
+  readonly serverBin: string | undefined;
+}
+
+const SANDBOX_VALUE_FLAGS = ["--fixture", "--server-bin"];
+const SANDBOX_SWITCHES = ["--keep-home", "--rebuild"];
+
+/** The sandbox's options; throws naming an argument it does not take. */
+export function parseSandboxArgs(argv: ReadonlyArray<string>): SandboxOptions {
+  const values = new Map<string, string>();
+  for (let index = 0; index < argv.length; index++) {
+    const arg = argv[index]!;
+    if (SANDBOX_SWITCHES.includes(arg)) continue;
+    if (!SANDBOX_VALUE_FLAGS.includes(arg)) {
+      throw new Error(
+        `${arg} is not a sandbox option; it takes ${[...SANDBOX_VALUE_FLAGS.map((flag) => `${flag} <value>`), ...SANDBOX_SWITCHES].join(", ")}.`,
+      );
+    }
+    const value = argv[index + 1];
+    if (value === undefined || value.startsWith("--")) throw new Error(`${arg} needs a value.`);
+    values.set(arg, value);
+    index++;
+  }
+  return {
+    fixture: values.get("--fixture"),
+    keepHome: argv.includes("--keep-home"),
+    rebuild: argv.includes("--rebuild"),
+    serverBin: values.get("--server-bin"),
+  };
+}
+
+/** Arguments of a run that are neither a flag nor a flag's value, such as a script path. */
+export function strayArgs(argv: ReadonlyArray<string>): ReadonlyArray<string> {
+  return argv.filter(
+    (arg, index) =>
+      !arg.startsWith("--") &&
+      !(VALUE_FLAGS as ReadonlyArray<string>).includes(argv[index - 1] ?? ""),
+  );
+}
+
 const isUnder = (child: string, parent: string) => {
   const relative = NodePath.relative(parent, child);
   return relative === "" || (!relative.startsWith("..") && !NodePath.isAbsolute(relative));

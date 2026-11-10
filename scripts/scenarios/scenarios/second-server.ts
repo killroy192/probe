@@ -45,6 +45,7 @@ const projectPaths = (client: WsClient, name: string) =>
 export const secondServer: Scenario = {
   id: "R1",
   title: "second server",
+  needs: { secondServer: true },
   run: async ({ server, openPage, startSecondServer }) => {
     const second = await startSecondServer();
 

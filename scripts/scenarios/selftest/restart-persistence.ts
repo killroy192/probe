@@ -8,6 +8,7 @@ const NAME = "persisted-workspace";
 export const restartPersistence: Scenario = {
   id: "T1",
   title: "restart keeps data",
+  needs: { restart: true },
   run: async ({ server, openPage }) => {
     const rpc = await connectRpc(server.origin, await openPage());
     try {

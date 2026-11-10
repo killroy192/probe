@@ -46,6 +46,7 @@ async function pidsRunning(command: RegExp) {
 export const killShell: Scenario = {
   id: "S6",
   title: "kill shells from the tree, from inside, and with their workspace",
+  needs: { unshared: "it finds its shell's jobs by matching every process on the machine" },
   run: async ({ server, openPage }) => {
     const folders = NodePath.join(server.home, "folders");
     const repo = NodePath.join(folders, "repo");

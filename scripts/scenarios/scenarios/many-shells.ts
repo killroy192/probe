@@ -28,6 +28,7 @@ import {
 export const manyShells: Scenario = {
   id: "S4",
   title: "run many shells, each with its own output",
+  needs: {},
   run: async ({ server, openPage, runId }) => {
     const name = `sparta-${runId}`;
     const folders = NodePath.join(server.home, "folders", runId);

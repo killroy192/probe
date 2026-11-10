@@ -67,6 +67,7 @@ const startLines = (server: ServerHandle) =>
 export const plainShell: Scenario = {
   id: "E2-S3",
   title: "start a plain shell from the plus modal",
+  needs: { restart: true },
   run: async ({ server, openPage }) => {
     const { repo, linked } = await projects(server);
     const page = await openPage();
@@ -155,6 +156,7 @@ export const plainShell: Scenario = {
 export const userScripts: Scenario = {
   id: "E2-S1",
   title: "start a user starting script and find it preselected after a restart",
+  needs: { restart: true },
   run: async ({ server, openPage }) => {
     const { repo, plain } = await projects(server);
     const page = await openPage();
@@ -346,6 +348,10 @@ async function expectOnlyPlain(page: PointerPage, project: string, message: stri
 export const startFailures: Scenario = {
   id: "E2-S4",
   title: "a missing program is named and an exiting command keeps the shell",
+  needs: {
+    unshared:
+      "it rewrites the server's starting-script list and uses the fixed workspace name sparta",
+  },
   run: async ({ server, openPage }) => {
     const { repo } = await projects(server);
     const page = await openPage();

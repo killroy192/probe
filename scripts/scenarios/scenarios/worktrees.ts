@@ -53,6 +53,7 @@ async function proposedName(page: PointerPage) {
 export const worktrees: Scenario = {
   id: "S3",
   title: "start shells in existing and forked worktrees",
+  needs: { restart: true },
   run: async ({ server, openPage }) => {
     const folders = NodePath.join(server.home, "folders");
     const repo = NodePath.join(folders, "repo");

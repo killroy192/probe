@@ -12,6 +12,7 @@ import type { Scenario } from "../scenario.ts";
 export const secondServerFailure: Scenario = {
   id: "T3",
   title: "second server cannot start",
+  needs: { secondServer: true },
   run: async ({ startSecondServer }) => {
     await startSecondServer();
     await startSecondServer({

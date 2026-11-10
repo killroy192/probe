@@ -8,6 +8,7 @@ import * as Effect from "effect/Effect";
 
 import type { PointerPage } from "./browser.ts";
 import { connectRpc, type WsClient } from "./rpc.ts";
+import { issueBearerToken } from "./seam.ts";
 import type { ServerEnv, ServerHandle } from "./server.ts";
 import { check } from "./support.ts";
 import { addProject, createWorkspace, gitOk, reloadShowing } from "./scenarios/workspaceUi.ts";
@@ -83,6 +84,58 @@ export const seedWorkspace: (
   yield* client["workspace.create"]({ name });
   yield* client["workspace.addProject"]({ mode: "import", name, path: folder });
 });
+
+/** What a named fixture made; every name and folder in it carries the `runId` it was given. */
+export interface FixtureState {
+  readonly workspace: string;
+  readonly project: string;
+  readonly shellIds: ReadonlyArray<string>;
+}
+
+type Fixture = (server: ServerHandle, runId: string) => Promise<FixtureState>;
+
+/** A workspace `fixture-<runId>` with one git project, made over the server API. */
+async function gitWorkspace(server: ServerHandle, runId: string, shells: number) {
+  const workspace = `fixture-${runId}`;
+  const project = NodePath.join(server.home, "folders", runId, "project");
+  await NodeFSP.mkdir(project, { recursive: true });
+  await gitOk(project, "init", "-q", "-b", "main");
+  await gitOk(project, "commit", "-q", "--allow-empty", "-m", "first");
+  const shellIds = await withClient(server.origin, await issueBearerToken(server), (client) =>
+    Effect.gen(function* () {
+      yield* client["workspace.create"]({ name: workspace });
+      yield* client["workspace.addProject"]({ mode: "import", name: workspace, path: project });
+      const started: Array<string> = [];
+      for (let index = 0; index < shells; index++) {
+        const shell = yield* client["workspace.startShell"]({
+          name: workspace,
+          project,
+          worktree: { kind: "checkout" },
+          cols: 120,
+          rows: 30,
+        });
+        started.push(shell.shellId);
+      }
+      return started;
+    }),
+  );
+  return { workspace, project, shellIds };
+}
+
+/** The fixtures a sandbox can start with (`--fixture <name>`); later stories add theirs here. */
+export const sandboxFixtures: Readonly<Record<string, Fixture>> = {
+  workspace: (server, runId) => gitWorkspace(server, runId, 0),
+  /** The workspace with two running plain shells. */
+  shells: (server, runId) => gitWorkspace(server, runId, 2),
+};
+
+/** Self-test only, not listed: fails once the server holds part of it, to prove a sandbox cleans up. */
+export const selftestFixtures: Readonly<Record<string, Fixture>> = {
+  "selftest-fails": async (server, runId) => {
+    await gitWorkspace(server, runId, 0);
+    throw new Error("the self-test fixture fails after making its workspace");
+  },
+};
 
 /**
  * Runs a check that relies on file permissions, or says why it is skipped: root ignores
