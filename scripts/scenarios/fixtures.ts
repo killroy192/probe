@@ -11,7 +11,13 @@ import { connectRpc, type WsClient } from "./rpc.ts";
 import { issueBearerToken } from "./seam.ts";
 import type { ServerEnv, ServerHandle } from "./server.ts";
 import { check } from "./support.ts";
-import { addProject, createWorkspace, gitOk, reloadShowing } from "./scenarios/workspaceUi.ts";
+import {
+  addProject,
+  createWorkspace,
+  gitOk,
+  layoutSaved,
+  reloadShowing,
+} from "./scenarios/workspaceUi.ts";
 
 /** Fixtures: a git project with a linked worktree, and a plain folder, in the server's home. */
 export async function projects(server: ServerHandle) {
@@ -44,6 +50,8 @@ export async function restartAndReload(
   rpc: RpcConnection,
   env?: ServerEnv,
 ): Promise<RpcConnection> {
+  // A stop with a tab change still in flight would bring the old tab strip back.
+  await layoutSaved(page, "sparta");
   await rpc.close();
   await server.restart(env === undefined ? undefined : { env });
   await reloadShowing(page, "sparta");

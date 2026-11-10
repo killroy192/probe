@@ -6,6 +6,7 @@ import { plusModal } from "./scenarios/plus-modal.ts";
 import { restartSurvival } from "./scenarios/restart.ts";
 import { restoreShell } from "./scenarios/restore-shell.ts";
 import { secondServer } from "./scenarios/second-server.ts";
+import { layoutReload, layoutSignal, tabSignals } from "./scenarios/signals.ts";
 import { plainShell, startFailures, userScripts } from "./scenarios/starting-scripts.ts";
 import { standaloneShell } from "./scenarios/standalone-shell.ts";
 import { worktrees } from "./scenarios/worktrees.ts";
@@ -14,6 +15,7 @@ import { deliberateFailure } from "./selftest/deliberate-failure.ts";
 import { oneLogin } from "./selftest/one-login.ts";
 import { restartPersistence } from "./selftest/restart-persistence.ts";
 import { secondServerFailure } from "./selftest/second-server-failure.ts";
+import { endCheckFails, layoutWaitFails, typingWaitFails } from "./selftest/signal-waits.ts";
 import { unstatedNeeds } from "./selftest/unstated-needs.ts";
 import type { Scenario } from "./scenario.ts";
 
@@ -36,12 +38,18 @@ export const storyScenarios: ReadonlyArray<Scenario> = [
   plainShell,
   userScripts,
   startFailures,
+  tabSignals,
+  layoutSignal,
+  layoutReload,
 ];
 
 export const selftestScenarios: ReadonlyArray<Scenario> = [
   restartPersistence,
   deliberateFailure,
   oneLogin,
+  typingWaitFails,
+  layoutWaitFails,
+  endCheckFails,
 ];
 
 /** Self-tests that run only when picked with `--only`, so one `--selftest` run stays short. */

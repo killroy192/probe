@@ -440,6 +440,17 @@ function writableSessionGeneration(
     : null;
 }
 
+/**
+ * Whether a shell's surface is attached and takes input, as the page states it on the mount's
+ * `data-terminal-attached` for agents and scenarios: they type only once it says "yes".
+ */
+function attachState(session: TerminalSessionState, canOperate: boolean) {
+  if (session.version > 0 && (session.status === "exited" || session.status === "closed")) {
+    return "ended";
+  }
+  return writableSessionGeneration(session, canOperate) === null ? "no" : "yes";
+}
+
 export function shouldHandleTerminalExit(
   current: TerminalSessionState["status"],
   synchronized: TerminalSessionState["status"],
@@ -732,8 +743,19 @@ function TerminalSessionViewport({
       // Read and subscribe in one synchronous step so no output lands between them.
       let previousSession = latestSession;
       let resizeGeneration = writableSessionGeneration(latestSession, hasTerminalWriteAccess());
+      // Written only on a change, so output chunks touch no DOM here.
+      const showAttach = (session: TerminalSessionState) => {
+        if (shellId === undefined) return;
+        const state = attachState(session, hasTerminalWriteAccess());
+        if (mount.dataset.terminalAttached !== state) mount.dataset.terminalAttached = state;
+      };
+      showAttach(latestSession);
+      setupCleanups.push(() => {
+        if (shellId !== undefined) mount.dataset.terminalAttached = "no";
+      });
       setupCleanups.push(
         subscribeTerminalSession((session) => {
+          showAttach(session);
           const nextResizeGeneration = writableSessionGeneration(session, hasTerminalWriteAccess());
           if (nextResizeGeneration !== resizeGeneration) {
             resizeGeneration = nextResizeGeneration;

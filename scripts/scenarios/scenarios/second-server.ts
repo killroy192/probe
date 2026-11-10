@@ -8,11 +8,12 @@ import * as Option from "effect/Option";
 import * as Stream from "effect/Stream";
 
 import { seedWorkspace, withClient } from "../fixtures.ts";
-import type { WsClient } from "../rpc.ts";
+import { connectRpc, type WsClient } from "../rpc.ts";
 import type { Scenario } from "../scenario.ts";
 import { issueBearerToken, saveServerInBrowser } from "../seam.ts";
 import { REPO_ROOT, type ServerHandle } from "../server.ts";
 import { check, recorder } from "../support.ts";
+import { shellList } from "./workspaceUi.ts";
 
 const LABEL = "Second server";
 
@@ -95,6 +96,30 @@ export const secondServer: Scenario = {
         shared2.every((path) => isInside(path, home2)),
       "A same-named workspace points at the other server's project.",
     );
+
+    // A shell on the second server is ready on that server's own list only.
+    const direct = await connectRpc(second.origin, { bearerToken: token2 });
+    try {
+      const secondShells = shellList(direct.client);
+      const opened = await Effect.runPromise(direct.client["shell.open"]({ cwd: home2 }));
+      await secondShells.lists.until(
+        `shell ${opened.shellId} ready on the second server`,
+        (list) => list.some((shell) => shell.shellId === opened.shellId && shell.promptReady),
+        0,
+      );
+      const firstList = await withClient(server.origin, token1, (client) =>
+        client.subscribeShells({}).pipe(Stream.runHead),
+      );
+      check(
+        Option.isSome(firstList) &&
+          firstList.value.type === "snapshot" &&
+          !firstList.value.shells.some((shell) => shell.shellId === opened.shellId),
+        "The default server lists a shell the second server runs.",
+      );
+      await Effect.runPromise(direct.client["shell.kill"]({ shellId: opened.shellId }));
+    } finally {
+      await direct.close();
+    }
 
     // AC-3: the seam saves the second server in the browser, and the UI connects to it.
     const page = await openPage();

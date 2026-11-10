@@ -3,9 +3,9 @@ id: PRB.T-041
 type: story
 parent: PRB.E-005
 phase: 1
-labels: [testing, plan]
+labels: [testing, implement]
 created: 2026-11-09
-updated: 2026-11-09
+updated: 2026-11-10
 ---
 
 # Prompt-ready and layout-saved signals so scenarios stop guessing
@@ -187,17 +187,31 @@ Independent of PRB.T-037 to PRB.T-040; none of them is needed to start. PRB.T-03
 | ID    | Statement | Kind (assumption / unknown) | Status (unverified / verified / false) | How and when to verify | Owner |
 | ----- | --------- | --------------------------- | -------------------------------------- | ---------------------- | ----- |
 | SA-1  | The server already scans every wrapped shell started through `Shells.open` for its first prompt; restore and takeover do not (epic A-3 is outdated). | assumption | verified (read `Shells.ts:892-969`, `702-757`, `759-842`, 2026-11-10; not run) | AC-1, AC-4, AC-5 | author |
-| SA-2  | The suspected S4 tab-strip flake is a reload with the layout save in flight (epic A-2). | assumption | unverified | AC-12 | author |
-| SA-3  | Attached and layout saved need no contract change: the attach session and the `saveTabs` results already carry them. | assumption | unverified | Read the web and client-runtime state when planning | author |
+| SA-2  | The suspected S4 tab-strip flake is a reload with the layout save in flight (epic A-2). | assumption | verified (T-041c, 2026-11-10: a reload with the save held back brings the old tab strip back; waiting for saved keeps the change) | AC-12 | author |
+| SA-3  | Attached and layout saved need no contract change: the attach session and the `saveTabs` results already carry them. | assumption | verified (attached comes from the attach session, saved from the `saveTabs` results; only `promptReady` crosses the wire) | Read the web and client-runtime state when planning | author |
 | SA-4  | A Probe kill's removal reaches clients before the process has ended, so one check after it can race. | assumption | verified (read `processTree.ts:84-93`, `Manager.ts:2482-2509`, `2772-2811`, 2026-11-10; not run) | AC-15 fails on `main` | author |
 | SA-5  | A shell a signal from outside ends gets its `ended: "signal"` entry only after its process has ended (not the kill whose save failed, EC-13). | assumption | verified (read `Shells.ts:154`, `563-589`; not run) | AC-16 | author |
-| SA-6  | Mobile, client-runtime and desktop compile with the contract change if it is additive. | assumption | unverified | AC-21 | author |
+| SA-6  | Mobile, client-runtime and desktop compile with the contract change if it is additive. | assumption | verified (typecheck of mobile, desktop, client-runtime and contracts, 2026-11-10) | AC-21 | author |
 | SA-7  | Every shell start goes through `Shells.open` or `Shells.restore`; the `probe` command only kills. | assumption | verified (read `ws.ts:3033`, `SavedWorkspaces.ts:849`, `probeShell.ts:8,22`, 2026-11-10) | AC-1, AC-5 | author |
-| SA-8  | A layout save can be held back from the test's side of the connection, with no test-only hook in product code. | assumption | unverified (the harness already intercepts the page's websocket with `page.routeWebSocket`, `scripts/scenarios/browser.ts:36`; holding one `saveTabs` request is not tried) | Spike when planning; if impossible, AC-12 needs another negative control, agreed with the epic owner | author |
+| SA-8  | A layout save can be held back from the test's side of the connection, with no test-only hook in product code. | assumption | verified (`frameHolder` in `browser.ts` holds `workspace.saveTabs` frames from the test's side; T-041b, T-041c, T6) | Spike when planning; if impossible, AC-12 needs another negative control, agreed with the epic owner | author |
 | SA-9  | A layout save can be made to fail in a scenario without a test-only hook. | assumption | verified (S7's AC-21 makes the workspaces folder unwritable through `unlessRoot` and checks the failure message and its clearing, `scripts/scenarios/scenarios/restart.ts:372-387`) | AC-13 extends that check | author |
-| SA-10 | After a server restart, the server can tell whether a reattached shell already printed its first prompt. | assumption | unverified; decided (user, 2026-11-10): if false, it is a defect in the code or the test and this story fixes it; no fallback | Plan stage (the shell host and the shells registry); AC-4 | author |
-| SA-11 | Making a kill's removal follow the process end adds no wait a user notices, because the tree is already sent SIGKILL. | assumption | unverified | AC-15 and the existing kill scenarios (S6) when implemented | author |
-| SU-1  | Whether any scenario needs "back at a prompt" after its agent exits (`leaveAgent` followed by typing), beyond the first prompt. | unknown | unverified | List `leaveAgent` and type-after-exit uses when planning; if one needs it, wait on the next prompt mark in the frames after a `mark()` (an existing event), and name the case in the handoff | author |
-| SU-2  | In what form the page exposes attached, ready and saved without a test-only path. | unknown | unverified | Plan stage | TBD (author, plan stage) |
+| SA-10 | After a server restart, the server can tell whether a reattached shell already printed its first prompt. | assumption | verified (the registry saves the scan's outcome; an adopted shell with none is ready when the host's kept output holds the mark, else scanned live; server test) | Plan stage (the shell host and the shells registry); AC-4 | author |
+| SA-11 | Making a kill's removal follow the process end adds no wait a user notices, because the tree is already sent SIGKILL. | assumption | verified (the kill waits for the exit it already caused, at most 1 s; S6 passes) | AC-15 and the existing kill scenarios (S6) when implemented | author |
+| SU-1  | Whether any scenario needs "back at a prompt" after its agent exits (`leaveAgent` followed by typing), beyond the first prompt. | unknown | verified (`leaveAgent` then typing needs it; `leaveAgent` now waits for the next prompt mark after the goodbye, an existing event) | List `leaveAgent` and type-after-exit uses when planning; if one needs it, wait on the next prompt mark in the frames after a `mark()` (an existing event), and name the case in the handoff | author |
+| SU-2  | In what form the page exposes attached, ready and saved without a test-only path. | unknown | decided (author, 2026-11-10): DOM attributes: `data-shell-ready` on the tab panel, `data-terminal-attached` on its terminal mount, `data-layout-save` on the workspace screen | Plan stage | TBD (author, plan stage) |
 | SU-3  | Whether the user accepts that a killed shell's row leaves the tree once its process has ended rather than when the signal is sent (SA-11). | decision | decided (user, 2026-11-10): yes; the fallback is not built | AC-15 | user |
 | SU-4  | N for the loop of AC-24 (epic U-2). | unknown | unverified | Set by the end of PRB.T-036; AC-24 cannot run until it is | TBD (epic owner, end of PRB.T-036) |
+
+## Handoff
+
+Implementation, 2026-11-10 (branch `prb-t-041`, not merged).
+
+- **Form of the signals (SU-2).** Server: `ShellSummary.promptReady` (optional on the wire; a missing field reads as unknown through `shellPromptState` in client-runtime). Page: the tab panel's `data-shell-id` and `data-shell-ready` (`ready` | `starting` | `unknown`), its terminal mount's `data-terminal-attached` (`no` | `yes` | `ended`, written only on a change, so output chunks cost no DOM write), and the workspace screen's `data-layout-save` (`pending` | `saved` | `failed`).
+- **Server.** One scan per shell sets the state, in `open` (plain and script), `restore` (reset first) and takeover; the registry saves the outcome (`prompt`), so a takeover knows it (SA-10). A kill waits for the shell process's exit, at most 1 s, before the removal or the kept-as-ended entry; the exit itself is not sent as an `ended: "signal"` entry. New debug lines: "shell first prompt", "killed shell outlived the wait; removing it" (shell id, prompt state, pid; nothing secret; AC-20 by review, not by a default start).
+- **Tests failing on `main` first.** The five new `Shells` cases in `Manager.test.ts` were run against `main`'s code in a scratch worktree: all five fail there (three by never seeing the ready event, the kill order one with the removal before the end and an `ended` flash), and pass here.
+- **Call sites switched (AC-19).** Typing: `typeLine` (every caller) waits through `shellReady`. Reload or stop after tab changes: `reloadShowing` (`fixtures.ts`, `worktrees.ts`, `plus-modal.ts`, `restore-shell.ts`, `starting-scripts.ts`), `restartAndReload`, S4's reload, S7's `restart`, and the restarts in S2 (two), S3 (AC-22), S8 (restore after a restart) and E2-S3 (AC-2a). Process end: `shellEnded` in S6 (AC-7, AC-8, AC-12, AC-17, project and workspace removal), S2 (AC-19), S3 (`killShell`), S4 (signalled), S7 (signalled), S8 (`signal`) and T-002 (one `alive` check after the removal). Left as bounded loops with permanent (c) suppressions (AC-17): S6's background jobs and S7's shells after their host was stopped (`gone`, `allGone`). PRB.T-038 and PRB.T-039 had not landed.
+- **New scenarios and self-tests.** T-041a (AC-4, AC-6), T-041b (AC-11), T-041c (AC-12), R1 extended (AC-10), S7 AC-21 extended (AC-13); self-tests T5 (AC-7, AC-8), T6 (AC-14), T7 (AC-16). Each passed one run; T-041a took 16.6 s and 17.8 s on a busy machine, so the cap gate (AC-23) may need attention.
+- **Epic A-2 (AC-12).** True: T-041c's negative control shows the old tab strip after a reload while the save is held back.
+- **Suite run, 2026-11-10.** All pass except S2 and E2-S1, the known PRB.T-011 order-check failures that PRB.T-036 owns, and one S6 failure at AC-14: the line `PROBE_SHELL_ENDPOINT=http://127.0.0.1:9/ "$PROBE_BIN" kill; …` killed its shell, as if the start of the line was lost; the next S6 run passed. The cause is open; S6's failure now prints the shell's whole output from the page's frames instead of the lookup error that hid it. A determinism case for AC-24's loop.
+- **Not run (user).** AC-23 cap gate for T-041a, T-041b, T-041c, T5, T6, T7 (machine quiet first); AC-24 N-run loop (N unset; waits for PRB.T-036's S2 and E2-S1 fix). AC-22 docs review is the developer's.
+

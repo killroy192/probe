@@ -40,6 +40,7 @@ import {
   startingScriptsFile,
   typeLine,
   writeStartingScripts,
+  layoutSaved,
 } from "./workspaceUi.ts";
 
 /** OSC 133;B, which Probe's zsh and bash wrappers print when the line editor first reads input. */
@@ -110,6 +111,7 @@ export const plainShell: Scenario = {
 
       // AC-13a: the variable that used to set every shell's command has no effect any more.
       stage = "AC-2a, AC-13a";
+      await layoutSaved(page, "sparta");
       await rpc.close();
       await server.restart({ env: { PROBE_AGENT_COMMAND: MOCK_AGENT_COMMAND } });
       await reloadShowing(page, "sparta");

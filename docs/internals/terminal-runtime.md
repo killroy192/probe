@@ -61,6 +61,14 @@ again with every redraw: libghostty-vt clears the prompt rows on resize only for
 files and restores the user's value before the first prompt. Other shells are not wrapped and get
 the command at once.
 
+The same scan, one per shell and ending at the first mark, the shell's end or the 15 seconds,
+also sets the summary's `promptReady`, which clients read to know a shell takes input (a missing
+field, from an older server, means unknown). It is never set on the timeout, so a mark that comes
+later, or one from an unwrapped shell, leaves the shell not ready for good. A restored shell is a
+new process and is scanned again. The registry saves the outcome, because a takeover cannot see
+what the earlier server saw: an adopted shell with no saved outcome is ready if the host's kept
+output holds the mark (printed while no server watched), and is scanned from then on otherwise.
+
 A shell started from a workspace carries its project and worktree. Every 2 seconds, and only
 while such shells exist, `Shells` reads each worktree's `HEAD` file (following a linked
 worktree's `.git` file) and each shell process's current folder (`/proc/<pid>/cwd` on Linux, one
@@ -75,8 +83,10 @@ the process table with `ps`, stops the shell, its descendants and, on Linux, eve
 its session (which catches a job that double-forked away from its parent), reads it again and
 SIGKILLs them all ([`processTree.ts`](../../apps/server/src/terminal/processTree.ts)). macOS's
 `ps` has no session id, so there a job that double-forked before the kill escapes; Windows
-signals the shell only. A kill is uninterruptible, because `probe kill`'s request dies with the
-shell it kills.
+signals the shell only. The kill then waits for the shell process's exit, at most the manager's
+1 s kill grace, before it removes the shell (or keeps it as ended when the list cannot be saved),
+so a removal tells a client that the process ended; that exit is not sent as an ended entry of
+its own. A kill is uninterruptible, because `probe kill`'s request dies with the shell it kills.
 
 `probe kill` reaches the server without environment auth, like `/mcp`. At startup `Shells`
 writes a `probe` wrapper into `<state dir>/shell-bin` that runs the server's own entry with the

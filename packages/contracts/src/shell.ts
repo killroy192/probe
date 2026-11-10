@@ -81,6 +81,11 @@ export const ShellSummary = Schema.Struct({
   missing: Schema.Boolean,
   /** True once the user restored this shell after it ended; it is a new process in the same place. */
   restored: Schema.Boolean,
+  /**
+   * True once the shell printed its first prompt; false before it, for a shell that never says
+   * (not wrapped, or no prompt in time) and once it ended. A server that predates it omits it.
+   */
+  promptReady: Schema.optionalKey(Schema.Boolean),
   updatedAt: Schema.String,
 });
 export type ShellSummary = typeof ShellSummary.Type;

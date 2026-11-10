@@ -106,13 +106,16 @@ export const alive = (pid: number) => {
   }
 };
 
-// Ending a shell sends SIGTERM and escalates after a grace period, so the process leaves a little later.
+/**
+ * Whether a process the server does not own has ended within 5 s. A shell the server owns has an
+ * end event instead: wait for it with `shellEnded`.
+ */
 export async function gone(pid: number): Promise<boolean> {
   // Up to 5 s: 50 checks 100 ms apart.
-  // oxlint-disable-next-line t3code/no-polling-loop-in-tests -- temporary: PRB.T-041 waits for the shell list's ended event instead
+  // oxlint-disable-next-line t3code/no-polling-loop-in-tests -- permanent (c): nothing reports the end of a process the server does not own
   for (let attempt = 0; alive(pid); attempt++) {
     if (attempt === 50) return false;
-    // oxlint-disable-next-line t3code/no-real-time-wait-in-tests -- temporary: PRB.T-041 waits for the shell list's ended event instead
+    // oxlint-disable-next-line t3code/no-real-time-wait-in-tests -- permanent (c): nothing reports the end of a process the server does not own
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
   return true;

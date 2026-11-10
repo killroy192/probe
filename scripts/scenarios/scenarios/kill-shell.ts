@@ -9,8 +9,8 @@ import type { ShellSummary } from "@t3tools/contracts";
 
 import { connectRpc } from "../rpc.ts";
 import type { Scenario } from "../scenario.ts";
-import { expectLogged } from "../fixtures.ts";
-import { alive, check, gone, pageFrames } from "../support.ts";
+import { expectLogged, shellOutput } from "../fixtures.ts";
+import { alive, check, pageFrames } from "../support.ts";
 import {
   addProject,
   allGone,
@@ -23,6 +23,7 @@ import {
   killFromTree,
   leaveAgent,
   openFromTree,
+  shellEnded,
   shellList,
   shellRow,
   shellTab,
@@ -81,9 +82,13 @@ export const killShell: Scenario = {
       await typeLine(page, line);
       await frames
         .until(`"${echo}" in the shell`, (frame) => frame.includes(echo), from)
-        .catch(async (error: unknown) => {
-          const tail = (await history(rpc.client, shell.shellId)).slice(-400);
-          throw new Error(`${error instanceof Error ? error.message : error} Shell shows: ${tail}`);
+        .catch((error: unknown) => {
+          // From the page's frames, which outlive the shell; the server forgets an ended one.
+          const output = JSON.stringify(shellOutput(frames.seen.slice(from), shell.shellId));
+          const listed = JSON.stringify(latest(shell) ?? "not listed");
+          throw new Error(
+            `${error instanceof Error ? error.message : error} The shell printed ${output} after the line was typed; it is ${listed}.`,
+          );
         });
     };
     const endedLogged = (shell: ShellSummary, message: string) =>
@@ -123,7 +128,9 @@ export const killShell: Scenario = {
       const shellPid = latest(withJobs)!.pid!;
       await killFromTree(page, withJobs.shellId);
       await leftList(withJobs);
-      check(await allGone([shellPid, ...jobs]), "The shell or one of its jobs survived (AC-9).");
+      await shellEnded(shells, { shellId: withJobs.shellId, pid: shellPid });
+      // The jobs are not the server's to report on, so only a bounded check can see them end.
+      check(await allGone(jobs), "One of the shell's jobs survived (AC-9).");
       check((await shellTab(page, withJobs.shellId).count()) === 0, "The tab stayed open (AC-8).");
       await endedLogged(withJobs, "The log has no end line with the id and folder (AC-20).");
 
@@ -135,7 +142,7 @@ export const killShell: Scenario = {
       const closedPid = latest(closed)!.pid!;
       await killFromTree(page, closed.shellId);
       await leftList(closed);
-      check(await gone(closedPid), "The shell with a closed tab survived its kill (AC-8).");
+      await shellEnded(shells, { shellId: closed.shellId, pid: closedPid });
 
       // AC-12, AC-13, AC-10, AC-11: `probe kill` ends its own shell only; the worktree the
       // shell was forked into stays, and the other shell there keeps its output.
@@ -160,7 +167,7 @@ export const killShell: Scenario = {
         const tail = (await history(rpc.client, forked.shellId)).slice(-600);
         throw new Error(`${error instanceof Error ? error.message : error} Shell shows: ${tail}`);
       });
-      check(await gone(forkedPid), "probe kill left its shell running (AC-12).");
+      await shellEnded(shells, { shellId: forked.shellId, pid: forkedPid });
       check(isRunning(neighbour), "probe kill ended another shell (AC-13).");
       check(
         (await history(rpc.client, neighbour.shellId)).includes("echo: neighbour-line-s6"),
@@ -196,7 +203,7 @@ export const killShell: Scenario = {
       await askToKill(page, vanished.shellId);
       const vanishedPid = latest(vanished)!.pid!;
       NodeProcess.kill(vanishedPid, "SIGKILL");
-      check(await gone(vanishedPid), "The shell ended from outside is still running.");
+      await shellEnded(shells, { shellId: vanished.shellId, pid: vanishedPid });
       await answerConfirm(page, "Confirm");
       await page.locator(`[data-shell-row="${vanished.shellId}"]`).waitFor({ state: "detached" });
       check(
@@ -218,7 +225,9 @@ export const killShell: Scenario = {
       await page.getByRole("alertdialog").getByText("Its 2 running shells are killed.").waitFor();
       await answerConfirm(page, "Confirm");
       await project.waitFor({ state: "detached" });
-      check(await allGone(extraPids), "A shell of the removed project survived.");
+      for (const [index, shell] of inExtra.entries()) {
+        await shellEnded(shells, { shellId: shell.shellId, pid: extraPids[index]! });
+      }
       check(isRunning(unreachable), "Removing a project killed another project's shell.");
       await NodeFSP.access(extra);
 
@@ -235,7 +244,9 @@ export const killShell: Scenario = {
         .getByTestId("workspace-screen")
         .getByRole("button", { name: "Open workspace" })
         .waitFor();
-      check(await allGone(pids), "A shell of the removed workspace survived (AC-16).");
+      for (const [index, shell] of [unreachable, last].entries()) {
+        await shellEnded(shells, { shellId: shell.shellId, pid: pids[index]! });
+      }
       for (const folder of [repo, plain, worktree]) await NodeFSP.access(folder);
     } catch (error) {
       throw new Error(`S6 failed at ${stage}: ${error instanceof Error ? error.message : error}`, {

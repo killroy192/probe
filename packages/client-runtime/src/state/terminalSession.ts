@@ -262,6 +262,15 @@ export function applyTerminalMetadataStreamEvent(
   return [...next, event.terminal];
 }
 
+/**
+ * Whether a shell printed its first prompt. A server that predates the state sends none, which
+ * reads as unknown: never as ready.
+ */
+export function shellPromptState(shell: ShellSummary): "ready" | "starting" | "unknown" {
+  if (shell.promptReady === undefined) return "unknown";
+  return shell.promptReady ? "ready" : "starting";
+}
+
 export function applyShellListStreamEvent(
   current: ReadonlyArray<ShellSummary>,
   event: ShellListStreamEvent,

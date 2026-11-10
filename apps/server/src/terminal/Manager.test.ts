@@ -26,6 +26,7 @@ import * as PlatformError from "effect/PlatformError";
 import * as Path from "effect/Path";
 import * as Queue from "effect/Queue";
 import * as Ref from "effect/Ref";
+import * as References from "effect/References";
 import * as Schema from "effect/Schema";
 import * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
@@ -1999,7 +2000,12 @@ it.layer(
     Shells.makeShells(
       manager,
       Effect.sync(() => `shell-${++nextShell}`),
-      { killTree: (pid) => Effect.sync(() => void killedTrees.push(pid)), ...options },
+      {
+        killTree: (pid) => Effect.sync(() => void killedTrees.push(pid)),
+        // A fake tree never ends, so a kill would wait out the whole bound for it.
+        killWait: "1 millis",
+        ...options,
+      },
     );
   type ShellsService = Shells.Shells["Service"];
 
@@ -2640,6 +2646,242 @@ it.layer(
           assert.equal(yield* Queue.take(seen), `\u001b]0;title\u0007$ ${MARK}`);
           pty.emitData("node agent.ts\r\n");
           assert.equal(yield* Queue.take(seen), `\u001b]0;title\u0007$ ${MARK}node agent.ts\r\n`);
+        }).pipe(Effect.scoped),
+    );
+
+    /** Resolves once the shell list reports `shellId` ready; subscribe before the mark is printed. */
+    const readyOf = (shells: ShellsService, shellId: string) =>
+      Effect.gen(function* () {
+        const ready = yield* Deferred.make<void>();
+        const stop = yield* shells.subscribe((event) =>
+          event.type === "upsert" && event.shell.shellId === shellId && event.shell.promptReady
+            ? Deferred.succeed(ready, undefined).pipe(Effect.asVoid)
+            : Effect.void,
+        );
+        yield* Effect.addFinalizer(() => Effect.sync(stop));
+        return Deferred.await(ready);
+      });
+
+    const upsertsOf = (events: ReadonlyArray<ShellListStreamEvent>, shellId: string) =>
+      events.flatMap((event) =>
+        event.type === "upsert" && event.shell.shellId === shellId ? [event.shell] : [],
+      );
+
+    /** Debug lines of the first-prompt scan; `settled` resolves when one says `prompt` of `count` shells. */
+    const promptLogs = (prompt: "ready" | "none", count: number) => {
+      const settled = Deferred.makeUnsafe<void>();
+      let seen = 0;
+      const logger = Logger.make(({ message }) => {
+        const [text, fields] = Array.isArray(message) ? message : [message];
+        if (text === "shell first prompt" && (fields as { prompt?: string })?.prompt === prompt) {
+          if (++seen === count) Deferred.doneUnsafe(settled, Effect.void);
+        }
+      });
+      return {
+        settled: Deferred.await(settled),
+        layer: Layer.mergeAll(
+          Logger.layer([logger], { mergeWithExisting: false }),
+          Layer.succeed(References.MinimumLogLevel, "Debug"),
+        ),
+      };
+    };
+
+    it.effect("reports a shell ready at its first prompt mark, once, and never before it", () =>
+      Effect.gen(function* () {
+        const { manager, ptyAdapter } = yield* createManager(5, {
+          shellResolver: () => "/bin/zsh",
+          shellReadyDir: "/ready",
+        });
+        const shells = yield* makeShells(manager);
+        const events = yield* collectList(shells);
+        const plain = yield* shells.open({ cwd: process.cwd() });
+        assert.isFalse(plain.promptReady);
+        const ready = yield* readyOf(shells, plain.shellId);
+        const pty = ptyAdapter.processes[0]!;
+        pty.emitData("startup noise\r\n");
+        yield* liveStatus(shells, plain.shellId);
+        pty.emitData(`$ ${MARK}`);
+        yield* ready;
+        // A later prompt (after an agent exits, say) is not a first prompt and changes nothing.
+        pty.emitData(`\r\n$ ${MARK}`);
+        yield* liveStatus(shells, plain.shellId);
+        const states = upsertsOf(yield* events, plain.shellId).map((shell) => shell.promptReady);
+        const first = states.indexOf(true);
+        expect(first).toBeGreaterThan(0);
+        expect(states.slice(0, first).every((state) => state === false)).toBe(true);
+        expect(states.slice(first).every((state) => state === true)).toBe(true);
+        expect((yield* shells.list)[0]?.promptReady).toBe(true);
+
+        // A script shell is ready at the prompt it waited for, before its command is typed (AC-2).
+        const opening = yield* openStarted(manager, shells, AGENT);
+        const agentPty = ptyAdapter.processes[1]!;
+        agentPty.emitData(`${report("found")}${MARK}`);
+        const agent = yield* Fiber.join(opening);
+        assert.isTrue(agent.promptReady);
+        assert.deepEqual(agentPty.writes, ["node agent.ts\r"]);
+        const agentStates = upsertsOf(yield* events, agent.shellId).map((s) => s.promptReady);
+        expect(agentStates.at(0)).toBe(false);
+
+        // An ended shell is not ready.
+        pty.emitExit({ exitCode: 0, signal: 9 });
+        yield* liveStatus(shells, plain.shellId);
+        expect(upsertsOf(yield* events, plain.shellId).at(-1)).toMatchObject({
+          status: "exited",
+          promptReady: false,
+        });
+      }).pipe(Effect.scoped),
+    );
+
+    it.effect("never reports ready a shell with no mark, or one whose mark came too late", () => {
+      // Three shells give up on the mark: the unwrapped one, and the slow plain and script ones.
+      const logs = promptLogs("none", 3);
+      return Effect.gen(function* () {
+        // Unwrapped: no scan at all, also for a mark the user's own config prints.
+        const unwrapped = yield* createManager(5, {
+          shellResolver: () => "/bin/sh",
+          shellReadyDir: "/ready",
+        });
+        const plainSh = yield* (yield* makeShells(unwrapped.manager)).open({ cwd: process.cwd() });
+        unwrapped.ptyAdapter.processes[0]!.emitData(MARK);
+
+        // Wrapped, but the mark comes after the timeout: plain and script shells alike (EC-12).
+        const slow = yield* startAgent("/bin/bash", AGENT, { promptTimeout: "1 millis" });
+        const scripted = yield* Fiber.join(slow.opening);
+        assert.deepEqual(slow.ptyAdapter.processes[0]!.writes, ["node agent.ts\r"]);
+        const plain = yield* slow.shells.open({ cwd: process.cwd() });
+        yield* logs.settled;
+        for (const pty of slow.ptyAdapter.processes) pty.emitData(`${report("found")}${MARK}`);
+        for (const shell of [scripted, plain]) yield* liveStatus(slow.shells, shell.shellId);
+
+        expect(plainSh.promptReady).toBe(false);
+        expect(scripted.promptReady).toBe(false);
+        const listed = yield* slow.shells.list;
+        expect(listed.map((shell) => shell.promptReady)).toEqual([false, false]);
+        const everReady = (yield* slow.events).some(
+          (event) => event.type === "upsert" && event.shell.promptReady === true,
+        );
+        expect(everReady).toBe(false);
+      }).pipe(Effect.scoped, Effect.provide(logs.layer));
+    });
+
+    it.effect("starts a restored shell not ready, until its own first prompt", () =>
+      Effect.gen(function* () {
+        const registryPath = yield* registryIn();
+        const { host, forgotten } = yield* fakeHost([]);
+        const { manager, ptyAdapter } = yield* createManager(5, {
+          shellResolver: () => "/bin/zsh",
+          shellReadyDir: "/ready",
+        });
+        const shells = yield* makeShells(manager, { registryPath, host });
+        const shell = yield* shells.open({ cwd: process.cwd() });
+        const firstReady = yield* readyOf(shells, shell.shellId);
+        ptyAdapter.processes[0]!.emitData(MARK);
+        yield* firstReady;
+        ptyAdapter.processes[0]!.emitExit({ exitCode: 0, signal: 9 });
+        yield* Queue.take(forgotten);
+
+        const restored = yield* shells.restore(shell.shellId);
+        assert.isFalse(restored.promptReady);
+        const ready = yield* readyOf(shells, shell.shellId);
+        ptyAdapter.processes[1]!.emitData(MARK);
+        yield* ready;
+        expect((yield* shells.list)[0]).toMatchObject({ restored: true, promptReady: true });
+      }).pipe(Effect.scoped),
+    );
+
+    it.effect("knows after a restart which reattached shells printed their first prompt", () =>
+      Effect.gen(function* () {
+        const registryPath = yield* registryIn();
+        const before = yield* createManager(5, {
+          shellResolver: () => "/bin/zsh",
+          shellReadyDir: "/ready",
+        });
+        const earlier = yield* makeShells(before.manager, { registryPath });
+        const [seen, whileDown, later] = [
+          yield* earlier.open({ cwd: process.cwd() }),
+          yield* earlier.open({ cwd: process.cwd() }),
+          yield* earlier.open({ cwd: process.cwd() }),
+        ];
+        const seenReady = yield* readyOf(earlier, seen!.shellId);
+        before.ptyAdapter.processes[0]!.emitData(MARK);
+        yield* seenReady;
+
+        // `whileDown` printed its prompt while no server was attached; the host kept that output.
+        const { host, processes } = yield* fakeHost([
+          { pid: seen!.pid! },
+          { pid: whileDown!.pid!, output: `$ ${MARK}` },
+          { pid: later!.pid!, output: "slow startup file\r\n" },
+        ]);
+        const shells = yield* makeShells((yield* createManager()).manager, { registryPath, host });
+        expect((yield* shells.list).map((shell) => shell.promptReady)).toEqual([true, true, false]);
+
+        // A shell reattached before its first prompt becomes ready at that prompt.
+        const ready = yield* readyOf(shells, later!.shellId);
+        processes[2]!.emitData(MARK);
+        yield* ready;
+        expect((yield* shells.list).map((shell) => shell.promptReady)).toEqual([true, true, true]);
+      }).pipe(Effect.scoped),
+    );
+
+    it.effect(
+      "removes a killed shell only once its process ended, and at the latest at the wait",
+      () =>
+        Effect.gen(function* () {
+          const fs = yield* FileSystem.FileSystem;
+          const order: Array<string> = [];
+          const record = (shells: ShellsService) =>
+            shells.subscribe((event) =>
+              Effect.sync(() => {
+                if (event.type === "remove") order.push(`removed ${event.shellId}`);
+                if (event.type === "upsert" && event.shell.ended !== null) {
+                  order.push(`${event.shell.ended} ${event.shell.shellId}`);
+                }
+              }),
+            );
+          const treeKilled = yield* Queue.unbounded<number>();
+          const registryPath = yield* registryIn();
+          const { manager, ptyAdapter } = yield* createManager();
+          const shells = yield* makeShells(manager, {
+            registryPath,
+            killTree: (pid) => Queue.offer(treeKilled, pid).pipe(Effect.asVoid),
+            killWait: "1 minute",
+          });
+          const stop = yield* record(shells);
+          yield* Effect.addFinalizer(() => Effect.sync(stop));
+          const killThenEnd = Effect.fnUntraced(function* (shellId: string, index: number) {
+            const killing = yield* shells
+              .kill(shellId)
+              .pipe(Effect.exit, Effect.forkChild({ startImmediately: true }));
+            yield* Queue.take(treeKilled);
+            order.push(`process ended ${shellId}`);
+            ptyAdapter.processes[index]!.emitExit({ exitCode: 0, signal: 9 });
+            return yield* Fiber.join(killing);
+          });
+
+          const killed = yield* shells.open({ cwd: process.cwd() });
+          expect((yield* killThenEnd(killed.shellId, 0))._tag).toBe("Success");
+
+          // A kill that cannot save the list keeps the shell as ended, also only after the end (EC-13).
+          const kept = yield* shells.open({ cwd: process.cwd() });
+          const folder = registryPath.slice(0, registryPath.lastIndexOf("/"));
+          yield* fs.remove(folder, { recursive: true });
+          yield* fs.writeFileString(folder, "");
+          expect((yield* killThenEnd(kept.shellId, 1))._tag).toBe("Failure");
+
+          expect(order).toEqual([
+            `process ended ${killed.shellId}`,
+            `removed ${killed.shellId}`,
+            `process ended ${kept.shellId}`,
+            `signal ${kept.shellId}`,
+          ]);
+
+          // A process that outlives the wait does not hold the kill: it completes and the shell goes.
+          const stubborn = yield* createManager();
+          const patient = yield* makeShells(stubborn.manager, { killWait: "1 millis" });
+          const events = yield* collectList(patient);
+          const stuck = yield* patient.open({ cwd: process.cwd() });
+          yield* patient.kill(stuck.shellId);
+          expect(yield* events).toContainEqual({ type: "remove", shellId: stuck.shellId });
         }).pipe(Effect.scoped),
     );
   }

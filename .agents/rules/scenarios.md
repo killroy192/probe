@@ -31,7 +31,10 @@ A scenario (`scripts/scenarios/scenarios/`) starts a real Probe server on a thro
 ## Waiting
 
 - Wait by subscribing to the event that marks the milestone (a locator, a terminal frame after a `mark()` taken before the action, a log line, a process `exit`), raced against a deadline whose failure names what was awaited. The library's waits do this.
-- A bounded check loop is allowed only where no event exists to subscribe to, such as the end of a process the harness did not start as its own child.
+- **Before typing into a shell**, wait until the page shows its tab attached and the shell at its first prompt: the tab panel's `data-shell-ready="ready"` and, inside it, `data-terminal-attached="yes"`, hidden tabs included. `typeLine` does this through `shellReady`, which fails at once when the shell ends. "Back at a prompt" after a command has no page state: wait for the next prompt mark in the shell's output after a `mark()`, as `leaveAgent` does.
+- **Before a reload or a server stop** that follows a tab change, wait until the page shows the layout saved (`data-layout-save="saved"` on the workspace screen) with `layoutSaved`; `reloadShowing` and `restartAndReload` do it. `frameHolder` holds a request back from the test's side, to make a save slow on purpose.
+- **After ending a shell the server owns** (a kill, or a signal from outside), wait for its end event, its removal or its ended entry, then check the pid once: `shellEnded`. The server sends the removal only after the process ended.
+- A bounded check loop is allowed only where no event exists to subscribe to: processes the server does not own, such as a shell's background jobs or shells whose shell host was stopped (`gone`, `allGone`).
 - The test wait lint rules also run on every file here; a `.perf.ts` file may read the clock but not sleep or poll. A suppression states its reason in one of these forms; a fixed sleep that waits and hopes is fixed, never suppressed:
   - `permanent (a): …` runner bookkeeping that waits for nothing (printed timing, timestamps);
   - `permanent (b): …` a deadline raced against the event it names;
@@ -83,4 +86,3 @@ Each line goes when its story lands.
 - No single library or direct setup yet (PRB.T-038): the helpers are spread over `support.ts`, `fixtures.ts`, `browser.ts`, `rpc.ts`, `seam.ts` and `scenarios/workspaceUi.ts`; setting up by clicking through dialogs is allowed. Scenario servers log at info level, and artifacts have no browser console.
 - No sets, composed scenarios, `.perf.ts` support or cap gate command yet (PRB.T-043): each scenario runs alone under its id; add no new timing to a check scenario (the existing `metric()` calls stay until then); the cap gate is one `--only <id>` run after the user's confirmation, reading the time on its `PASS` line.
 - No serial perf run or N-run loop command yet (PRB.T-040).
-- No prompt-ready, layout-saved or shell-ended signals yet (PRB.T-041): wait for the prompt mark in terminal frames, for the server's state, or with `gone()`; never type into a terminal or reload on a guess.

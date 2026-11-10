@@ -9,7 +9,7 @@ import * as Stream from "effect/Stream";
 
 import { connectRpc, environmentId, type WsClient } from "../rpc.ts";
 import type { Scenario } from "../scenario.ts";
-import { alive, follow, gone, pageFrames, recorder } from "../support.ts";
+import { alive, follow, pageFrames, recorder } from "../support.ts";
 
 async function openShell(client: WsClient, cwd: string): Promise<ShellSummary> {
   return Effect.runPromise(client["shell.open"]({ cwd, cols: 80, rows: 24 }));
@@ -140,7 +140,9 @@ export const standaloneShell: Scenario = {
         (current) => current.every((listed) => listed.shellId !== shell.shellId),
         killedFrom,
       );
-      if (!(await gone(shell.pid))) throw new Error(`Shell process ${shell.pid} is still running.`);
+      // The server removes a killed shell only once its process ended, so one check is enough.
+      if (alive(shell.pid))
+        throw new Error(`Shell process ${shell.pid} still runs after its removal.`);
 
       // A-14 (PRB.T-007): a server restart leaves a running shell running, and lists it again.
       const survivor = await openShell(client, workspace);

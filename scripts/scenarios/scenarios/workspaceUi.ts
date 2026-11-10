@@ -12,7 +12,7 @@ import * as Stream from "effect/Stream";
 import type { PointerPage } from "../browser.ts";
 import { gitEnv } from "../isolation.ts";
 import type { WsClient } from "../rpc.ts";
-import { check, follow, gone, recorder } from "../support.ts";
+import { alive, check, follow, gone, recorder } from "../support.ts";
 
 // Pointer-only helpers for the workspace screen, shared by the scenarios that drive it.
 
@@ -258,12 +258,134 @@ export async function history(client: WsClient, shellId: string): Promise<string
   return first?.type === "snapshot" ? first.snapshot.history : "";
 }
 
-/** Types into the active tab's terminal the way a user does, then submits the line. */
-export async function typeLine(page: PointerPage, text: string) {
-  const input = page.getByRole("tabpanel").filter({ visible: true }).locator("textarea");
+/** A shell's tab panel; a hidden tab's panel stays mounted. */
+export const shellPanel = (page: PointerPage, shellId: string) =>
+  page.locator(`[role="tabpanel"][data-shell-id="${shellId}"]`);
+
+/** What the page says about a shell's tab right now, for a failure message. */
+// A string, since this package has no DOM types; it runs in the page and never waits.
+const tabState = (page: PointerPage, shellId: string): Promise<string> =>
+  page.evaluate(`(() => {
+    const panel = document.querySelector('[role="tabpanel"][data-shell-id="' + CSS.escape(${JSON.stringify(shellId)}) + '"]');
+    if (panel === null) return "no tab";
+    const surface = panel.querySelector("[data-terminal-attached]");
+    const attached = surface === null ? "no surface yet" : surface.getAttribute("data-terminal-attached");
+    return "attached: " + attached + ", ready: " + panel.getAttribute("data-shell-ready");
+  })()`);
+
+/**
+ * Waits until the page shows the shell's tab attached (its terminal takes input) and the shell at
+ * its first prompt; hidden tabs count. A shell that ends meanwhile fails at once. `timeout` is for
+ * the self-tests; scenarios use the page's action timeout.
+ */
+export async function shellReady(
+  page: PointerPage,
+  shellId: string,
+  { timeout }: { readonly timeout?: number } = {},
+) {
+  const panel = shellPanel(page, shellId);
+  const wait = timeout === undefined ? {} : { timeout };
+  // An ended shell leaves its tab, so a panel that was there and goes means it ended.
+  const hadTab = (await panel.count()) > 0;
+  const outcome = await Promise.race([
+    page
+      .locator(
+        `[role="tabpanel"][data-shell-id="${shellId}"][data-shell-ready="ready"]:has([data-terminal-attached="yes"])`,
+      )
+      .waitFor({ ...wait, state: "attached" })
+      .then(() => "ready" as const),
+    panel
+      .locator('[data-terminal-attached="ended"]')
+      .waitFor({ ...wait, state: "attached" })
+      .then(() => "ended" as const),
+    ...(hadTab ? [panel.waitFor({ ...wait, state: "detached" }).then(() => "ended" as const)] : []),
+  ]).catch(() => "timeout" as const);
+  if (outcome === "ready") return;
+  const seen = await tabState(page, shellId);
+  throw new Error(
+    outcome === "ended"
+      ? `Shell ${shellId} ended while waiting for it to be attached and ready (${seen}).`
+      : `Shell ${shellId} never showed attached and ready; its tab last showed ${seen}.`,
+  );
+}
+
+/**
+ * Types into the active tab's terminal the way a user does, then submits the line, once the page
+ * shows that shell attached and ready, so the line reaches a shell that reads it.
+ */
+export async function typeLine(
+  page: PointerPage,
+  text: string,
+  options: { readonly timeout?: number } = {},
+) {
+  const shellId = await page
+    .getByRole("tabpanel")
+    .filter({ visible: true })
+    .getAttribute("data-shell-id");
+  check(shellId !== null, "The visible tab names no shell.");
+  await shellReady(page, shellId, options);
+  const input = shellPanel(page, shellId).locator("textarea");
   await input.click({ force: true });
   await input.pressSequentially(text);
   await input.press("Enter");
+}
+
+/**
+ * Records every layout save state the page shows, from each page load on, so a scenario can
+ * check what showed between two moments; `layoutStates` reads them. Install before loading.
+ */
+export async function recordLayoutStates(page: PointerPage) {
+  await page.addInitScript(`(() => {
+    const states = (window.__layoutStates = []);
+    new MutationObserver(() => {
+      const screen = document.querySelector('[data-testid="workspace-screen"]');
+      const value = screen === null ? null : screen.getAttribute("data-layout-save");
+      if (states[states.length - 1] !== value) states.push(value);
+    }).observe(document, {
+      subtree: true,
+      childList: true,
+      attributes: true,
+      attributeFilter: ["data-layout-save"],
+    });
+  })()`);
+}
+
+/** The layout save states this page load showed so far, in order; null where none showed. */
+export const layoutStates = (page: PointerPage) =>
+  page.evaluate("window.__layoutStates") as Promise<ReadonlyArray<string | null>>;
+
+/** The workspace screen while it shows the shown workspace's layout save as `state`. */
+export const layoutState = (page: PointerPage, state: "pending" | "saved" | "failed") =>
+  page.locator(`[data-testid="workspace-screen"][data-layout-save="${state}"]`);
+
+/**
+ * Waits until the page shows the shown workspace's layout saved, so a reload or a server stop
+ * after a tab change finds the tabs it set. Returns at once on a page that shows no workspace.
+ */
+export async function layoutSaved(
+  page: PointerPage,
+  workspace: string,
+  { timeout }: { readonly timeout?: number } = {},
+) {
+  const screen = page.getByTestId("workspace-screen");
+  if ((await screen.getAttribute("data-layout-save")) === null) return;
+  const state = (value: "saved" | "failed") => layoutState(page, value);
+  const wait = timeout === undefined ? {} : { timeout };
+  const outcome = await Promise.race([
+    state("saved")
+      .waitFor(wait)
+      .then(() => "saved" as const),
+    state("failed")
+      .waitFor(wait)
+      .then(() => "failed" as const),
+  ]).catch(() => "timeout" as const);
+  if (outcome === "saved") return;
+  const seen = await screen.getAttribute("data-layout-save");
+  throw new Error(
+    outcome === "failed"
+      ? `Saving the layout of ${workspace} failed (the page shows ${seen}).`
+      : `The layout of ${workspace} was never saved; the page last showed ${seen}.`,
+  );
 }
 
 /** Fills the open create dialog and confirms; returns the dialog's refusal, or null once it closes. */
@@ -355,10 +477,32 @@ export async function killFromTree(page: PointerPage, shellId: string) {
   await page.locator(`[data-shell-row="${shellId}"]`).waitFor({ state: "detached" });
 }
 
-/** Whether every pid has ended; gives a killed process the harness's usual grace to leave. */
+/**
+ * Whether every pid has ended, for processes the server does not own (a shell's background jobs,
+ * shells whose host was stopped), which have no end event; see `gone`.
+ */
 export async function allGone(pids: ReadonlyArray<number>) {
   const results = await Promise.all(pids.map((pid) => gone(pid)));
   return results.every(Boolean);
+}
+
+/**
+ * Waits for the server's end event of a shell it owns (it leaves the list, or is listed as ended)
+ * and then checks its pid once: the server sends the event only after the process ended.
+ */
+export async function shellEnded(
+  shells: ReturnType<typeof shellList>,
+  shell: Pick<ShellSummary, "shellId" | "pid">,
+) {
+  await shells.lists.until(
+    `the end of shell ${shell.shellId}`,
+    (list) => !list.some((entry) => entry.shellId === shell.shellId && entry.ended === null),
+    Math.max(0, shells.lists.mark() - 1),
+  );
+  check(
+    shell.pid === null || !alive(shell.pid),
+    `Shell ${shell.shellId} (pid ${shell.pid}) still runs after the server reported its end.`,
+  );
 }
 
 /**
@@ -366,6 +510,7 @@ export async function allGone(pids: ReadonlyArray<number>) {
  * by itself (PRB.T-007); a page that never did opens it from the start screen.
  */
 export async function reloadShowing(page: PointerPage, name: string) {
+  await layoutSaved(page, name);
   const remembered = await page.evaluate(() =>
     Object.keys(localStorage).some((key) => key.startsWith("probe:shown-workspace:")),
   );
@@ -457,7 +602,20 @@ export async function leaveAgent(page: PointerPage, client: WsClient, shellId: s
     await output.until("the agent's banner", (event) => event.includes("Mock Agent v1"), 0);
     const typed = output.mark();
     await typeLine(page, "exit");
-    await output.until("the agent's goodbye", (event) => event.includes("mock-agent: bye"), typed);
+    // The shell reads the next line at its next prompt, which follows the goodbye (SU-1).
+    const bye = await output.until(
+      "the agent's goodbye",
+      (event) => event.includes("mock-agent: bye"),
+      typed,
+    );
+    const promptMark = JSON.stringify("\u001b]133;B").slice(1, -1);
+    await output.until(
+      "the shell's prompt after the agent's goodbye",
+      (event) =>
+        event.includes(promptMark) &&
+        (event !== bye || event.indexOf(promptMark, event.indexOf("mock-agent: bye")) !== -1),
+      output.seen.indexOf(bye, typed),
+    );
   } finally {
     await Effect.runPromise(Fiber.interrupt(viewer));
   }

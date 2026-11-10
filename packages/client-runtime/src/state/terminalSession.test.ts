@@ -2,10 +2,12 @@ import { describe, expect, it } from "vite-plus/test";
 
 import {
   EnvironmentId,
+  ShellListStreamEvent,
   type ShellSummary,
   TerminalSessionSnapshot,
   ThreadId,
 } from "@t3tools/contracts";
+import * as Schema from "effect/Schema";
 
 import {
   applyShellListStreamEvent,
@@ -17,8 +19,11 @@ import {
   needsFreshSnapshot,
   nextTerminalAttachSeedState,
   readTerminalOutputUpdate,
+  shellPromptState,
   terminalOutputText,
 } from "./terminalSession.ts";
+
+const decodeShellList = Schema.decodeUnknownSync(ShellListStreamEvent);
 
 const TARGET = {
   environmentId: EnvironmentId.make("env-local"),
@@ -346,5 +351,22 @@ describe("terminal session reducers", () => {
       ["a", "exited"],
       ["c", "running"],
     ]);
+
+    // A server that predates the prompt state sends no field: it decodes and is never ready.
+    const { promptReady: _absent, ...older } = shell("old", "running");
+    const decoded = decodeShellList(
+      JSON.parse(
+        JSON.stringify({
+          type: "snapshot",
+          shells: [older, { ...older, shellId: "new", promptReady: true }],
+        }),
+      ),
+    );
+    list = applyShellListStreamEvent(list, decoded);
+    expect(list.map((entry) => [entry.shellId, shellPromptState(entry)])).toEqual([
+      ["old", "unknown"],
+      ["new", "ready"],
+    ]);
+    expect(shellPromptState({ ...older, promptReady: false })).toBe("starting");
   });
 });
