@@ -2628,7 +2628,11 @@ it.layer(
           // Subscribed after the shells, so it runs after the save, as a client's stream would.
           yield* manager.subscribe((event) =>
             event.type === "output"
-              ? Effect.flatMap(read(), (text) => Queue.offer(seen, text))
+              ? read().pipe(
+                  Effect.flatMap((text) => Queue.offer(seen, text)),
+                  Effect.asVoid,
+                  Effect.orDie,
+                )
               : Effect.void,
           );
           const pty = ptyAdapter.processes[0]!;
