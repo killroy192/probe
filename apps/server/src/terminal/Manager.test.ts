@@ -2449,6 +2449,54 @@ it.layer(
         assert.deepEqual(pty.writes, ["node agent.ts\r"]);
       }).pipe(Effect.scoped),
     );
+
+    it.effect("logs the time from the start to the first prompt, once per shell", () => {
+      const lines: Array<{ readonly message: string; readonly fields: unknown }> = [];
+      let onReady = () => {};
+      const logger = Logger.make(({ message }) => {
+        const [text, fields] = Array.isArray(message) ? message : [message];
+        lines.push({ message: String(text), fields });
+        if (text === "shell prompt ready") onReady();
+      });
+      return Effect.gen(function* () {
+        const { manager, ptyAdapter } = yield* createManager(5, {
+          shellResolver: () => "/bin/zsh",
+          shellReadyDir: "/ready",
+        });
+        const ready = yield* Deferred.make<void>();
+        onReady = () => Deferred.doneUnsafe(ready, Effect.void);
+        const shells = yield* makeShells(manager, { searchPath: nodeDir });
+        const plain = yield* shells.open({ cwd: process.cwd() });
+        const pty = ptyAdapter.processes[0]!;
+        pty.emitData(`$ ${MARK}`);
+        yield* Deferred.await(ready);
+        // A later prompt is not a first prompt.
+        pty.emitData(`$ ${MARK}`);
+        // A script start is timed too, before its command is typed.
+        const wrote = yield* Deferred.make<void>();
+        ptyAdapter.onWrite = () => Deferred.doneUnsafe(wrote, Effect.void);
+        const agent = yield* shells.open({ cwd: process.cwd() }, { script: AGENT });
+        ptyAdapter.processes[1]!.emitData(MARK);
+        yield* Deferred.await(wrote);
+        expect(lines.filter((line) => line.message === "shell prompt ready")).toEqual([
+          { message: "shell prompt ready", fields: { shellId: plain.shellId, ms: expect.any(Number) } },
+          { message: "shell prompt ready", fields: { shellId: agent.shellId, ms: expect.any(Number) } },
+        ]);
+      }).pipe(Effect.scoped, Effect.provide(Logger.layer([logger], { mergeWithExisting: false })));
+    });
+
+    it.effect("logs no prompt time for a shell that cannot print the mark", () => {
+      const lines: Array<string> = [];
+      const logger = Logger.make(({ message }) => {
+        lines.push(String(Array.isArray(message) ? message[0] : message));
+      });
+      return Effect.gen(function* () {
+        const { wrote, pty } = yield* openAgent("/bin/sh");
+        yield* Deferred.await(wrote);
+        pty.emitData(MARK);
+        expect(lines).not.toContain("shell prompt ready");
+      }).pipe(Effect.scoped, Effect.provide(Logger.layer([logger], { mergeWithExisting: false })));
+    });
   }
 
   it.effect(

@@ -23,6 +23,7 @@ import {
 } from "@t3tools/contracts";
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import { resolveSelfInvocation, selfInvocationArgs } from "@t3tools/shared/nodeRuntime";
+import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
 import * as Crypto from "effect/Crypto";
 import * as DateTime from "effect/DateTime";
@@ -35,6 +36,7 @@ import * as Path from "effect/Path";
 import * as Queue from "effect/Queue";
 import * as Schedule from "effect/Schedule";
 import * as Schema from "effect/Schema";
+import * as Semaphore from "effect/Semaphore";
 import * as Stream from "effect/Stream";
 import { HttpServer } from "effect/http";
 import * as NetAddress from "effect/net/NetAddress";
@@ -391,6 +393,9 @@ export const makeShells = Effect.fn("Shells.make")(function* (
     for (const listener of listeners) yield* listener(event);
   });
 
+  // One write at a time, each from the list as it is when the write starts: two ends saved at once
+  // could otherwise finish out of order and leave the older list on disk.
+  const persistLock = yield* Semaphore.make(1);
   const persist = Effect.gen(function* () {
     if (registryPath === null) return;
     yield* writeFileStringAtomically({
@@ -402,7 +407,7 @@ export const makeShells = Effect.fn("Shells.make")(function* (
       Effect.provideService(HostProcess.Platform, platform),
       Effect.mapError((error) => new ShellStorageError({ reason: error.message })),
     );
-  });
+  }).pipe(persistLock.withPermits(1));
   const persistOrWarn = persist.pipe(
     Effect.catch((error) =>
       Effect.logWarning("could not save the shell list", { reason: error.reason }),
@@ -839,6 +844,7 @@ export const makeShells = Effect.fn("Shells.make")(function* (
   return {
     // A shell that cannot start is not kept: the caller gets the launch error's reason instead.
     open: Effect.fn("Shells.open")(function* (input: ShellOpenInput, options?: ShellOpenOptions) {
+      const requestedAt = yield* Clock.currentTimeMillis;
       const script = options?.script ?? null;
       if (script !== null) {
         const problem = yield* scriptProblem(script.command, input.cwd);
@@ -868,20 +874,18 @@ export const makeShells = Effect.fn("Shells.make")(function* (
       const tokenHash = token === null ? null : hashToken(token);
       if (tokenHash !== null) tokens.set(tokenHash, shellId);
       const env = envOf(shellId, token, input.env);
-      // Listens from before the shell starts, so its first prompt cannot slip past.
-      const output = script !== null ? yield* Queue.unbounded<ShellOutputEvent>() : null;
-      const stopOutput =
-        output === null
-          ? () => {}
-          : yield* manager.subscribe((event) =>
-              event.threadId !== owner.threadId
-                ? Effect.void
-                : event.type === "output"
-                  ? Queue.offer(output, { type: "output", data: event.data })
-                  : event.type === "exited"
-                    ? Queue.offer(output, { type: "exited" })
-                    : Effect.void,
-            );
+      // Listens from before the shell starts, so its first prompt cannot slip past. The scan ends at
+      // the first prompt mark, so a shell costs nothing once it is ready.
+      const output = yield* Queue.unbounded<ShellOutputEvent>();
+      const stopOutput = yield* manager.subscribe((event) =>
+        event.threadId !== owner.threadId
+          ? Effect.void
+          : event.type === "output"
+            ? Queue.offer(output, { type: "output", data: event.data })
+            : event.type === "exited"
+              ? Queue.offer(output, { type: "exited" })
+              : Effect.void,
+      );
       const snapshot = yield* manager
         .open({ ...owner, ...input, ...(env === undefined ? {} : { env }) })
         .pipe(
@@ -926,40 +930,45 @@ export const makeShells = Effect.fn("Shells.make")(function* (
               ...started,
             },
       );
-      if (output !== null && script !== null) {
-        // Typed before the shell is ready, the line is echoed once at once and again after the
-        // prompt. Waiting for the prompt must not hold up the start, so it happens in the background.
-        const typed = yield* Deferred.make<void>();
-        scriptPending.set(shellId, typed);
-        yield* Effect.gen(function* () {
-          const outcome = (yield* manager.printsPromptMark(owner.threadId, owner.terminalId))
-            ? yield* waitForPromptMark(Stream.fromQueue(output), promptTimeout)
-            : "unwrapped";
-          if (outcome === "timeout") {
-            yield* Effect.logWarning("shell printed no prompt mark; typing the starting script", {
-              shellId,
-            });
-          }
-          if (outcome !== "exited") {
-            yield* manager.write({ ...owner, data: `${script.command}\r` });
-          }
-        }).pipe(
-          Effect.catch((error) =>
-            Effect.logWarning("the starting script was not typed", {
-              shellId,
-              reason: error.message,
-            }),
-          ),
-          Effect.ensuring(
-            Effect.sync(() => {
-              stopOutput();
-              scriptPending.delete(shellId);
-              Deferred.doneUnsafe(typed, Effect.void);
-            }),
-          ),
-          Effect.forkIn(scope),
-        );
-      }
+      // Typed before the shell is ready, a starting script is echoed once at once and again after
+      // the prompt. Waiting for the prompt must not hold up the start, so it happens in the background.
+      const typed = script === null ? null : yield* Deferred.make<void>();
+      if (typed !== null) scriptPending.set(shellId, typed);
+      yield* Effect.gen(function* () {
+        const outcome = (yield* manager.printsPromptMark(owner.threadId, owner.terminalId))
+          ? yield* waitForPromptMark(Stream.fromQueue(output), promptTimeout)
+          : "unwrapped";
+        if (outcome === "mark") {
+          // From the start request to the first prompt; the scenario harness records it (PRB.T-036).
+          const ms = (yield* Clock.currentTimeMillis) - requestedAt;
+          yield* Effect.logInfo("shell prompt ready", { shellId, ms });
+        }
+        if (script === null) return;
+        if (outcome === "timeout") {
+          yield* Effect.logWarning("shell printed no prompt mark; typing the starting script", {
+            shellId,
+          });
+        }
+        if (outcome !== "exited") {
+          yield* manager.write({ ...owner, data: `${script.command}\r` });
+        }
+      }).pipe(
+        Effect.catch((error) =>
+          Effect.logWarning("the starting script was not typed", {
+            shellId,
+            reason: error.message,
+          }),
+        ),
+        Effect.ensuring(
+          Effect.sync(() => {
+            stopOutput();
+            if (typed === null) return;
+            scriptPending.delete(shellId);
+            Deferred.doneUnsafe(typed, Effect.void);
+          }),
+        ),
+        Effect.forkIn(scope),
+      );
       return toSummary(shellId, snapshot, record);
     }),
     attach: (input: ShellAttachInput, viewerId: string) =>
