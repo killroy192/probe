@@ -12,7 +12,7 @@ it is verified or decided; settled decisions go to `roadmap.md`.
   submitting (the "stage text, no Enter" primitive).
 - Agent CLIs' handling of staged input: bracketed paste, multi-line, kitty keyboard protocol.
 - Claude Code's current support for MCP prompts as slash commands and for server-pushed messages.
-- Whether CI type-checks desktop and mobile after contract changes (PRB.T-008 SA-4). Locally,
+- Whether CI type-checks desktop and mobile after contract changes. Locally,
   `vp run check:changed` type-checks both as dependents of `packages/contracts`.
 - Which story brings back the right panel (folders and file preview) next to shells. It lived in the
   chat view, which is now hidden; the user wants it back once shells and folders exist (2026-11-05).

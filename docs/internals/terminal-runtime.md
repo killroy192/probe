@@ -160,7 +160,11 @@ same at any grid. Raw history stays as the fallback when the emulator fails.
   replays the client buffer. When the grid changed since that buffer's snapshot
   (`needsFreshSnapshot` in client-runtime), the web viewport refreshes its session atom instead,
   which reattaches for a new snapshot.
-- Formatting costs up to ~11 ms at full scrollback, once per attach and per coalesced save.
+- Formatting costs up to ~11 ms at full scrollback, once per attach and per coalesced save. Each
+  terminal holds about 5 MiB, and all share one wasm instance whose memory never shrinks, so the
+  server keeps its peak.
+- A snapshot over the client's 512 KiB buffer is trimmed from the start, which drops the modes and
+  palette the formatter writes first.
 
 ## Renderer ownership
 

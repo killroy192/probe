@@ -10,164 +10,35 @@ updated: 2026-11-08
 
 # Terminal text duplicates, triples or multiplies
 
-Reported by the author (2026-11-07), first seen during the PRB.T-007 manual pass (2026-11-06). The
-text in a shell's terminal sometimes shows two, three or more times:
+## Goal
 
-- The prompt line (cwd, git info), repeated many times with no line breaks:
+A shell's terminal sometimes showed its prompt or text typed at the prompt two, three or more times
+(reported 2026-11-07, first seen in the PRB.T-007 manual pass). Delivered: left-over text shows once
+after a resize, reload or navigating away and back.
 
-  ```
-  vscode ➜ ~/probe-demo/repo (main) $vscode ➜ ~/probe-demo/repo (main) $vscode ➜ ~/probe-demo/repo (main) $ …
-  ```
+## Delivered
 
-- Text typed at the prompt but not run: after doing other things and coming back to the shell, that
-  text is duplicated, tripled or multiplied.
+- Server snapshots: each session feeds a headless libghostty-vt terminal resized with the PTY, and
+  attach, saved history and adopt use its formatted screen (and recorded grids) instead of raw history.
+- Shells lead the prompt with `OSC 133;A;redraw=1`, so live narrowing clears the prompt rows.
+- Web viewports that remount after a grid change reattach for a fresh snapshot.
+- Measured on the scenario harness (`DBG-T010`, since removed), copies shown: live narrowing 2 to 1,
+  reload 5 to 1, navigate away and back 5 to 1, control 1 to 1.
+- Tests: `packages/ghostty-vt/src/terminal.test.ts`, `Manager.test.ts`, `shellHost.test.ts`,
+  `terminalSession.test.ts`, `apps/web/src/terminal/ghostty/core.test.ts`.
 
-It happens often in some shells (seen across workspace switches, PRB.T-007 E1 check). The doubled
-agent command on a new shell is tracked apart in PRB.T-011.
+## Decisions
 
-## Debug findings (2026-11-07)
+- Root cause (2026-11-07): raw history replayed at fewer columns than it was written at, because
+  zsh redraws its line in place on each resize. Server history bytes were clean.
+- A server-side headless emulator (2026-11-08) over resize markers in history, which would have
+  changed the history format in `contracts` and left old files without markers.
+- bash gets `redraw=1` too, since bash 5.2 readline redraws on SIGWINCH.
 
-Method: a raw `node-pty` zsh, and a throwaway Playwright script on the scenario harness (real server,
-mock agent) that read each shell's raw history through `shell.attach`. No product code was changed.
+## Docs
 
-- **The server's history stays clean** after a window resize, a page reload, a second shell, tab
-  switches, a workspace switch and back, and a server restart (one prompt each, byte counts
-  unchanged). An idle PTY resize gives one in-place redraw (`\r\r\e[J` then the prompt).
-- So the duplication is not in the bytes the server keeps. Remaining suspects are on the client: the
-  renderer drawing at a width that differs from the PTY's (`TerminalViewport` in
-  `ThreadTerminalDrawer.tsx`; `onResize` and `setVisible` for hidden tabs that stay mounted), or a
-  replayed snapshot written on top of text the surface already shows.
-- That first pass resized at one width and never left typed text at the prompt, so every replay
-  matched the width its redraws were written at. The root cause below needs both.
+- [Terminal runtime](../../../internals/terminal-runtime.md): shell integration marks, snapshots, saved history, adopt, client remount.
 
-## Root cause (confirmed 2026-11-07)
+## Follow-ups
 
-Replaying raw history at fewer columns than it was written at. On each PTY resize zsh redraws its
-line in place (`\r\r\e[J`, prompt, typed text), and the server keeps those bytes faithfully. A
-viewport that mounts or reattaches calls `resetAndWrite(history)` at the current grid. Where the
-line now wraps, `\r` returns only to the start of the wrapped row and `\e[J` clears only below
-it, so each redraw recorded at a wider grid leaves its copy behind.
-
-Evidence, from temporary probes and a throwaway scenario (`DBG-T010`, both since removed) on the harness
-(real server, built web bundle, Chromium): typed text left at the prompt, three resizes at
-146-165 cols, then a reload.
-
-| Run                     | Replay grid | History                    | Copies shown after reload |
-| ----------------------- | ----------- | -------------------------- | ------------------------- |
-| Reload while wide       | 152 cols    | 5 redraws, typed text 4x   | 1                         |
-| Narrow to 520px, reload | 62 cols     | 6 redraws, typed text 5x   | 5                         |
-
-A second, smaller source: narrowing a live shell already leaves one stray copy (2 shown before the
-reload). Ghostty reflows the wide line onto two rows and zsh's redraw clears only from the row the
-cursor is on. A server-side emulator would keep that copy too.
-
-Ruled out by the same logs: live writes at a grid other than the PTY's (every write matched), a
-double write (the reset offset equals the server history length and only moves forward), two
-viewports of one shell, and duplicated bytes in the server history.
-
-The same replay reproduces outside the app: real zsh output replayed through `GhosttyTerminalCore`
-shows one copy at 120 cols and four at 30.
-
-## Fix options (option 1 chosen)
-
-1. **Recommended: a headless emulator in the shell host.** Feed each shell's output to a
-   `libghostty-vt` terminal resized with the PTY, and send a formatted VT snapshot (screen,
-   scrollback, modes, cursor) on attach instead of raw history. This is Paradev's design with
-   xterm headless (see `docs/dev/research/paradev.md`). The bundled wasm exports
-   `ghostty_formatter_terminal_new` and `ghostty_formatter_format_alloc`; which options this pin
-   supports (VT output, scrollback, modes) is unverified. Saved history would become saved
-   snapshots. Parsing moves to the server once per byte; attach payloads become bounded by screen
-   plus scrollback.
-2. **Resize markers in history.** Clients replay each segment at its recorded grid, then reflow.
-   This changes the history format in `contracts`, and old history files have no markers.
-
-The live-narrowing copy needs prompt marks (`OSC 133` shell integration) so the terminal can clear
-the prompt on resize; whether this `libghostty-vt` pin does that is unverified.
-
-## Progress (2026-11-08)
-
-Option 1 was chosen.
-
-**Live narrowing: fixed.** libghostty-vt's C ABI clears the prompt on resize only when the shell
-sends `OSC 133;A;redraw=1` (`src/terminal/c/terminal.zig:284` at the pin). The PRB.T-011 wrapper
-sent a plain `A` *after* the prompt, which Ghostty treats as a fresh line: typed text moved to its
-own row, and redraws left an orphan prompt row. Now zsh and bash lead the prompt with
-`A;redraw=1` and signal readiness with `B` after it. bash 5.2's readline redraws on SIGWINCH, so
-bash gets `redraw=1` too. In `DBG-T010`, live narrowing shows 1 copy (it was 2).
-
-**Reload: still 5 copies.** Raw replay has no resizes in it, so marks cannot help. Next: a shared
-`packages/ghostty-vt` runtime that Node can load, a headless terminal with a VT formatter, then a
-server emulator per session whose snapshot replaces raw history on attach. After that, persisted
-history, shell-host resize records for `adopt`, and a client reattach when the grid changed
-since the snapshot.
-
-**Shared runtime: done.** `packages/ghostty-vt` holds the libghostty-vt runtime and wasm (web
-and Node), and `GhosttyVtTerminal` formats a terminal's state as VT. Its tests cover the T-010
-case: raw history replayed at 25 cols shows the prompt 5 times, the formatted snapshot shows it
-once. The formatter places the cursor before its tab stops, whose moves leave the cursor
-elsewhere, and a placed cursor loses a pending wrap. So `format("vt")` places the cursor again at
-the end, and when the cursor is waiting to wrap, prints the last cell again with its style.
-
-**Cost, measured 2026-11-08** (Node, arm64 container, mixed coloured and Unicode output, 160×48;
-the wasm is built `ReleaseSmall`):
-
-| Server scrollback | Parse      | Format | Snapshot | Rows kept | Memory per terminal |
-| ----------------- | ---------- | ------ | -------- | --------- | ------------------- |
-| 1 MiB             | ~43 MiB/s  | 5 ms   | 63 KiB   | ~570      | ~5 MiB              |
-| 4 MiB             | ~41 MiB/s  | 11 ms  | 212 KiB  | ~2,050    | ~5 MiB              |
-| 10 MiB            | ~43 MiB/s  | 21 ms  | 505 KiB  | ~5,000    | ~13 MiB             |
-
-All terminals share one wasm instance. Its memory never shrinks, so the server keeps its peak.
-Matching today's 5,000-line history needs ~10 MiB of scrollback, and that snapshot is close to
-the client's 512 KiB buffer cap (`DEFAULT_MAX_TERMINAL_BUFFER_BYTES`).
-
-**Server snapshots: done (2026-11-08).** Each `Manager` session feeds its output to a
-libghostty-vt terminal (4 MiB scrollback) resized with the PTY, and attach sends its formatted
-screen instead of raw history. In `DBG-T010` the narrow run shows 1 copy after reload (it was 5);
-the control shows 1.
-
-- Saved history holds the snapshot, ending with its grid in a private `OSC 5379;grid=CxR`. On
-  open, the server replays it at that grid and reflows it to the new one. The grid sits at the
-  end because reads keep the file's tail and the line cap trims from the start. Files without it
-  hold raw output and load as before.
-- The shell host's `list` sends `grids`, the PTY size from each output offset on. `adopt` replays
-  each part at its grid. An older host sends none, and adopt then works as before.
-- A failing emulator is dropped and logged; that session then sends and saves raw history.
-- Cost: a format (up to ~11 ms at full scrollback) per attach and per debounced save (250 ms).
-- Known limit: a snapshot over the client's 512 KiB buffer is trimmed from the start, as raw
-  history is today, which drops the modes and palette the formatter writes first.
-
-**Web remount: done (2026-11-08).** The attach stream outlives a viewport by its 5-minute idle
-TTL, so a viewport that mounted again replayed the client buffer: the last snapshot plus every
-redraw since. After a resize and a client-side navigation away and back, `DBG-T010` showed 5
-copies. The buffer now marks a grid change after it holds output (`gridChangedSinceSnapshot` in
-`packages/client-runtime/src/state/terminalSession.ts`), and a web viewport that mounts with
-`needsFreshSnapshot` refreshes its session atom, which restarts the attach or observe stream
-under it. The remount now shows 1 copy. Ended shells are not reattached, since a fresh attach can
-start one again.
-
-## Verification (2026-11-08)
-
-Final `DBG-T010` runs on the finished code (shell on the harness, built web bundle, Chromium; typed
-text left at the prompt, three wide resizes, then narrowed to 62 columns):
-
-| Run                                 | Before | After |
-| ----------------------------------- | ------ | ----- |
-| Live narrowing                      | 2      | 1     |
-| Reload                              | 5      | 1     |
-| Navigate away and back, no reload   | 5      | 1     |
-| Control: reload without narrowing   | 1      | 1     |
-
-Regression tests: `packages/ghostty-vt/src/terminal.test.ts` (snapshot vs raw replay),
-`Manager.test.ts` (attach snapshot, saved snapshot reopened at another grid, adopt at grids),
-`shellHost.test.ts` (`KeptOutput` grids), `terminalSession.test.ts` (`needsFreshSnapshot`), and
-`apps/web/src/terminal/ghostty/core.test.ts` (`A;redraw=1` on live narrowing). Each failed before
-its fix.
-
-Mobile replays the same client buffer and is not fixed: PRB.T-014.
-
-## Done when
-
-- Text typed and left at the prompt shows once after a tab switch, workspace switch and reload.
-- The prompt is not repeated after workspace switches or resizes.
-- A test reproduces the root cause and fails before the fix.
+- Mobile replays the same client buffer and is not fixed: PRB.T-014.

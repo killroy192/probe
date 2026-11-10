@@ -10,170 +10,33 @@ updated: 2026-11-06
 
 # Multiple shells, close tab and kill
 
-## Business Goal
+## Goal
 
-**Problem:** A user who runs several agents needs them side by side: each with its own output, switchable by tab, hideable without losing work, and endable on purpose. Today a terminal is tied to one chat thread, closing it ends its process, and there is no way for an agent to end its own shell.
+A user running several agents needs shells side by side, each with its own output and tab, hideable without losing work and endable on purpose. Delivered: many shells at once, closing a tab without ending its shell, and a force-kill from the tree, from inside the shell, and by removing a workspace or project.
 
-**Proposed solution:** Several shells run at once across folders and worktrees, each with its own output. A user switches between tabs and closes a tab without ending the shell; the shell stays in the tree and reopens from it. A user kills a shell from the tree, an agent kills its own shell with a command run inside it, and removing a workspace ends its running shells.
+## Delivered
 
-## Epic and Requirements
+Done 2026-11-06 on `feat/shell-kill-prb-t-006`, stacked on the PRB.T-005 branch.
 
-- **Epic:** PRB.E-001 Terminal-first workspace: shell tree with mock-agent shells
-- **Candidate story:** # 6 Multiple shells, close tab, kill
-- **Delivers:**
-  - FR-9: several shells run at once across folders and worktrees, each with its own output (scenario S4).
-  - FR-10: closing a tab hides the terminal, the shell keeps running and stays in the tree, selecting it reopens a tab (S5).
-  - FR-11: a user kills a shell with the "x" on its node in the tree, after a confirmation; the kill is a force-kill, so the process always ends, the node disappears and the shell is removed from the saved layout (S6).
-  - FR-12: a command available inside a shell force-kills that shell (S6).
-  - FR-24 (the removal part, S6): removing a workspace force-kills its running shells, forgets its layout and returns the app to the start screen; it never deletes folders on disk. Switch, create and open of workspaces, and the removal control, are delivered by PRB.T-003.
-  - NFR-2 (the S6 part): killing a shell leaves no process that it started still running, and a worktree it created stays on disk.
-  - NFR-6 (the shell-end log line on a kill) and NFR-1 (animation rule in the tree and terminal area): both are owned by earlier stories per the epic table; this story verifies them for the kill path (AC-20, AC-21) and does not own them.
-  - NFR-5: start, switch, close, kill and remove are doable with the mouse or touchpad alone; shortcuts are optional extras.
-- **One deployable outcome:** A user can run several shells at once, switch between their tabs, close a tab without losing the shell, and end a shell on purpose from the tree or from inside it, with no process left behind; this makes the terminal-first workspace usable with many agents.
+- FR-9 (S4, many shells with isolated output), FR-10 (S5, close a tab, reopen from the tree), FR-11 (kill from the tree after a confirmation), FR-12 (`probe kill` inside a shell), FR-24 removal part, NFR-2 (a kill leaves no process the shell started; a created worktree stays).
+- Removing one project from a workspace (hover action on its row) also kills that project's shells. The user added this after the manual pass.
+- `shell.close` became `shell.kill`; closing a tab is client-only.
+- Proven by scenarios S4 (`many-shells.ts`, reload part left to PRB.T-007), S5 (`close-tab.ts`), S6 (`kill-shell.ts`), plus `processTree.test.ts`, `probeShell.test.ts`, `Manager.test.ts` and `SavedWorkspaces.test.ts`. The user accepted it in a manual pass in `vp run dev`.
+- Fixed on the way: the shell summary fixture in `packages/contracts/src/shell.test.ts` had failed since `1251962ba`.
 
-## Current Behavior
+## Decisions
 
-State after PRB.T-002 to PRB.T-005 (re-read 2026-11-06 at planning):
+- User, 2026-11-06: the in-shell command is `probe kill`.
+- User, 2026-11-06: removing a workspace kills every running shell in its projects' folders, also shells another workspace started in a shared folder; shells record no workspace.
+- A kill ends the shell's whole process tree and, on Linux, its session, because a SIGKILL of the shell alone left background jobs running (`sleep 1000 &`).
+- Whether a shell that exits on its own closes its tab was left to PRB.T-007 and PRB.T-008.
 
-- **Shells.** `apps/server/src/terminal/Shells.ts` runs standalone shells (owner `shell:<id>`) that outlive their viewers (PRB.T-002). Each records its project folder, worktree, current branch and an "elsewhere" folder. `shell.close` exists on the wire but no client calls it; it stops the pty process with SIGTERM, then SIGKILL after a grace period, and signals nothing else.
-- **Projects and the tree.** `WorkspaceSidebar.tsx` shows workspace > project (with "+") > worktree (labelled with its branch, only while it has running shells) > shell. Ended shells leave the tree.
-- **Tabs.** `WorkspaceScreen.tsx` shows one tab per started or selected shell, all mounted, only the active one visible. A tab cannot be closed; selecting a shell in the tree opens or activates its tab. Tabs live in memory only (`apps/web/src/state/workspaces.ts`).
-- **Workspace removal** deletes the workspace's file and returns to the start screen; its shells keep running.
-- **No in-shell command.** Shell environments drop `T3CODE_*` and `VITE_*`; nothing in a shell can reach the server. The ACP agents' `t3 acp-mcp-call` (env endpoint plus bearer token, fast-path dispatch in `apps/server/src/bin.ts`) is the precedent for a subprocess calling back.
-- **Confirmations.** `requestConfirmDialog` (`apps/web/src/confirmDialog.ts`) with its host mounted at the app root.
-- **Mobile.** Out of scope for the epic.
+## Docs
 
-## Expected Behavior
+- [Workspaces, tabs, close and kill](../../../user/workspaces.md)
+- [Terminal runtime](../../../internals/terminal-runtime.md)
+- [Roadmap](../../roadmap.md)
 
-Once this story ships on top of PRB.T-001 to PRB.T-005, a user has several shells running at once. Each has its own output and its own tab. The tree (grouping and levels from PRB.T-003 to PRB.T-005) lists them. A tab can be closed with the mouse without ending the shell, and the shell can be reopened from the tree. A shell can be killed from the tree (after a confirmation) or by a command run inside it; the kill is a force-kill, so its process (and anything it started) always ends, it leaves the tree and the saved layout, and its worktree stays on disk. Removing a workspace force-kills its running shells and returns the app to the start screen.
+## Follow-ups
 
-### User Flow
-
-1. The user has shells in two git folders and one non-git folder, plus two worktrees of one folder (S4); each is started from "+" as delivered by PRB.T-004 and PRB.T-005.
-2. The user clicks a shell's tab; that shell's terminal shows and keeps its own output. Typing in one shell does not appear in another.
-3. The user starts a second shell in a folder that already has one and types in it; each shell keeps its own output.
-4. The user closes a tab with the "x" on the tab. The terminal view hides; the shell remains in the tree and keeps running.
-5. The user selects that shell in the tree; its tab opens again showing the running shell.
-6. The user clicks the "x" on a shell's node in the tree and confirms; its process is force-killed and the shell leaves the tree.
-7. Inside a running shell (as an agent would), the user or agent runs the kill command; that shell's process ends and it leaves the tree.
-8. The user removes a workspace that has a running shell from the "Workspaces" button; the shell's process is force-killed and the app returns to the start screen.
-
-### Edge Cases
-
-- EC-1: Closing the last open tab leaves the shell running and listed; the main area shows no terminal and no error.
-- EC-2: Closing a tab on a shell that is mid-output does not stop or lose output; reopening shows the output produced meanwhile (reload and restart persistence is PRB.T-007).
-- EC-3: Killing a shell whose tab is open closes the tab; killing one whose tab is closed removes it from the tree only.
-- EC-4: Killing a shell that has started child processes (an agent that spawned others) leaves none of them running.
-- EC-5: A worktree that a killed shell created stays on disk (killing never deletes a worktree).
-- EC-6: Killing one shell does not affect other shells, including others in the same worktree.
-- EC-7: Running the kill command in a shell kills that shell only, not another shell's.
-- EC-8: Removing a workspace with several running shells force-kills all of them, leaves folders on disk untouched and returns the app to the start screen.
-- EC-9: A shell whose record the server does not know, or one that failed all its restore attempts (once PRB.T-008 lands), is removed from the tree by the kill action without an error shown to the user. Until PRB.T-007 and PRB.T-008 land, a shell whose process ended on its own is also removed this way; what happens to such a shell afterwards (removed or restored) is decided there.
-- EC-10: The user cancels the kill confirmation; the shell keeps running and stays in the tree.
-
-### Error Handling
-
-- ER-1: If the kill command inside a shell cannot reach the server, the command prints a message in that shell and the shell keeps running.
-
-## Out Of Scope
-
-- Creating shells, the "+" modal, worktrees and starting points: PRB.T-004 and PRB.T-005.
-- Workspace creation, switching, opening, and the removal control itself (only "removal ends running shells" is here): PRB.T-003.
-- Reload and server-restart survival, output history and scrollback after reopening, saved layout, unavailable shells, and removal of an unavailable shell: PRB.T-007 (FR-14, FR-15, FR-19 after restart, FR-23).
-- Tree grouping, branch level, node removal rules and the 1-second appearance rule (FR-7): PRB.T-003, PRB.T-004 and PRB.T-005.
-- What a tab does when its shell exits on its own (for example `exit`), and whether such a shell is removed or restored: PRB.T-007 and PRB.T-008 (SU-2).
-- Unavailable shells (folder gone) and shells shown as ended after a restart: PRB.T-007; this story owns only an in-session process that ended or a record the server does not know (EC-9).
-- Restoring or resuming a shell after its process ends unexpectedly: PRB.T-008.
-- Deleting a worktree when its last shell is killed: epic non-goal.
-- Renaming a shell (FR-16): deferred by the user, 2026-11-02.
-- Subagent level, agent status, notifications: later epics.
-- Keyboard-only flows: shortcuts may exist but are not required or tested here (NFR-5).
-- Desktop and mobile: epic non-goal.
-
-## Technical Scope
-
-Work areas, not steps:
-
-- **Layers:** terminal UI (tabs: switch, close without ending, reopen from the tree; the kill control in the tree); tree (kill control on a shell node; grouping and levels are owned by PRB.T-003 to PRB.T-005); server shell lifecycle (a kill that ends the process and what it started, and hiding a tab without ending the shell); a shell-side kill command and how it reaches the server; workspace removal force-killing its shells; contracts for any new operation; the scenario tests for S4 (output isolation), S5 and S6, run by `vp run test:scenarios`.
-- **Docs impact:** `docs/` pages describing the terminal-first screen and how to run scenarios (NFR-7) get the tab, kill, kill command behaviour in the same PR; user docs for the kill command if it is user-facing.
-- **Mobile impact:** none (epic: desktop and mobile are not required).
-
-## Non-functional Requirements and Constraints
-
-- NFR-2: a kill leaves no process that the shell started running; checked by the scenario.
-- NFR-5: every Probe UI action here is done with the mouse or touchpad (the tree "x" is the mouse-only kill path); typing into a shell, including the kill command, is typed by design and excluded; scenarios drive the UI with pointer actions.
-- NFR-1: no continuously repainting animation in the tree or terminal area.
-- NFR-3: scenarios use a throwaway data directory and never touch the user's real Probe data.
-- NFR-6: the server logs shell end with the shell id and cwd, for a kill as for any end.
-- Repo rules (`/Users/Dzmitry_Lahunouski/dev/probe-org/probe/AGENTS.md`): scenario tests use no sleeps or polling; server features are services and transports stay thin, and both kill paths (tree and in-shell command) must behave identically; wire types live in `packages/contracts`.
-
-## Acceptance Criteria
-
-| ID | Criterion (Given / When / Then) | Check (auto / manual) | Covers (FR / NFR / EC / ER) |
-| --- | --- | --- | --- |
-| AC-1 | Given shells in two git folders, one non-git folder and two worktrees of one folder, when the user types a distinct line in each shell, then each terminal shows only its own output; the same holds for two shells in one worktree | auto | FR-9 |
-| AC-2 | Given two open tabs, when the user clicks the other tab, then that shell's terminal shows with its own output and the first keeps running | auto | FR-9 |
-| AC-3 | Given an open tab, when the user clicks the "x" on the tab, then the terminal view is hidden, the shell's process is still running and the shell is still in the tree | auto | FR-10 |
-| AC-4 | Given a shell with a closed tab, when the user selects it in the tree, then its tab opens and shows the running shell | auto | FR-10 |
-| AC-5 | Given one open tab, when the user closes it, then the main area shows no terminal and no error, and the shell stays running and listed | auto | FR-10, EC-1 |
-| AC-6 | Given a shell producing output, when its tab is closed and reopened, then the output produced while closed is shown (in-session reopen only; reload, restart and scrollback limits are PRB.T-007) | auto | FR-10, EC-2 |
-| AC-7 | Given a running shell, when the user clicks the "x" on its tree node and confirms, then its process is force-killed and the node leaves the tree (persistence of that removal across restart is PRB.T-007) | auto | FR-11 |
-| AC-8 | Given a shell whose tab is open, when the user kills it from the tree, then its tab closes; given one whose tab is closed, then it only leaves the tree | auto | FR-11, EC-3 |
-| AC-9 | Given a shell that started a child process, when the shell is killed (tree or kill command), then neither the shell process nor the child is running | auto | NFR-2, EC-4 |
-| AC-10 | Given a shell in a worktree it created, when the shell is killed (tree or kill command), then the worktree directory still exists on disk | auto | NFR-2, EC-5 |
-| AC-11 | Given two shells in one worktree, when one is killed, then the other keeps running and keeps its output | auto | FR-11, EC-6 |
-| AC-12 | Given a running shell, when the kill command is run inside it, then that shell's process ends and it leaves the tree | auto | FR-12 |
-| AC-13 | Given two running shells, when the kill command is run in one, then only that shell ends | auto | FR-12, EC-7 |
-| AC-14 | Given the server cannot be reached by the command, when it is run, then it prints a message in the shell and the shell keeps running | auto | FR-12, ER-1 |
-| AC-15 | Given a workspace with a running shell, when the user removes the workspace, then the shell's process is force-killed, the folders on disk are unchanged and the app shows the start screen | auto | FR-24, EC-8 |
-| AC-16 | Given a workspace with several running shells, when it is removed, then all their processes end | auto | FR-24, EC-8 |
-| AC-17 | Given a shell whose record is unknown to the server (or that failed all restore attempts, once PRB.T-008 lands), when the user clicks the "x" on its node and confirms, then the shell leaves the tree and no error is shown | auto | FR-11, EC-9 |
-| AC-18 | Given a running shell, when the user clicks the "x" on its tree node and cancels the confirmation, then the shell keeps running and stays in the tree | auto | FR-11, EC-10 |
-| AC-19 | Given the scenarios S4, S5 and S6, when they run, then every Probe UI action (switch tab, close tab, reopen from the tree, kill from the tree, remove workspace) is done with pointer actions only; typing into a shell, including running the kill command, is excluded | auto | NFR-5 |
-| AC-20 | Given a shell is killed (tree or command), when the server log is read, then it has a shell end line with the shell id and cwd | auto | NFR-6 |
-| AC-21 | Given the tree and terminal area, when code review checks them, then no continuously repainting animation was added | manual (reviewer) | NFR-1 |
-| AC-22 | Given a workspace with a project that has running shells, when the user removes the project from its row and confirms, then the project leaves the workspace, its shells' processes are force-killed (also shells another workspace started there), other projects' shells keep running, and the folder stays on disk | auto | FR-24 (extension requested by the user 2026-11-06) |
-
-## Dependencies
-
-| Depends on | Why | Status |
-| --- | --- | --- |
-| PRB.T-001 | Scenario harness and mock agent CLI for S4, S5, S6 | done (2026-11-03) |
-| PRB.T-002 | Standalone shells that outlive a tab | backlog |
-| PRB.T-003 | Workspaces and the shell tree; the removal control that ends shells | backlog |
-| PRB.T-004 | Starting a local shell to have shells to close and kill | backlog |
-| PRB.T-005 | Worktree shells, worktree picker and created worktrees (S4, NFR-2 worktree kept) | backlog |
-
-## Assumptions
-
-| ID | Statement | Kind (assumption / unknown) | Status (unverified / verified / false) | How and when to verify | Owner |
-| --- | --- | --- | --- | --- | --- |
-| SA-1 | A running shell can stay alive while no tab is open for it (epic A-6, depends on PRB.T-002) | assumption | verified | PRB.T-002: a shell outlives its viewers (scenario T-002) | author |
-| SA-2 | Ending the shell process also ends what it started (current code signals the pty process only) | assumption | false | False for background jobs (`sleep 1000 &` outlives a SIGKILLed shell); the kill therefore ends the shell's whole process tree and session. Verified by the kill test in `Manager.test.ts` (PRB.T-006 implementation) | author |
-| SU-1 | Name of the kill command and how it finds its own shell (epic U-5, designed in this story's plan stage) | unknown | verified | Decided by the user 2026-11-06: `probe kill`, a `probe` command with subcommands that Probe puts on each shell's PATH; it finds its shell by a per-shell token in the shell's environment | author |
-| SU-2 | Whether a shell exiting on its own (for example `exit`) while a tab is open closes the tab; the epic assigns the not-restored rule to PRB.T-007 and PRB.T-008 | unknown | verified | Decided at planning 2026-11-06: left to PRB.T-007 and PRB.T-008; this story keeps today's behaviour (an ended shell leaves the tree) | author |
-| SA-3 | Removing a workspace ends the shells of its projects | assumption | verified | Decided by the user 2026-11-06: every running shell whose project folder is in the workspace is killed, also when another workspace shares that folder; shells do not record their workspace | author |
-
-## Implementation Status and Handoff
-
-Done 2026-11-06 on `feat/shell-kill-prb-t-006` (stacked on `feat/worktrees-prb-t-005`). Durable decisions are in `docs/dev/roadmap.md`, usage in `docs/user/workspaces.md`, the kill's reach and `probe kill`'s path to the server in `docs/internals/terminal-runtime.md`.
-
-**Decisions**
-- User, 2026-11-06: the in-shell command is `probe kill` (SU-1, epic U-5). Removing a workspace kills every running shell in its projects' folders, also shells another workspace started in a shared folder; shells record no workspace (SA-3). After the manual pass the user added removing one project from a workspace, which kills that project's shells the same way (AC-22).
-- Planning: `shell.close` became `shell.kill`, the one way Probe ends a shell; closing a tab is client-only. SU-2 stays with PRB.T-007 and PRB.T-008. SA-2 is false, so the kill stops and SIGKILLs the shell's process tree and, on Linux, its session; macOS can miss a job that double-forked before the kill, Windows signals the shell only.
-
-**What was built**
-- Contracts: `shell.kill` (was `shell.close`), `workspace.removeFolder`.
-- Server: `processTree.ts` (read with `ps`, stop, re-read, SIGKILL); `Shells.kill` (uninterruptible, since `probe kill`'s request dies with its shell), `killByToken`, `list`; a per-shell token and `PROBE_*` env, the `probe` wrapper in `<state dir>/shell-bin`, the `__probe` fast path in `bin.ts` (`cli/probeShell.ts`) and `POST /api/shell/self/kill` (`shellSelfKillRoute.ts`); the "shell ended" log carries the cwd and `reason: "killed"`. `SavedWorkspaces.remove` and `removeFolder` kill shells by folder, under a per-workspace lock shared with starts.
-- Web: tab close button (`WorkspaceScreen`), hover kill and remove-project buttons with confirmations (`WorkspaceSidebar`), `closeTab`, `killShell`, `removeFolder` in `state/workspaces.ts`.
-- Scenarios: S4 (`many-shells.ts`, without its reload part, which PRB.T-007 adds), S5 (`close-tab.ts`), S6 (`kill-shell.ts`); shared helpers in `workspaceUi.ts`. The mock agent prints `mock-agent: bye` on exit, which `leaveAgent` waits for before typing into the shell.
-
-**Verification (2026-11-06, author; no separate verify-agent report, as for PRB.T-004 and PRB.T-005)**
-- Checks: focused tests (431 across `terminal`, `savedWorkspaces`, `cli/probeShell`, `auth`, contracts, web workspaces and the mock agent; the React compiler check); typecheck of contracts, client-runtime, server, web, mobile, desktop and scripts; format, lint and knip; `vp run test:scenarios` with S1 to S6 and T-002 passing, the self-test and `harness.test.ts`.
-- AC-1, AC-2: met by S4. AC-3 to AC-6: met by S5 (the output made while the tab is closed comes back on reopen).
-- AC-7 to AC-18, AC-20: met by S6, each stage named after its ACs; AC-9 kills a background job and a double-forked job (also `processTree.test.ts`); AC-14 uses an unreachable endpoint (also `probeShell.test.ts`); AC-17 ends the shell from outside while the confirmation is open; AC-20 by S6 and `Manager.test.ts`.
-- AC-19: met; S4 to S6 drive the UI with pointer actions only and type only into shells.
-- AC-21: met; the diff adds no animation (hover reveals are plain opacity, no transition).
-- AC-22: met by S6 ("remove project") and `SavedWorkspaces.test.ts`.
-- Found on the way: the shell summary fixture in `packages/contracts/src/shell.test.ts` had failed since `1251962ba` (missing newer fields); fixed.
-- Manual pass by the user in `vp run dev` (2026-11-06): accepted.
+- Reload and restart survival, and what an ended shell becomes: PRB.T-007 and PRB.T-008.
