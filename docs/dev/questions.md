@@ -30,6 +30,11 @@ it is verified or decided; settled decisions go to `roadmap.md`.
   - PRB.E-005 A-1: S2's PRB.T-011 check fails because the harness runs the developer's real shell config (oh-my-zsh prompt forks `git`; a resize redraws the typed command). Desk reading, not run; it fails the same on plain `main`. Checked in PRB.T-036.
   - PRB.E-005 A-5: `@playwright/test` 1.60.0 runs with the cached headless Chromium shell. The first spike of PRB.T-040; the fallback is the current Node runner.
   - PRB.E-005 A-2 (PRB.T-041 SA-2): S4's tab-list flake comes from reloading with a layout save still in flight and reading the tab strip once with no wait. Desk reading; PRB.T-041 AC-9 tests it.
+- From the PRB.T-029 container spike (`research/t-029-container-spike.md`), for PRB.T-030 and PRB.T-031:
+  - Whether the server should default the agent command when `PROBE_AGENT_COMMAND` is unset. Today no shell opens at all without it, in any install.
+  - What the startup banner and `pair` should print when the server is bound to `0.0.0.0` in a container: today they print the bridge IP, which the host cannot reach. The startup token also lands in the server log.
+  - The PID-based "already running" preflight (`apps/server/src/cli/config.ts`) cannot see a server in another PID namespace; the `server-owner.sqlite` lock caught it between containers. Unverified for a host server sharing the folder with a container server.
+  - The shell-host socket on a mounted state folder accepts connections from any container that mounts it. Whether the guide only warns, or the socket needs its own check.
 - Paradev CLA terms (not read; irrelevant unless we contribute).
 
 ## Decisions pending
