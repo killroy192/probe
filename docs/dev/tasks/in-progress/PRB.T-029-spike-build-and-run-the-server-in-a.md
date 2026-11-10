@@ -3,9 +3,9 @@ id: PRB.T-029
 type: story
 parent: PRB.E-004
 phase: 2
-labels: [remote, plan]
+labels: [remote, verify]
 created: 2026-11-09
-updated: 2026-11-09
+updated: 2026-11-10
 ---
 
 # Spike: build and run the server in a container by hand
@@ -129,9 +129,20 @@ No dependency on PRB.E-002 (PRB.T-016 to PRB.T-020) or on PRB.E-003.
 
 | ID | Statement | Kind (assumption / unknown) | Status (unverified / verified / false) | How and when to verify | Owner |
 | ---- | --------- | --------------------------- | -------------------------------------- | ---------------------- | ----- |
-| SA-1 | The author has a host with Docker and a container made like this repo's devcontainer can be started there (the dev container itself has no Docker socket) | assumption | unverified | Before starting | author |
-| SA-2 | The epic's assumptions A-1, A-2, A-3, A-5 to A-10 and unknowns U-1, U-2, U-4, U-6, U-7 are answered only by running; reading cannot settle them | assumption | unverified | AC-1 to AC-10 | author |
-| SA-3 | The Probe repository is reachable from the container with the author's credentials; the unauthenticated case may fail while the repository is private (`docs/dev/questions.md` visibility decision) | assumption | unverified | AC-7 | author |
-| SU-1 | Which host operating systems the author will test for the mounted state folder (Docker Desktop on macOS, Linux, or both) (epic A-8) | unknown | unverified | `TBD (author, 2026-11-15)` | author |
-| SU-2 | Whether the spike finds a break that changes the epic's approach (for example the build cannot run in a container) | unknown | unverified | AC-11; escalate per ER-1 | author |
-| SU-3 | Decision for the author: whether to run the host-server variant of the second-server check as a throwaway scratch build on the host (default: no, record as not run under ER-2; the check runs in a second container instead) | unknown | unverified | `TBD (author, 2026-11-15)` | author |
+| SA-1 | The author has a host with Docker and a container made like this repo's devcontainer can be started there (the dev container itself has no Docker socket) | assumption | verified (macOS host, Docker Desktop 27.5.1) | Before starting | author |
+| SA-2 | The epic's assumptions A-1, A-2, A-3, A-5 to A-10 and unknowns U-1, U-2, U-4, U-6, U-7 are answered only by running; reading cannot settle them | assumption | verified (U-4 was settled by reading too) | AC-1 to AC-10 | author |
+| SA-3 | The Probe repository is reachable from the container with the author's credentials; the unauthenticated case may fail while the repository is private (`docs/dev/questions.md` visibility decision) | assumption | false: the repository is public and clones with no credentials; the forwarded SSH agent had no keys | AC-7 | author |
+| SU-1 | Which host operating systems the author will test for the mounted state folder (Docker Desktop on macOS, Linux, or both) (epic A-8) | unknown | macOS / Docker Desktop tested; Linux `TBD (author, 2026-11-15)` | `TBD (author, 2026-11-15)` | author |
+| SU-2 | Whether the spike finds a break that changes the epic's approach (for example the build cannot run in a container) | unknown | verified: no break changes the approach; the breaks are start-command gaps | AC-11; escalate per ER-1 | author |
+| SU-3 | Decision for the author: whether to run the host-server variant of the second-server check as a throwaway scratch build on the host (default: no, record as not run under ER-2; the check runs in a second container instead) | unknown | decided: not run (ER-2) | `TBD (author, 2026-11-15)` | author |
+
+## Handoff
+
+The finding is [research/t-029-container-spike.md](../../research/t-029-container-spike.md). It has the by-hand path with times, the breaks, the status of every epic ID under Delivers, and proposed NFR-1 limits. What PRB.T-030 and PRB.T-031 need from it:
+
+- A container build works on Ubuntu 24.04 arm64 with the devcontainer toolchain: `vp i` (~53 s), `vp run --filter t3 build` (~15 s), ~4.5 GB disk, ~3.7 GiB build peak. `node-pty` uses its glibc prebuild. Alpine builds but cannot load `node-pty`, so a `--version` proof is not enough; the proof must start the server or load `node-pty`.
+- The start command must pass an explicit `--host` (non-loopback), `--port` and `--base-dir`, and must set `PROBE_AGENT_COMMAND` (or the server must default it), or no shell opens. The banner and `pair` print the container IP and the token goes to the log.
+- The `tunnel.ts` shell pieces run unchanged under dash and busybox; its hardcoded `127.0.0.1` bind, `$HOME/.t3`, loopback-only adoption and `auth pairing create` do not fit.
+- The image contract needs `--init` (or an init as PID 1) so the detached shell host is reaped.
+- Not run: the host-server variant (ER-2), a Linux Docker host, x64, the smallest build memory, R-9.
+
