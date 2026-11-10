@@ -92,3 +92,27 @@ productionRule.valid(
     export const now = Date.now();
   `,
 );
+
+const e2eRule = (filename: string) =>
+  createOxlintRuleHarness("t3code/no-wall-clock-in-tests", { filename });
+const CLOCK_DELTA = `
+  const clickedAt = Date.now();
+  export const elapsed = () => performance.now() - clickedAt;
+`;
+
+describe("t3code/no-wall-clock-in-tests in e2e files", () => {
+  for (const filename of [
+    "scripts/scenarios/scenarios/fixture.ts",
+    "scripts/mock-agent/fixture.ts",
+  ]) {
+    e2eRule(filename).invalid(`reports a clock delta in ${filename}`, CLOCK_DELTA, (output) => {
+      assert.match(output, /Wall-clock reading in a scenario/);
+      assert.equal(output.match(/no-wall-clock-in-tests/g)?.length, 2);
+    });
+  }
+
+  e2eRule("scripts/scenarios/scenarios/fixture.perf.ts").valid(
+    "allows clock reads in a perf scenario",
+    CLOCK_DELTA,
+  );
+});

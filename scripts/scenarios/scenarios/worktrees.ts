@@ -190,11 +190,13 @@ export const worktrees: Scenario = {
         .filter({ hasText: /^Shell 1 · repo$/ })
         .waitFor();
       // A recorded metric (FR-4), never compared.
+      // oxlint-disable-next-line t3code/no-wall-clock-in-tests -- temporary: PRB.T-039 moves this metric into a perf scenario
       const switchedAt = Date.now();
       await typeLine(page, "git switch -q other");
       await worktreeNodeLabel(page, repo)
         .filter({ hasText: /^primary · other$/ })
         .waitFor();
+      // oxlint-disable-next-line t3code/no-wall-clock-in-tests -- temporary: PRB.T-039 moves this metric into a perf scenario
       metric("S3", "branch-label", Date.now() - switchedAt, "AC-26, was a 4000 ms gate");
       check(
         (await worktreeNode(page, repo).locator("[data-shell-id]").count()) === 2,
@@ -282,6 +284,7 @@ export const worktrees: Scenario = {
       const name1 = await proposedName(page);
       const framesBefore = frames.mark();
       // A recorded metric (FR-4), never compared.
+      // oxlint-disable-next-line t3code/no-wall-clock-in-tests -- temporary: PRB.T-039 moves this metric into a perf scenario
       const clickedAt = Date.now();
       check((await startFromModal(page)) === null, "The fork failed (AC-5).");
       const path1 = NodePath.join(repoWorktrees, name1);
@@ -291,6 +294,7 @@ export const worktrees: Scenario = {
         (frame) => frame.includes("Mock Agent v1"),
         framesBefore,
       );
+      // oxlint-disable-next-line t3code/no-wall-clock-in-tests -- temporary: PRB.T-039 moves this metric into a perf scenario
       metric("S3", "fork-start-to-banner", Date.now() - clickedAt);
       check(
         (await run(path1, "branch", "--show-current")) === name1,

@@ -1,9 +1,8 @@
 import { defineRule, type ESTree } from "@oxlint/plugins";
 import * as Option from "effect/Option";
 
-import { getPropertyName, isIdentifier, unwrapExpression } from "../utils.ts";
+import { getPropertyName, isIdentifier, testFileKind, unwrapExpression } from "../utils.ts";
 
-const TEST_FILE_PATTERN = /\.(?:test|spec)\.[cm]?[jt]sx?$/u;
 const WALL_CLOCK_CALLS = new Set([
   "Date.now",
   "performance.now",
@@ -22,6 +21,8 @@ const MOCK_METHODS = new Set([
 
 const MESSAGE =
   "Wall-clock reading in a test; elapsed-time assertions pass or fail with runner load. Use TestClock/`Clock` under `it.effect`, `vi.setSystemTime`, or a fixed epoch. Benchmarks live behind an env gate.";
+const E2E_MESSAGE =
+  "Wall-clock reading in a scenario; a check scenario neither measures nor waits by time. Wait on the event, and measure only in a `<scenario>.perf.ts` file. See `.agents/rules/scenarios.md`.";
 
 const isStringLiteral = (node: unknown) =>
   Option.exists(
@@ -88,19 +89,21 @@ export default defineRule({
     },
   },
   create(context) {
-    if (!TEST_FILE_PATTERN.test(context.filename)) return {};
+    const kind = testFileKind(context.filename);
+    if (Option.isNone(kind) || kind.value === "perf") return {};
+    const message = kind.value === "e2e" ? E2E_MESSAGE : MESSAGE;
 
     return {
       CallExpression(node) {
         if (!isWallClockCall(node.callee)) return;
         if (isMockArgument(node)) return;
-        context.report({ node, message: MESSAGE });
+        context.report({ node, message });
       },
       NewExpression(node) {
         if (node.arguments.length > 0) return;
         if (!isIdentifier(unwrapExpression(node.callee), "Date")) return;
         if (isMockArgument(node)) return;
-        context.report({ node, message: MESSAGE });
+        context.report({ node, message });
       },
     };
   },

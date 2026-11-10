@@ -1,9 +1,8 @@
 import { defineRule, type ESTree } from "@oxlint/plugins";
 import * as Option from "effect/Option";
 
-import { getPropertyName, isIdentifier, unwrapExpression } from "../utils.ts";
+import { getPropertyName, isIdentifier, testFileKind, unwrapExpression } from "../utils.ts";
 
-const TEST_FILE_PATTERN = /\.(?:test|spec)\.[cm]?[jt]sx?$/u;
 const TEST_CLOCK_DRIVERS = new Set(["adjust", "setTime"]);
 const TIMER_PROMISES_MODULES = new Set(["node:timers/promises", "timers/promises"]);
 const TIMER_FUNCTIONS = new Set(["setTimeout", "setInterval", "setImmediate"]);
@@ -13,6 +12,8 @@ const FUNCTIONS = new Set(["ArrowFunctionExpression", "FunctionExpression", "Fun
 
 const REAL_CLOCK_MESSAGE =
   "Real-clock wait in a test. Await the `Deferred`/`Queue`/event that marks the milestone, or run under `it.effect` and `TestClock.adjust`. `it.live` is for subprocess/network fixtures, not for sleeping.";
+const E2E_REAL_CLOCK_MESSAGE =
+  "Real-clock wait in a scenario. Wait with the library's event waits (`recorder().until`, `server.logged`, a locator), which race the event against a deadline that names it. See `.agents/rules/scenarios.md`.";
 const UNDRIVEN_TEST_CLOCK_MESSAGE =
   "Sleeps on the TestClock never fire without `TestClock.adjust`; this test can only time out.";
 const MIXED_CLOCK_MESSAGE =
@@ -150,6 +151,16 @@ const isPollingLoopStep = (node: ESTree.Node): boolean => {
   return block.type === "BlockStatement" && block.parent !== null && LOOPS.has(block.parent.type);
 };
 
+// Playwright's `page.waitForTimeout(ms)`, on any receiver.
+const isFixedTimeWait = (callee: unknown) => {
+  const expression = unwrapExpression(callee);
+  if (Option.isNone(expression) || expression.value.type !== "MemberExpression") return false;
+  return Option.exists(
+    getPropertyName(expression.value.property),
+    (name) => name === "waitForTimeout",
+  );
+};
+
 const isPromiseExecutor = (fn: ESTree.Node) => {
   const parent = fn.parent;
   return (
@@ -177,7 +188,9 @@ export default defineRule({
     },
   },
   create(context) {
-    if (!TEST_FILE_PATTERN.test(context.filename)) return {};
+    const kind = testFileKind(context.filename);
+    if (Option.isNone(kind)) return {};
+    const realClockMessage = kind.value === "test" ? REAL_CLOCK_MESSAGE : E2E_REAL_CLOCK_MESSAGE;
     let drivesTestClock = false;
     // Whether the file drives the TestClock is only known after the whole file is walked.
     const untilDrivenReports: Array<{ node: ESTree.Node; message: string }> = [];
@@ -224,6 +237,11 @@ export default defineRule({
       CallExpression(node) {
         const reportFor = (message: string) => context.report({ node: node.callee, message });
 
+        if (isFixedTimeWait(node.callee)) {
+          reportFor(realClockMessage);
+          return;
+        }
+
         if (
           isTimerPromiseCall(node.callee) ||
           (isCallbackTimer(node.callee) && isInsidePromiseExecutor(node))
@@ -231,8 +249,8 @@ export default defineRule({
           const tester = enclosingTester(node);
           reportFor(
             Option.isSome(tester) && tester.value === "effect"
-              ? `${REAL_CLOCK_MESSAGE} ${MIXED_CLOCK_MESSAGE}`
-              : REAL_CLOCK_MESSAGE,
+              ? `${realClockMessage} ${MIXED_CLOCK_MESSAGE}`
+              : realClockMessage,
           );
           return;
         }
@@ -256,14 +274,14 @@ export default defineRule({
           // A shared helper can serve TestClock tests, so only report it when nothing in
           // the file drives the TestClock or it polls in a loop, which only a real clock ends.
           if (isPollingLoopStep(node)) {
-            reportFor(REAL_CLOCK_MESSAGE);
+            reportFor(realClockMessage);
           } else {
-            untilDrivenReports.push({ node: node.callee, message: REAL_CLOCK_MESSAGE });
+            untilDrivenReports.push({ node: node.callee, message: realClockMessage });
           }
           return;
         }
         if (tester.value !== "effect") {
-          reportFor(REAL_CLOCK_MESSAGE);
+          reportFor(realClockMessage);
         } else if (isSleep) {
           untilDrivenReports.push({ node: node.callee, message: UNDRIVEN_TEST_CLOCK_MESSAGE });
         }

@@ -56,3 +56,18 @@ export function isIdentifier(node: Option.Option<AstNode>, name?: string): boole
     (name === undefined || expression.name === name)
   );
 }
+
+const TEST_FILE_PATTERN = /\.(?:test|spec)\.[cm]?[jt]sx?$/u;
+// The scenario harness and the mock agent; their rules are in `.agents/rules/scenarios.md`.
+const E2E_FILE_PATTERN = /(?:^|\/)scripts\/(?:scenarios|mock-agent)\/.+\.[cm]?[jt]sx?$/u;
+const PERF_SCENARIO_PATTERN = /\.perf\.[cm]?[jt]s$/u;
+
+export type TestFileKind = "test" | "e2e" | "perf";
+
+/** Which kind of test file the test-wait rules see, if any. */
+export function testFileKind(filename: string): Option.Option<TestFileKind> {
+  const path = filename.replaceAll("\\", "/");
+  if (TEST_FILE_PATTERN.test(path)) return Option.some("test");
+  if (!E2E_FILE_PATTERN.test(path)) return Option.none();
+  return Option.some(PERF_SCENARIO_PATTERN.test(path) ? "perf" : "e2e");
+}

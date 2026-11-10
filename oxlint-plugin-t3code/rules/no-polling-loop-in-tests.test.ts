@@ -229,3 +229,26 @@ productionRule.valid(
     };
   `,
 );
+
+const e2eRule = (filename: string) =>
+  createOxlintRuleHarness("t3code/no-polling-loop-in-tests", { filename });
+
+describe("t3code/no-polling-loop-in-tests in e2e files", () => {
+  for (const filename of [
+    "scripts/scenarios/scenarios/fixture.ts",
+    "scripts/scenarios/scenarios/fixture.perf.ts",
+    "scripts/mock-agent/fixture.ts",
+  ]) {
+    e2eRule(filename).invalid(
+      `reports a polling loop in ${filename}`,
+      `
+        export const gone = async (alive: () => boolean) => {
+          while (alive()) await new Promise((resolve) => setTimeout(resolve, 100));
+        };
+      `,
+      (output) => {
+        assert.match(output, /Polling loop in a scenario/);
+      },
+    );
+  }
+});
