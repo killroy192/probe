@@ -20,7 +20,16 @@ The server learns the program only from a process-table poll in `apps/server/src
 (`pollSubprocessActivity`): one snapshot per second for all shells, every 30th tick when every
 session counts as quiet (`QUIET_SUBPROCESS_SNAPSHOT_EVERY_TICKS`), and a doubling back-off up to 60 s
 after failed snapshots (`subprocessSnapshotPollDelayMs`). Nothing the user types makes it look
-sooner. PRB.T-046 is one case of this (the label missing for over 10 s after a start); fix them
+sooner.
+
+A session is "quiet" when two snapshots in a row found no child process, its program name did not
+change, and it printed and received nothing since (`isQuiet`). The 30-tick skip applies only while
+every running shell is quiet; any output or keystroke in any shell ends it. So by the code, a shell
+the user is typing in should be rechecked within about 1 s. The user sees the lag everywhere
+(2026-11-11), so the 1 s poll is not the whole story: the back-off after failed native snapshots
+(see PRB.T-046) or the path from the manager's `hasRunningSubprocess` and `label` to the client's
+shell list may add more. Measure first: debug lines with timestamps on the key, the snapshot, the
+manager's activity event and the shell-list update the client receives. PRB.T-046 is one case of this (the label missing for over 10 s after a start); fix them
 together or land this after it.
 
 ## Direction
@@ -37,6 +46,11 @@ together or land this after it.
 - Keep the cost bounded with ten or more shells (AGENTS.md, performance): coalesce wakes into one
   snapshot for all sessions that asked, never one snapshot per key, and keep the steady poll as the
   fallback. Typing a long line must not take a snapshot per character.
+- Settle before publishing (user, 2026-11-11): bursts of short-lived processes (a prompt that runs
+  `git`, completions, a script running many commands) must not flicker the label. Publish the
+  program name with a trailing-edge throttle or debounce per shell: rechecks may run at once, but
+  the label changes only once the snapshots stop changing for a short window (a few hundred ms).
+  Keep the window short so the label is still prompt after Enter.
 - Tests first, on the `TestClock` in `Manager.test.ts`: writing `\r` (and `\x03`) to a quiet
   session takes a snapshot within the wake delay, not after the quiet skip; a burst of writes takes
   one snapshot. Extend a scenario that starts a program by typing and checks the tab label follows,
@@ -49,5 +63,6 @@ together or land this after it.
 - After Enter starts a program, or Ctrl+C or Ctrl+D ends one, the tab and tree node name the new
   foreground program within a bound the author sets and states (well under a second on a quiet
   machine), on zsh and bash; fish follows on the key triggers.
+- A burst of short-lived programs changes the label once, to the program left running.
 - Keystrokes that are not those keys take no extra snapshots, and many shells cost no more per tick
   than today.
