@@ -59,6 +59,7 @@ const KIND_NAME: Readonly<Record<ResultKind, string>> = {
   workspace: "a workspace",
   shell: "a shell",
   world: "a world",
+  closedTabShell: "a shell with its tab closed",
 };
 const kindName = (kind: ResultKind | undefined) =>
   kind === undefined ? "nothing" : (KIND_NAME[kind] ?? `a ${kind}`);
