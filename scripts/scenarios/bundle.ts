@@ -3,6 +3,11 @@
 import * as NodeChildProcess from "node:child_process";
 import * as NodeFS from "node:fs";
 import * as NodePath from "node:path";
+import * as NodeProcess from "node:process";
+import * as NodeReadline from "node:readline";
+import * as NodeUtil from "node:util";
+
+import { childEnv } from "./server.ts";
 
 const WEB_INPUTS = ["src", "public", "vite", "index.html", "vite.config.ts", "package.json"];
 const PACKAGE_INPUTS = ["src", "package.json"];
@@ -130,6 +135,7 @@ export async function ensureWebBundle(
   root: string,
   rebuild: boolean,
   write: (line: string) => void,
+  ambient: NodeJS.ProcessEnv = NodeProcess.env,
 ): Promise<BundleState> {
   const before = bundleState(root);
   const fromRoot = (path: string) => NodePath.relative(root, path);
@@ -145,8 +151,16 @@ export async function ensureWebBundle(
     await new Promise<void>((resolve, reject) => {
       const build = NodeChildProcess.spawn("vp", ["run", "--filter", "@t3tools/web", "build"], {
         cwd: root,
-        stdio: ["ignore", "inherit", "inherit"],
+        // A caller's `VITE_*` would be baked into the bundle every later run serves.
+        env: childEnv({}, ambient),
+        stdio: ["ignore", "pipe", "pipe"],
       });
+      // The build colours some warnings even under NO_COLOR, and the output is read as a log.
+      for (const stream of [build.stdout, build.stderr]) {
+        NodeReadline.createInterface({ input: stream }).on("line", (line) =>
+          write(NodeUtil.stripVTControlCharacters(line)),
+        );
+      }
       build.once("error", (error) =>
         reject(new Error(`Could not run the web build: ${error.message}`)),
       );
