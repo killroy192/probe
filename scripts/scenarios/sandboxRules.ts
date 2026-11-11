@@ -5,10 +5,9 @@ import * as NodePath from "node:path";
 import { bundleBuiltMs, bundleInputs, newestOf, serverInputs } from "./bundle.ts";
 import type { SandboxRecord } from "./cleanup.ts";
 import { freshServerNeeded, type Runnable } from "./registryRules.ts";
-import type { CheckScenario, ScenarioNeeds } from "./scenario.ts";
+import type { ScenarioNeeds } from "./scenario.ts";
 
 const REGISTERING = `see "Registering a scenario" in .agents/rules/scenarios.md`;
-const SAVED_ONLY = `the sandbox runs saved scenarios only; register it under an id (${REGISTERING})`;
 
 /** The harness files the sandbox process loaded at start; a run loads every other one itself. */
 const SANDBOX_HARNESS = [
@@ -37,19 +36,6 @@ const SANDBOX_HARNESS = [
   "lib/ui/workspacesMenu.ts",
   "lib/waits.ts",
 ];
-
-/** The registered scenario `id` names, or why the sandbox refuses it: a script path or an unknown id. */
-export function pickScenario(
-  id: string,
-  registered: ReadonlyArray<CheckScenario>,
-): { readonly scenario: CheckScenario } | { readonly refusal: string } {
-  const scenario = registered.find((candidate) => candidate.id === id);
-  if (scenario !== undefined) return { scenario };
-  if (/[/\\]|\.[cm]?[jt]sx?$/.test(id)) {
-    return { refusal: `${id} is a path to a script; ${SAVED_ONLY}.` };
-  }
-  return { refusal: `No scenario has the id ${id}; ${SAVED_ONLY}.` };
-}
 
 /** What in `needs` a sandbox refuses: everything that needs a fresh server, and a second server. */
 function refusedNeeds(needs: ScenarioNeeds): ReadonlyArray<string> {

@@ -8,7 +8,6 @@ import * as NodePath from "node:path";
 import type { ProcessIdentity, SandboxRecord } from "./cleanup.ts";
 import type { ReporterOptions } from "./reporter.ts";
 
-const VALUE_FLAGS = ["--browser", "--server-bin", "--only", "--artifacts", "--sandbox"] as const;
 // Pointing the harness at existing data or a server is never allowed; these flags only exist to
 // be refused with a clear message.
 const TARGET_FLAGS = ["--base-dir", "--home-dir", "--server", "--server-url", "--url"] as const;
@@ -47,15 +46,6 @@ export function parseSandboxArgs(argv: ReadonlyArray<string>): SandboxOptions {
     rebuild: argv.includes("--rebuild"),
     serverBin: values.get("--server-bin"),
   };
-}
-
-/** Arguments of a run that are neither a flag nor a flag's value, such as a script path. */
-export function strayArgs(argv: ReadonlyArray<string>): ReadonlyArray<string> {
-  return argv.filter(
-    (arg, index) =>
-      !arg.startsWith("--") &&
-      !(VALUE_FLAGS as ReadonlyArray<string>).includes(argv[index - 1] ?? ""),
-  );
 }
 
 const isUnder = (child: string, parent: string) => {
