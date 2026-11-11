@@ -18,6 +18,15 @@ const SANDBOX_HARNESS = [
   "environment.ts",
   "bundle.ts",
   "gitconfig",
+  "lib/api.ts",
+  "lib/deadlines.ts",
+  "lib/files.ts",
+  "lib/seam.ts",
+  "lib/setup.ts",
+  "lib/ui/addProject.ts",
+  "lib/ui/dialog.ts",
+  "lib/ui/workspacesMenu.ts",
+  "lib/waits.ts",
 ];
 
 /** The registered scenario `id` names, or why the sandbox refuses it: a script path or an unknown id. */

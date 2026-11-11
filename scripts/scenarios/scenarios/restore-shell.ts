@@ -6,27 +6,19 @@ import * as NodeProcess from "node:process";
 
 import type { ShellSummary } from "@t3tools/contracts";
 
-import { connectRpc } from "../rpc.ts";
+import { connectRpc } from "../lib/api.ts";
+import { reloadShowing, layoutSaved } from "../lib/navigate.ts";
+import { pageFrames } from "../lib/network.ts";
+import { history, leaveAgent, shellEnded, shellList } from "../lib/shells.ts";
+import { addProject } from "../lib/ui/addProject.ts";
+import { startShell } from "../lib/ui/plusModal.ts";
+import { shellTab } from "../lib/ui/tabs.ts";
+import { typeLine } from "../lib/ui/terminal.ts";
+import { endedRow, killFromTree, openFromTree, shellRow } from "../lib/ui/tree.ts";
+import { createWorkspace } from "../lib/ui/workspacesMenu.ts";
+import { check } from "../lib/waits.ts";
 import type { PointerPage } from "../browser.ts";
 import type { Scenario } from "../scenario.ts";
-import { check, pageFrames } from "../support.ts";
-import {
-  addProject,
-  endedRow,
-  createWorkspace,
-  history,
-  killFromTree,
-  leaveAgent,
-  openFromTree,
-  reloadShowing,
-  shellEnded,
-  shellList,
-  shellRow,
-  shellTab,
-  startShell,
-  typeLine,
-  layoutSaved,
-} from "./workspaceUi.ts";
 
 const restoreButton = (page: PointerPage, shellId: string) =>
   page.locator(`[data-shell-row="${shellId}"]`).getByRole("button", { name: /^Restore / });

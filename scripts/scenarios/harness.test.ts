@@ -14,12 +14,12 @@ import * as Fiber from "effect/Fiber";
 import { bundleState } from "./bundle.ts";
 import { childPids, cleanLeftovers, processStartTime } from "./cleanup.ts";
 import { refusalReason } from "./environment.ts";
-import { agentTypedOnceAfterPrompt, MOCK_AGENT_LINES } from "./fixtures.ts";
-import { connectRpc } from "./rpc.ts";
-import { issueBearerToken } from "./seam.ts";
+import { connectRpc } from "./lib/api.ts";
+import { issueBearerToken } from "./lib/seam.ts";
+import { agentTypedOnceAfterPrompt, MOCK_AGENT_LINES } from "./lib/shells.ts";
+import { alive, follow, recorder } from "./lib/waits.ts";
 import { childEnv, startServer, waitUntilServing } from "./server.ts";
 import { spawnScript } from "./spawned.ts";
-import { alive, follow, recorder } from "./support.ts";
 
 const runner = NodeURL.fileURLToPath(new URL("./run.ts", import.meta.url));
 

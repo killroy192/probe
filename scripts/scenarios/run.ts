@@ -31,6 +31,9 @@ import {
   strayArgs,
 } from "./environment.ts";
 import { scenarioShell } from "./isolation.ts";
+import { ACTION_MS } from "./lib/deadlines.ts";
+import { createTrail } from "./lib/trail.ts";
+import { recorderTails, resetRecorders } from "./lib/waits.ts";
 import {
   pickedSelftestScenarios,
   scenarios,
@@ -40,10 +43,8 @@ import {
 import { pickScenario, sandboxRefusal, staleSandboxFile } from "./sandboxRules.ts";
 import type { Scenario } from "./scenario.ts";
 import { attachServer, REPO_ROOT, startServer, type ServerHandle } from "./server.ts";
-import { recorderTails, resetRecorders } from "./support.ts";
 
 const TOTAL = 8;
-const ACTION_TIMEOUT_MS = 10_000;
 const LOG_TAIL_LINES = 200;
 
 // Everything the run started, so an interrupt or a failure stops exactly that and nothing else.
@@ -265,8 +266,18 @@ async function runScenario(
     return handle;
   };
 
+  const undos: Array<{ readonly what: string; readonly undo: () => Promise<void> }> = [];
   let error: unknown;
   let artifacts: string | undefined;
+  const fail = async (caught: unknown) => {
+    error = caught;
+    const dir = NodePath.join(artifactsRoot, scenario.id);
+    const { saved, missing } = await saveArtifacts(dir, caught, pages, owned);
+    artifacts = [
+      `artifacts: ${dir}${saved.length > 0 ? ` (${saved.join(", ")})` : ""}`,
+      ...missing.map((note) => `artifact missing: ${note}`),
+    ].join("\n        ");
+  };
   try {
     const server =
       sandbox === undefined
@@ -285,7 +296,7 @@ async function runScenario(
       );
       contexts.push(context);
       // A broken step should fail in seconds; Playwright's 30 s default makes each failure slow.
-      context.setDefaultTimeout(ACTION_TIMEOUT_MS);
+      context.setDefaultTimeout(ACTION_MS);
       const page = await context.newPage();
       pages.push(page);
       if (!signedIn) return page;
@@ -301,6 +312,11 @@ async function runScenario(
     const running = scenario.run!({
       server,
       runId: NodeCrypto.randomBytes(3).toString("hex"),
+      scenarioId: scenario.id,
+      trail: createTrail(),
+      onStepEnd: (what, undo) => {
+        undos.push({ what, undo });
+      },
       openPage: () => newPage(true),
       openAnonymousPage: () => newPage(false),
       startSecondServer: (secondOptions) =>
@@ -321,13 +337,16 @@ async function runScenario(
       });
     }
   } catch (caught) {
-    error = caught;
-    const dir = NodePath.join(artifactsRoot, scenario.id);
-    const { saved, missing } = await saveArtifacts(dir, caught, pages, owned);
-    artifacts = [
-      `artifacts: ${dir}${saved.length > 0 ? ` (${saved.join(", ")})` : ""}`,
-      ...missing.map((note) => `artifact missing: ${note}`),
-    ].join("\n        ");
+    await fail(caught);
+  }
+  // After the artifacts, so they show the state the failure left.
+  for (const { what, undo } of undos.splice(0).reverse()) {
+    try {
+      await undo();
+    } catch (caught) {
+      const reason = caught instanceof Error ? caught.message : String(caught);
+      if (error === undefined) await fail(new Error(`Undoing ${what} failed: ${reason}`));
+    }
   }
   const durationMs = clock() - startedMs;
   const teardownFrom = clock();

@@ -9,7 +9,7 @@ import * as Scope from "effect/Scope";
 import { RpcClient, type RpcClientError, RpcSerialization } from "effect/rpc";
 import { Socket } from "effect/socket";
 
-import type { PointerPage } from "./browser.ts";
+import type { PointerPage } from "../browser.ts";
 
 const decodeTicket = Schema.decodeUnknownSync(Schema.Struct({ ticket: Schema.String }));
 const decodeDescriptor = Schema.decodeUnknownSync(Schema.Struct({ environmentId: Schema.String }));
@@ -67,4 +67,20 @@ export async function connectRpc(
   );
   let closed: Promise<void> | undefined;
   return { client, close: () => (closed ??= Effect.runPromise(Scope.close(scope, Exit.void))) };
+}
+
+export type RpcConnection = Awaited<ReturnType<typeof connectRpc>>;
+
+/** Runs `use` with a bearer-token client, closed afterwards. */
+export async function withClient<A, E>(
+  origin: string,
+  bearerToken: string,
+  use: (client: WsClient) => Effect.Effect<A, E>,
+): Promise<A> {
+  const rpc = await connectRpc(origin, { bearerToken });
+  try {
+    return await Effect.runPromise(use(rpc.client));
+  } finally {
+    await rpc.close();
+  }
 }

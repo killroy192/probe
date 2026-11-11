@@ -5,11 +5,12 @@ import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
 
 import type { PointerPage } from "../browser.ts";
-import { unlessRoot } from "../fixtures.ts";
-import { environmentId } from "../rpc.ts";
+import { environmentId } from "../lib/api.ts";
+import { unlessRoot } from "../lib/report.ts";
+import { alert } from "../lib/ui/dialog.ts";
+import { fillCreateWorkspace as createWorkspace } from "../lib/ui/workspacesMenu.ts";
+import { check } from "../lib/waits.ts";
 import type { Scenario } from "../scenario.ts";
-import { check } from "../support.ts";
-import { alert, fillCreateWorkspace as createWorkspace } from "./workspaceUi.ts";
 
 const screen = (page: PointerPage) => page.getByTestId("workspace-screen");
 const treeRoot = (page: PointerPage) => page.getByRole("tree").getByRole("treeitem");

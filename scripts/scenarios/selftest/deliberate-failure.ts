@@ -1,5 +1,5 @@
 import type { Scenario } from "../scenario.ts";
-import { pageFrames } from "../support.ts";
+import { pageFrames } from "../lib/network.ts";
 
 /**
  * Fails on purpose in a named stage, with what it expected and found, once a page is open, so the

@@ -1,6 +1,6 @@
 import * as Effect from "effect/Effect";
 
-import { connectRpc } from "../rpc.ts";
+import { connectRpc } from "../lib/api.ts";
 import type { Scenario } from "../scenario.ts";
 
 const NAME = "persisted-workspace";

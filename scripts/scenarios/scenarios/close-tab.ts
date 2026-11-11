@@ -5,23 +5,17 @@ import * as NodePath from "node:path";
 
 import * as Effect from "effect/Effect";
 
-import { connectRpc } from "../rpc.ts";
+import { connectRpc } from "../lib/api.ts";
+import { pageFrames } from "../lib/network.ts";
+import { history, leaveAgent, shellList } from "../lib/shells.ts";
+import { addProject } from "../lib/ui/addProject.ts";
+import { startShell } from "../lib/ui/plusModal.ts";
+import { closeTab, shellTab, tabs } from "../lib/ui/tabs.ts";
+import { typeLine } from "../lib/ui/terminal.ts";
+import { openFromTree, shellRow } from "../lib/ui/tree.ts";
+import { createWorkspace } from "../lib/ui/workspacesMenu.ts";
+import { alive, check, follow, recorder } from "../lib/waits.ts";
 import type { Scenario } from "../scenario.ts";
-import { alive, check, follow, pageFrames, recorder } from "../support.ts";
-import {
-  addProject,
-  closeTab,
-  createWorkspace,
-  history,
-  leaveAgent,
-  openFromTree,
-  shellList,
-  shellRow,
-  shellTab,
-  startShell,
-  tabs,
-  typeLine,
-} from "./workspaceUi.ts";
 
 export const closeTabScenario: Scenario = {
   id: "S5",

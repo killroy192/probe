@@ -22,7 +22,7 @@ import {
   removeThrowawayHome,
   type SandboxOptions,
 } from "./environment.ts";
-import { sandboxFixtures, selftestFixtures } from "./fixtures.ts";
+import { sandboxFixtures, selftestFixtures } from "./lib/setup.ts";
 import { REPO_ROOT, shellHostPidIn, startServer, type ServerHandle } from "./server.ts";
 
 /**

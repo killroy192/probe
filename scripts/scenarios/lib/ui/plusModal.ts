@@ -1,0 +1,152 @@
+import type { PointerPage } from "../../browser.ts";
+import type { shellList } from "../shells.ts";
+import { check } from "../waits.ts";
+import { dialog } from "./dialog.ts";
+import { shellRow } from "./tree.ts";
+
+export const startButton = (page: PointerPage) =>
+  dialog(page).getByRole("button", { name: "Create shell", exact: true });
+/** The "+" on a project's row in the tree. */
+export const createShellButton = (page: PointerPage, folder: string) =>
+  page.locator(`[data-project="${folder}"]`).getByRole("button", { name: /^Create shell in / });
+/** The Existing | Fork switch; absent for a project that is not a git repository. */
+export const modeSwitch = (page: PointerPage) =>
+  dialog(page).getByRole("group", { name: "Worktree" });
+export const modeButton = (page: PointerPage, mode: "Existing" | "Fork") =>
+  modeSwitch(page).getByRole("button", { name: mode, exact: true });
+export const dropdown = (page: PointerPage, label: "Start in" | "Fork from") =>
+  dialog(page).getByRole("combobox", { name: label });
+
+/** The "Starting script" dropdown in "Create shell". */
+export const scriptDropdown = (page: PointerPage) =>
+  dialog(page).getByRole("combobox", { name: "Starting script" });
+
+/** The label of the selected starting script. */
+export async function selectedScript(page: PointerPage) {
+  return (await scriptDropdown(page).locator("[data-key]").textContent())?.trim() ?? null;
+}
+
+/** The starting scripts offered, as their labels in order. */
+export async function scriptItems(page: PointerPage) {
+  await scriptDropdown(page).click();
+  const items = page.getByRole("option");
+  await items.first().waitFor();
+  const labels = await items.evaluateAll((elements) =>
+    elements.map((element) => element.getAttribute("data-title") ?? ""),
+  );
+  // Closes the list the way a user does: picking the item that was already selected.
+  const selected = await scriptDropdown(page).locator("[data-key]").getAttribute("data-key");
+  await page.locator(`[role="option"][data-key="${selected}"]`).click();
+  return labels;
+}
+
+/** Picks a starting script by its label; the first one with that label. */
+export async function pickScript(page: PointerPage, label: string) {
+  await scriptDropdown(page).click();
+  await page.locator(`[role="option"][data-title="${label}"]`).first().click();
+  await scriptDropdown(page).filter({ hasText: label }).waitFor();
+}
+
+/**
+ * Opens "Create shell" from a project's "+" and waits until a git project's choices loaded. The
+ * epic 1 scenarios start the mock agent, so it is picked unless `script` says otherwise; null
+ * leaves the preselected one.
+ */
+export async function openModal(
+  page: PointerPage,
+  folder: string,
+  { script = "mock agent" }: { readonly script?: string | null } = {},
+) {
+  await createShellButton(page, folder).click();
+  await dialog(page).getByRole("heading", { name: "Create shell" }).waitFor();
+  await dialog(page).getByText("Reading worktrees…").waitFor({ state: "detached" });
+  if (script !== null && (await selectedScript(page)) !== script) await pickScript(page, script);
+}
+
+/** The pressed side of the Existing | Fork switch. */
+export async function mode(page: PointerPage): Promise<"Existing" | "Fork"> {
+  return (await modeButton(page, "Fork").getAttribute("aria-pressed")) === "true"
+    ? "Fork"
+    : "Existing";
+}
+
+/** The key of the dropdown's selected item: a worktree path, or `branch:`/`worktree:` for Fork. */
+export async function selectedKey(page: PointerPage, label: "Start in" | "Fork from") {
+  return dropdown(page, label).locator("[data-key]").getAttribute("data-key");
+}
+
+/** The dropdown's items as [key, kind, first line, second line], in order. */
+export async function dropdownItems(page: PointerPage, label: "Start in" | "Fork from") {
+  await dropdown(page, label).click();
+  const items = page.getByRole("option");
+  await items.first().waitFor();
+  const read = await items.evaluateAll((elements) =>
+    elements.map((element) => [
+      element.getAttribute("data-key"),
+      element.getAttribute("data-kind"),
+      element.getAttribute("data-title"),
+      element.getAttribute("data-worktree"),
+    ]),
+  );
+  // Closes the list the way a user does: picking the item that was already selected.
+  const selected = await selectedKey(page, label);
+  await page.locator(`[role="option"][data-key="${selected}"]`).click();
+  return read;
+}
+
+export async function pickItem(page: PointerPage, label: "Start in" | "Fork from", key: string) {
+  await dropdown(page, label).click();
+  await page.locator(`[role="option"][data-key="${key}"]`).click();
+  await dropdown(page, label).locator(`[data-key="${key}"]`).waitFor();
+}
+
+export async function cancelModal(page: PointerPage) {
+  await dialog(page).getByRole("button", { name: "Cancel", exact: true }).last().click();
+  await dialog(page).waitFor({ state: "detached" });
+}
+
+/** Clicks the up-arrow; returns the refusal, or null once the modal closed on a start. */
+export async function startFromModal(page: PointerPage): Promise<string | null> {
+  const shown = dialog(page).getByRole("alert");
+  const previous = (await shown.count()) ? await shown.getAttribute("data-attempt") : "none";
+  await startButton(page).click();
+  const alert = dialog(page).locator(`[role="alert"]:not([data-attempt="${previous}"])`);
+  await Promise.race([dialog(page).waitFor({ state: "detached" }), alert.waitFor()]);
+  if (await dialog(page).count()) return alert.textContent();
+  return null;
+}
+
+/** Starts a shell from a project's "+": in an existing worktree, or forked from the default. */
+export async function startIn(
+  page: PointerPage,
+  project: string,
+  place: { readonly existing?: string; readonly fork?: boolean } = {},
+) {
+  await openModal(page, project);
+  if (place.fork === true) await modeButton(page, "Fork").click();
+  else if ((await modeSwitch(page).count()) > 0) {
+    if ((await mode(page)) !== "Existing") await modeButton(page, "Existing").click();
+    await pickItem(page, "Start in", place.existing ?? project);
+  }
+  const refusal = await startFromModal(page);
+  check(refusal === null, `The shell in ${project} did not start: ${refusal}`);
+}
+
+/** Starts a shell with `startIn` and returns it once the server lists it as running. */
+export async function startShell(
+  page: PointerPage,
+  shells: ReturnType<typeof shellList>,
+  project: string,
+  place: { readonly existing?: string; readonly fork?: boolean } = {},
+) {
+  const known = new Set(shells.current().map((shell) => shell.shellId));
+  await startIn(page, project, place);
+  const list = await shells.lists.until(
+    `a new running shell in ${project}`,
+    (current) => current.some((shell) => !known.has(shell.shellId) && shell.status === "running"),
+    Math.max(0, shells.lists.mark() - 1),
+  );
+  const shell = list.find((entry) => !known.has(entry.shellId) && entry.status === "running")!;
+  await shellRow(page, shell.shellId).waitFor();
+  return shell;
+}

@@ -7,13 +7,13 @@ import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as Stream from "effect/Stream";
 
-import { seedWorkspace, withClient } from "../fixtures.ts";
-import { connectRpc, type WsClient } from "../rpc.ts";
+import { withClient, connectRpc, type WsClient } from "../lib/api.ts";
+import { issueBearerToken, saveServerInBrowser } from "../lib/seam.ts";
+import { seedWorkspace } from "../lib/setup.ts";
+import { shellList } from "../lib/shells.ts";
+import { check, recorder } from "../lib/waits.ts";
 import type { Scenario } from "../scenario.ts";
-import { issueBearerToken, saveServerInBrowser } from "../seam.ts";
 import { REPO_ROOT, type ServerHandle } from "../server.ts";
-import { check, recorder } from "../support.ts";
-import { shellList } from "./workspaceUi.ts";
 
 const LABEL = "Second server";
 

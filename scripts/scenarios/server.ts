@@ -8,7 +8,8 @@ import * as NodeProcess from "node:process";
 import * as NodeURL from "node:url";
 
 import { isolatedShellEnv, SCENARIO_GITCONFIG } from "./isolation.ts";
-import { alive } from "./support.ts";
+import { START_MS, WAIT_MS } from "./lib/deadlines.ts";
+import { alive } from "./lib/waits.ts";
 
 export const REPO_ROOT = NodePath.resolve(NodeURL.fileURLToPath(import.meta.url), "../../..");
 const DEFAULT_SERVER_BIN = NodePath.join(REPO_ROOT, "apps/server/src/bin.ts");
@@ -16,10 +17,6 @@ const DEFAULT_SERVER_BIN = NodePath.join(REPO_ROOT, "apps/server/src/bin.ts");
 export const MOCK_AGENT_COMMAND = `node ${NodePath.join(REPO_ROOT, "scripts/mock-agent/mock-agent.ts")}`;
 const LOG_LIMIT = 4 * 1024 * 1024;
 const LOG_TAIL_CHARS = 4_000;
-// A ceiling for a start that never answers, not a measure of a healthy one (about 2 s here).
-const START_TIMEOUT_MS = 60_000;
-// Matches the page action timeout in run.ts.
-const LOG_WAIT_MS = 10_000;
 
 /** Variables for the server process; `undefined` removes one the harness would set. */
 export type ServerEnv = Readonly<Record<string, string | undefined>>;
@@ -122,7 +119,7 @@ export const waitUntilServing = (
   child: NodeChildProcess.ChildProcess,
   origin: string,
   onOutput: (chunk: string) => void,
-  timeoutMs = START_TIMEOUT_MS,
+  timeoutMs = START_MS,
 ) =>
   new Promise<void>((resolve, reject) => {
     let tail = "";
@@ -207,7 +204,7 @@ const waitForLog =
       const timer = setTimeout(() => {
         unsubscribe();
         reject(new Error(`Timed out waiting for the server to log ${what}.`));
-      }, LOG_WAIT_MS);
+      }, WAIT_MS);
       unsubscribe = subscribe(check);
       check();
     });

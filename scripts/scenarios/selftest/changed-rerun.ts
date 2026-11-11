@@ -4,9 +4,9 @@ import * as NodeFSP from "node:fs/promises";
 import * as NodePath from "node:path";
 import * as NodeProcess from "node:process";
 
-import { withClient } from "../fixtures.ts";
+import { withClient } from "../lib/api.ts";
+import { issueBearerToken } from "../lib/seam.ts";
 import type { Scenario } from "../scenario.ts";
-import { issueBearerToken } from "../seam.ts";
 
 /**
  * Makes a workspace and a folder named by its run, failing if either exists, and writes the note it

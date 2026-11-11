@@ -7,41 +7,44 @@ import * as NodeProcess from "node:process";
 import type { ShellSummary } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 
-import { connectRpc, type WsClient } from "../rpc.ts";
-import type { PointerPage } from "../browser.ts";
-import type { Scenario } from "../scenario.ts";
-import { alive, check, pageFrames } from "../support.ts";
-import { expectLogged, unlessRoot } from "../fixtures.ts";
+import { connectRpc, type WsClient } from "../lib/api.ts";
+import { gitOk } from "../lib/files.ts";
+import { layoutSaved, layoutState } from "../lib/navigate.ts";
+import { pageFrames } from "../lib/network.ts";
+import { unlessRoot } from "../lib/report.ts";
+import { expectLogged } from "../lib/serverLog.ts";
 import {
-  addProject,
-  alert,
-  endedRow,
   agentReady,
-  answerConfirm,
-  askToKill,
-  closeTab,
-  createShellButton,
-  createWorkspace,
-  dropdownItems,
-  cancelModal,
-  gitOk,
   history,
-  killFromTree,
-  layoutSaved,
-  layoutState,
   leaveAgent,
-  openFromTree,
-  openModal,
-  openWorkspace,
   shellEnded,
   shellList,
-  shellRow,
-  shellTab,
-  startShell,
   survivors,
-  typeLine,
+} from "../lib/shells.ts";
+import { addProject } from "../lib/ui/addProject.ts";
+import { alert } from "../lib/ui/dialog.ts";
+import {
+  createShellButton,
+  dropdownItems,
+  cancelModal,
+  openModal,
+  startShell,
   modeButton,
-} from "./workspaceUi.ts";
+} from "../lib/ui/plusModal.ts";
+import { closeTab, shellTab } from "../lib/ui/tabs.ts";
+import { typeLine } from "../lib/ui/terminal.ts";
+import {
+  endedRow,
+  answerConfirm,
+  askToKill,
+  killFromTree,
+  openFromTree,
+  shellRow,
+} from "../lib/ui/tree.ts";
+import { createWorkspace, openWorkspace } from "../lib/ui/workspacesMenu.ts";
+import { alive, check } from "../lib/waits.ts";
+import type { PointerPage } from "../browser.ts";
+import type { Scenario } from "../scenario.ts";
 
 const openTabs = (page: PointerPage) =>
   page

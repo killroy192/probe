@@ -1,5 +1,5 @@
 import type { Scenario } from "../scenario.ts";
-import { check } from "../support.ts";
+import { check } from "../lib/waits.ts";
 
 /** Signed-in pages share one login per server; anonymous pages and a second server stay apart. */
 export const oneLogin: Scenario = {

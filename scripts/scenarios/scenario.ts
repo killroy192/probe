@@ -1,4 +1,5 @@
 import type { PointerPage } from "./browser.ts";
+import type { Trail } from "./lib/trail.ts";
 import type { ServerHandle } from "./server.ts";
 
 export interface ScenarioContext {
@@ -17,6 +18,15 @@ export interface ScenarioContext {
    * `serverBin` exists for the harness self-test of a server that never starts.
    */
   readonly startSecondServer: (options?: { readonly serverBin?: string }) => Promise<ServerHandle>;
+  /** The id the scenario runs under, for the lines it prints. */
+  readonly scenarioId: string;
+  /** This run's stages and setup calls; one per run of a scenario. */
+  readonly trail: Trail;
+  /**
+   * Registers `undo` for what the scenario just made. The undos run in reverse order when the
+   * scenario ends, pass or fail; one that fails fails a scenario that passed.
+   */
+  readonly onStepEnd: (what: string, undo: () => Promise<void>) => void;
 }
 
 /**

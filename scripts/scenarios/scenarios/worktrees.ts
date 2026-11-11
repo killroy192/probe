@@ -7,36 +7,33 @@ import type { ShellSummary } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 
 import type { PointerPage } from "../browser.ts";
-import { connectRpc } from "../rpc.ts";
-import type { Scenario } from "../scenario.ts";
-import { expectLogged, metric } from "../fixtures.ts";
-import { check, pageFrames } from "../support.ts";
+import { connectRpc } from "../lib/api.ts";
+import { addStartingScript, git } from "../lib/files.ts";
+import { reloadShowing, layoutSaved } from "../lib/navigate.ts";
+import { pageFrames } from "../lib/network.ts";
+import { metric } from "../lib/report.ts";
+import { expectLogged } from "../lib/serverLog.ts";
+import { leaveAgent, runningIn, shellEnded, shellList } from "../lib/shells.ts";
+import { addProject } from "../lib/ui/addProject.ts";
+import { dialog } from "../lib/ui/dialog.ts";
 import {
-  addProject,
-  addStartingScript,
-  leaveAgent,
   cancelModal,
   createShellButton,
-  dialog,
   dropdownItems,
-  git,
   mode,
   modeButton,
   modeSwitch,
   openModal,
   pickItem,
-  runningIn,
   selectedKey,
-  shellEnded,
-  shellList,
-  shellRow,
   startButton,
   startFromModal,
-  tabs,
-  typeLine,
-  reloadShowing,
-  layoutSaved,
-} from "./workspaceUi.ts";
+} from "../lib/ui/plusModal.ts";
+import { tabs } from "../lib/ui/tabs.ts";
+import { typeLine } from "../lib/ui/terminal.ts";
+import { shellRow } from "../lib/ui/tree.ts";
+import { check } from "../lib/waits.ts";
+import type { Scenario } from "../scenario.ts";
 
 const NAME = /^probe-worktree-[0-9a-f]{6}$/;
 

@@ -5,43 +5,35 @@ import * as NodeFSP from "node:fs/promises";
 import type { StartingScript } from "@t3tools/contracts";
 
 import type { PointerPage } from "../browser.ts";
+import { connectRpc } from "../lib/api.ts";
+import { readStartingScripts, startingScriptsFile, writeStartingScripts } from "../lib/files.ts";
+import { restartAndReload, reloadShowing, layoutSaved } from "../lib/navigate.ts";
+import { pageFrames } from "../lib/network.ts";
+import { metric } from "../lib/report.ts";
+import { expectLogged, logEntries, serverPromptMs } from "../lib/serverLog.ts";
+import { projects, setUp } from "../lib/setup.ts";
 import {
   agentTypedOnceAfterPrompt,
-  expectLogged,
-  logEntries,
-  metric,
   MOCK_AGENT_LINES,
-  projects,
-  restartAndReload,
-  serverPromptMs,
-  setUp,
-} from "../fixtures.ts";
-import { connectRpc } from "../rpc.ts";
-import type { Scenario } from "../scenario.ts";
-import { MOCK_AGENT_COMMAND, type ServerHandle } from "../server.ts";
-import { check, pageFrames } from "../support.ts";
+  history,
+  shellList,
+  shellsIn,
+} from "../lib/shells.ts";
+import { dialog } from "../lib/ui/dialog.ts";
 import {
   cancelModal,
-  dialog,
-  history,
-  openFromTree,
   openModal,
   pickItem,
   pickScript,
-  readStartingScripts,
-  reloadShowing,
   scriptDropdown,
   scriptItems,
-  shellList,
-  shellNodes,
-  shellRow,
-  shellsIn,
   startButton,
-  startingScriptsFile,
-  typeLine,
-  writeStartingScripts,
-  layoutSaved,
-} from "./workspaceUi.ts";
+} from "../lib/ui/plusModal.ts";
+import { typeLine } from "../lib/ui/terminal.ts";
+import { openFromTree, shellNodes, shellRow } from "../lib/ui/tree.ts";
+import { check } from "../lib/waits.ts";
+import type { Scenario } from "../scenario.ts";
+import { MOCK_AGENT_COMMAND, type ServerHandle } from "../server.ts";
 
 /** OSC 133;B, which Probe's zsh and bash wrappers print when the line editor first reads input. */
 const PROMPT_MARK = "]133;B";

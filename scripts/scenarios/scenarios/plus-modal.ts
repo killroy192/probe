@@ -9,44 +9,39 @@ import * as Effect from "effect/Effect";
 import * as Stream from "effect/Stream";
 
 import { connectionCutter, type PointerPage } from "../browser.ts";
-import { connectRpc } from "../rpc.ts";
-import type { Scenario } from "../scenario.ts";
+import { connectRpc } from "../lib/api.ts";
+import { addStartingScript, git } from "../lib/files.ts";
+import { reloadShowing, layoutSaved } from "../lib/navigate.ts";
+import { pageFrames } from "../lib/network.ts";
+import { metric, unlessRoot } from "../lib/report.ts";
+import { expectLogged } from "../lib/serverLog.ts";
 import {
   agentTypedOnceAfterPrompt,
-  expectLogged,
-  metric,
   MOCK_AGENT_LINES,
-  unlessRoot,
-} from "../fixtures.ts";
-import { MOCK_AGENT_COMMAND } from "../server.ts";
-import { check, follow, pageFrames, recorder } from "../support.ts";
-import {
-  addProject,
-  addStartingScript,
-  cancelModal,
-  closeFolderList,
-  createWorkspace,
-  dialog,
-  folderList,
-  createShellButton,
-  git,
   history,
-  openAddFolder,
+  shellEnded,
+  shellList,
+  shellsIn,
+} from "../lib/shells.ts";
+import { addProject, closeFolderList, folderList, openAddFolder } from "../lib/ui/addProject.ts";
+import { dialog } from "../lib/ui/dialog.ts";
+import {
+  cancelModal,
+  createShellButton,
   openModal,
   mode,
   modeButton,
   modeSwitch,
   selectedKey,
-  shellEnded,
-  shellList,
-  shellNodes,
-  shellsIn,
   startButton,
-  tabs,
-  typeLine,
-  reloadShowing,
-  layoutSaved,
-} from "./workspaceUi.ts";
+} from "../lib/ui/plusModal.ts";
+import { tabs } from "../lib/ui/tabs.ts";
+import { typeLine } from "../lib/ui/terminal.ts";
+import { shellNodes } from "../lib/ui/tree.ts";
+import { createWorkspace } from "../lib/ui/workspacesMenu.ts";
+import { check, follow, recorder } from "../lib/waits.ts";
+import type { Scenario } from "../scenario.ts";
+import { MOCK_AGENT_COMMAND } from "../server.ts";
 
 const CONNECTION_LOST =
   "The shell did not start: the connection to the server was lost. Try again.";

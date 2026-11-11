@@ -29,12 +29,12 @@ import {
   selftestScenarios,
   storyScenarios,
 } from "./registry.ts";
-import { withClient } from "./fixtures.ts";
+import { withClient } from "./lib/api.ts";
+import { issueBearerToken } from "./lib/seam.ts";
+import { alive, gone } from "./lib/waits.ts";
 import { pickScenario, sandboxRefusal, staleSandboxFile } from "./sandboxRules.ts";
-import { issueBearerToken } from "./seam.ts";
 import { attachServer, REPO_ROOT } from "./server.ts";
 import { type Spawned, spawnScript } from "./spawned.ts";
-import { alive, gone } from "./support.ts";
 
 const here = (file: string) => NodeURL.fileURLToPath(new URL(file, import.meta.url));
 const sandboxBin = here("./sandbox.ts");

@@ -3,9 +3,9 @@
 
 import { deriveWsBaseUrl, normalizeHttpBaseUrl } from "@t3tools/shared/advertisedEndpoint";
 
-import type { PointerPage } from "./browser.ts";
-import { environmentId } from "./rpc.ts";
-import type { ServerHandle } from "./server.ts";
+import type { PointerPage } from "../browser.ts";
+import { environmentId } from "./api.ts";
+import type { ServerHandle } from "../server.ts";
 
 // Mirrors `apps/web/src/connection/storage.ts`; R1 fails if the app stops reading this shape.
 const DATABASE_NAME = "t3code:connection-runtime";

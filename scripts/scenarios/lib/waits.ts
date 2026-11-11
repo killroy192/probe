@@ -1,4 +1,4 @@
-// @effect-diagnostics nodeBuiltinImport:off globalTimers:off globalDate:off - Waits for processes and page frames in real time.
+// @effect-diagnostics nodeBuiltinImport:off globalTimers:off globalDate:off - Waits for processes and recorded values in real time.
 
 import * as NodeFS from "node:fs";
 import * as NodeProcess from "node:process";
@@ -6,10 +6,7 @@ import * as NodeProcess from "node:process";
 import * as Effect from "effect/Effect";
 import * as Stream from "effect/Stream";
 
-import type { PointerPage } from "./browser.ts";
-
-// Matches the page action timeout in run.ts, so a missing event fails as fast as a missing element.
-const WAIT_MS = 10_000;
+import { WAIT_MS } from "./deadlines.ts";
 
 /** Fails the scenario with `message` unless `condition` holds. */
 export function check(condition: boolean, message: string): asserts condition {
@@ -123,14 +120,3 @@ export async function gone(pid: number): Promise<boolean> {
 
 export const follow = <A, E>(stream: Stream.Stream<A, E>, onValue: (value: A) => void) =>
   Effect.runFork(Stream.runForEach(stream, (value) => Effect.sync(() => onValue(value))));
-
-/** Text the page received over its websockets, which is what its canvas terminal draws. */
-export function pageFrames(page: PointerPage) {
-  const frames = recorder<string>("page frames");
-  page.on("websocket", (socket) =>
-    socket.on("framereceived", ({ payload }) => {
-      if (typeof payload === "string") frames.push(payload);
-    }),
-  );
-  return frames;
-}

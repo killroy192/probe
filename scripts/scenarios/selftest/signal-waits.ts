@@ -8,21 +8,15 @@ import * as NodeProcess from "node:process";
 import * as Effect from "effect/Effect";
 
 import { frameHolder, type PointerPage } from "../browser.ts";
-import { setUp } from "../fixtures.ts";
-import { connectRpc } from "../rpc.ts";
+import { connectRpc } from "../lib/api.ts";
+import { layoutSaved, layoutState } from "../lib/navigate.ts";
+import { setUp } from "../lib/setup.ts";
+import { history, shellEnded, shellList } from "../lib/shells.ts";
+import { startShell } from "../lib/ui/plusModal.ts";
+import { closeTab } from "../lib/ui/tabs.ts";
+import { shellReady, typeLine } from "../lib/ui/terminal.ts";
+import { check } from "../lib/waits.ts";
 import type { Scenario, ScenarioContext } from "../scenario.ts";
-import { check } from "../support.ts";
-import {
-  closeTab,
-  history,
-  layoutSaved,
-  layoutState,
-  shellEnded,
-  shellList,
-  shellReady,
-  startShell,
-  typeLine,
-} from "../scenarios/workspaceUi.ts";
 
 /** A wait that must fail fast in a self-test, so the self-test does not take the page timeout. */
 const SHORT_MS = 2_000;

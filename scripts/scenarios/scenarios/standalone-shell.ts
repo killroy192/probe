@@ -7,9 +7,10 @@ import type { ShellSummary, TerminalAttachStreamEvent } from "@t3tools/contracts
 import * as Effect from "effect/Effect";
 import * as Stream from "effect/Stream";
 
-import { connectRpc, environmentId, type WsClient } from "../rpc.ts";
+import { connectRpc, environmentId, type WsClient } from "../lib/api.ts";
+import { pageFrames } from "../lib/network.ts";
+import { alive, follow, recorder } from "../lib/waits.ts";
 import type { Scenario } from "../scenario.ts";
-import { alive, follow, pageFrames, recorder } from "../support.ts";
 
 async function openShell(client: WsClient, cwd: string): Promise<ShellSummary> {
   return Effect.runPromise(client["shell.open"]({ cwd, cols: 80, rows: 24 }));

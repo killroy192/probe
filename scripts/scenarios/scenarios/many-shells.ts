@@ -6,26 +6,19 @@ import * as NodeProcess from "node:process";
 
 import * as Effect from "effect/Effect";
 
-import { connectRpc } from "../rpc.ts";
+import { connectRpc } from "../lib/api.ts";
+import { gitOk } from "../lib/files.ts";
+import { layoutSaved } from "../lib/navigate.ts";
+import { pageFrames } from "../lib/network.ts";
+import { history, leaveAgent, shellEnded, shellList } from "../lib/shells.ts";
+import { addProject } from "../lib/ui/addProject.ts";
+import { startShell } from "../lib/ui/plusModal.ts";
+import { closeTab, shellTab } from "../lib/ui/tabs.ts";
+import { typeLine } from "../lib/ui/terminal.ts";
+import { killFromTree, openFromTree, shellRow } from "../lib/ui/tree.ts";
+import { createWorkspace } from "../lib/ui/workspacesMenu.ts";
+import { alive, check } from "../lib/waits.ts";
 import type { Scenario } from "../scenario.ts";
-import { alive, check, pageFrames } from "../support.ts";
-import {
-  addProject,
-  closeTab,
-  createWorkspace,
-  gitOk,
-  history,
-  killFromTree,
-  layoutSaved,
-  leaveAgent,
-  openFromTree,
-  shellEnded,
-  shellList,
-  shellRow,
-  shellTab,
-  startShell,
-  typeLine,
-} from "./workspaceUi.ts";
 
 export const manyShells: Scenario = {
   id: "S4",

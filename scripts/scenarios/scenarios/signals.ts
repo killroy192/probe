@@ -6,23 +6,23 @@ import * as NodePath from "node:path";
 import * as Effect from "effect/Effect";
 
 import { frameHolder } from "../browser.ts";
-import { restartAndReload, setUp } from "../fixtures.ts";
-import { connectRpc } from "../rpc.ts";
-import type { Scenario } from "../scenario.ts";
-import { check } from "../support.ts";
+import { connectRpc } from "../lib/api.ts";
 import {
+  restartAndReload,
   layoutSaved,
   layoutState,
   layoutStates,
-  openFromTree,
   recordLayoutStates,
   reloadShowing,
-  shellList,
-  shellPanel,
-  shellReady,
-  shellTab,
-  startShell,
-} from "./workspaceUi.ts";
+} from "../lib/navigate.ts";
+import { setUp } from "../lib/setup.ts";
+import { shellList } from "../lib/shells.ts";
+import { startShell } from "../lib/ui/plusModal.ts";
+import { shellTab } from "../lib/ui/tabs.ts";
+import { shellPanel, shellReady } from "../lib/ui/terminal.ts";
+import { openFromTree } from "../lib/ui/tree.ts";
+import { check } from "../lib/waits.ts";
+import type { Scenario } from "../scenario.ts";
 
 const plainFolder = async (home: string, runId: string) => {
   const plain = NodePath.join(home, "folders", runId, "plain");

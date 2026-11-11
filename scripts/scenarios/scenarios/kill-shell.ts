@@ -7,29 +7,19 @@ import * as NodeProcess from "node:process";
 
 import type { ShellSummary } from "@t3tools/contracts";
 
-import { connectRpc } from "../rpc.ts";
+import { connectRpc } from "../lib/api.ts";
+import { gitOk } from "../lib/files.ts";
+import { pageFrames } from "../lib/network.ts";
+import { expectLogged } from "../lib/serverLog.ts";
+import { history, leaveAgent, shellEnded, shellList, survivors } from "../lib/shells.ts";
+import { addProject } from "../lib/ui/addProject.ts";
+import { startShell } from "../lib/ui/plusModal.ts";
+import { closeTab, shellTab } from "../lib/ui/tabs.ts";
+import { typeLine } from "../lib/ui/terminal.ts";
+import { answerConfirm, askToKill, killFromTree, openFromTree, shellRow } from "../lib/ui/tree.ts";
+import { createWorkspace } from "../lib/ui/workspacesMenu.ts";
+import { alive, check } from "../lib/waits.ts";
 import type { Scenario } from "../scenario.ts";
-import { expectLogged } from "../fixtures.ts";
-import { alive, check, pageFrames } from "../support.ts";
-import {
-  addProject,
-  answerConfirm,
-  askToKill,
-  closeTab,
-  createWorkspace,
-  gitOk,
-  history,
-  killFromTree,
-  leaveAgent,
-  openFromTree,
-  shellEnded,
-  shellList,
-  shellRow,
-  shellTab,
-  survivors,
-  startShell,
-  typeLine,
-} from "./workspaceUi.ts";
 
 /** Pids of the processes whose command line matches. */
 async function pidsRunning(command: RegExp) {
