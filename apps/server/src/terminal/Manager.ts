@@ -127,7 +127,7 @@ const MAX_TERMINAL_LABEL_LENGTH = 128;
 const decodeClaudeSettings = Schema.decodeUnknownOption(ClaudeSettings);
 const decodeCodexSettings = Schema.decodeUnknownOption(CodexSettings);
 
-class TerminalSubprocessCheckError extends Schema.TaggedError<TerminalSubprocessCheckError>()(
+export class TerminalSubprocessCheckError extends Schema.TaggedError<TerminalSubprocessCheckError>()(
   "TerminalSubprocessCheckError",
   {
     cause: Schema.optional(Schema.Defect()),
@@ -1756,7 +1756,8 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
         })),
         Effect.catch(() =>
           fallbackProcessTableSnapshot.pipe(
-            Effect.map((snapshot) => ({ snapshot, snapshotSucceeded: false })),
+            // ps is cheap enough to poll every interval; only PowerShell backs off.
+            Effect.map((snapshot) => ({ snapshot, snapshotSucceeded: platform !== "win32" })),
           ),
         ),
       )
