@@ -35,8 +35,15 @@ export interface SandboxRecord {
   readonly bundleBuiltMs: number | null;
 }
 
-interface Manifest {
-  readonly runner: { readonly pid: number; readonly startTime: string };
+export interface ProcessIdentity {
+  readonly pid: number;
+  readonly startTime: string;
+}
+
+export interface Manifest {
+  readonly runner: ProcessIdentity;
+  /** The launcher of the run this process belongs to; a worker outliving it is abandoned. */
+  readonly run?: ProcessIdentity;
   readonly entries: ReadonlyArray<ManifestEntry>;
   readonly sandbox?: SandboxRecord;
 }
@@ -107,12 +114,18 @@ function writeManifest(path: string, manifest: Manifest) {
 }
 
 /** This run's manifest; `add` on start, `remove` once stopped, `close` when the run ends. */
-export function openManifest(dir = RUNS_DIR) {
+export function openManifest(dir = RUNS_DIR, run?: ProcessIdentity) {
   const path = NodePath.join(dir, `${NodeProcess.pid}.json`);
   const runner = { pid: NodeProcess.pid, startTime: processStartTime(NodeProcess.pid) ?? "" };
   let entries: Array<ManifestEntry> = [];
   let sandbox: SandboxRecord | undefined;
-  const save = () => writeManifest(path, { runner, entries, ...(sandbox ? { sandbox } : {}) });
+  const save = () =>
+    writeManifest(path, {
+      runner,
+      ...(run ? { run } : {}),
+      entries,
+      ...(sandbox ? { sandbox } : {}),
+    });
   save();
   return {
     describeSandbox: (record: SandboxRecord) => {
@@ -288,6 +301,19 @@ export function killServerTree(entry: ManifestEntry, { keepHome = false } = {}) 
   }
 }
 
+/**
+ * Whether a manifest's processes are left over: its owner is dead, or its owner lives on after the
+ * launcher of its run died (a worker of a SIGKILLed launcher), and then the owner is stopped too.
+ */
+export function abandonment(
+  manifest: Pick<Manifest, "runner" | "run">,
+  isLive: (process: ProcessIdentity) => boolean,
+): "live" | "ownerDead" | "launcherDead" {
+  if (!isLive(manifest.runner)) return "ownerDead";
+  if (manifest.run !== undefined && !isLive(manifest.run)) return "launcherDead";
+  return "live";
+}
+
 /** Cleans up after runs that ended without doing it themselves; returns what it printed. */
 export function cleanLeftovers(write: (line: string) => void, dir = RUNS_DIR) {
   let names: ReadonlyArray<string> = [];
@@ -310,12 +336,17 @@ export function cleanLeftovers(write: (line: string) => void, dir = RUNS_DIR) {
       );
       continue;
     }
-    if (isSameProcess(manifest.runner.pid, manifest.runner.startTime)) continue;
+    if (manifest.runner.pid === NodeProcess.pid) continue;
+    const state = abandonment(manifest, ({ pid, startTime }) => isSameProcess(pid, startTime));
+    if (state === "live") continue;
+    if (state === "launcherDead") kill(manifest.runner.pid);
     for (const entry of manifest.entries) killServerTree(entry);
     NodeFS.rmSync(path, { force: true });
     removeSideFiles(manifest.runner.pid, dir);
     write(
-      `scenarios: cleaned up after run ${manifest.runner.pid}: ${manifest.entries.length} server(s) and their homes`,
+      state === "launcherDead"
+        ? `scenarios: stopped ${manifest.runner.pid}, left running by the ended run ${manifest.run?.pid}, with ${manifest.entries.length} server(s) and their homes`
+        : `scenarios: cleaned up after run ${manifest.runner.pid}: ${manifest.entries.length} server(s) and their homes`,
     );
   }
 }
