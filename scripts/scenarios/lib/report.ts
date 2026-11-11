@@ -20,16 +20,6 @@ export async function unlessRoot(
   await run();
 }
 
-/**
- * Prints a value the run records and does not judge (FR-4). The time is the harness's, so it
- * includes the browser and the machine's load.
- */
-export function metric(scenarioId: string, name: string, ms: number, note?: string) {
-  NodeProcess.stdout.write(
-    `METRIC  ${scenarioId} ${name} ms=${Math.round(ms)}${note === undefined ? "" : ` (${note})`}\n`,
-  );
-}
-
 const MASK = "[redacted]";
 const SECRET_KEYS = "wsTicket|token|credential|secret|password";
 

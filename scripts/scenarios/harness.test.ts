@@ -1,36 +1,56 @@
-// @effect-diagnostics nodeBuiltinImport:off globalFetch:off globalFetchInEffect:off - Spawns the scenario runner as a real subprocess.
+// @effect-diagnostics nodeBuiltinImport:off globalFetch:off globalFetchInEffect:off - Spawns the scenario launcher as a real subprocess.
 
 import * as NodeChildProcess from "node:child_process";
 import * as NodeFS from "node:fs";
+import * as NodeNet from "node:net";
 import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
+import * as NodeProcess from "node:process";
 import * as NodeURL from "node:url";
 
 import { assert, describe, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
+import { onTestFinished } from "vite-plus/test";
 
 import * as Fiber from "effect/Fiber";
 
 import { launchBrowser } from "./browser.ts";
 import { bundleState } from "./bundle.ts";
-import { childPids, cleanLeftovers, processStartTime } from "./cleanup.ts";
+import { cleanLeftovers, processStartTime } from "./cleanup.ts";
 import { refusalReason } from "./environment.ts";
+import { QUIET_UNCONFIRMED } from "./gate.ts";
 import { connectApi, issueBearerToken } from "./lib/api.ts";
 import { agentTypedOnceAfterPrompt, followShells, MOCK_AGENT_LINES } from "./lib/shells.ts";
 import { createTrail, StageFailure } from "./lib/trail.ts";
 import { alive, follow, recorder } from "./lib/waits.ts";
-import { childEnv, startServer, waitUntilServing } from "./server.ts";
+import { portTakenLine, startOnLeasedPort } from "./ports.ts";
+import { childEnv, REPO_ROOT, startServer, waitUntilServing } from "./server.ts";
 import { spawnScript } from "./spawned.ts";
 
-const runner = NodeURL.fileURLToPath(new URL("./run.ts", import.meta.url));
-
-const spawnRunner = (args: ReadonlyArray<string>, env: NodeJS.ProcessEnv = {}) =>
-  spawnScript(runner, args, env);
+const launcher = NodeURL.fileURLToPath(new URL("./cli.ts", import.meta.url));
+const SERVER_BIN = NodePath.join(REPO_ROOT, "apps/server/src/bin.ts");
 
 const scratch = (label: string) => NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), label));
 const missingPath = (name: string) => NodePath.join(NodeOS.tmpdir(), "scenario-missing", name);
+const removedAtEnd = (path: string) =>
+  onTestFinished(() => NodeFS.rmSync(path, { recursive: true, force: true }));
 
-/** The folder and the saved files of the one failure a run printed artifacts for. */
+/**
+ * Runs the launcher with its artifacts in `artifacts`, removed when the test ends. Registered
+ * before the spawn, so it runs after the spawn's own end-of-test stop.
+ */
+function spawnRunner(
+  args: ReadonlyArray<string>,
+  env: NodeJS.ProcessEnv = {},
+  artifacts = scratch("scenario-run-"),
+) {
+  removedAtEnd(artifacts);
+  return { ...spawnScript(launcher, [...args, "--artifacts", artifacts], env), artifacts };
+}
+
+const only = (...ids: ReadonlyArray<string>) => ids.flatMap((id) => ["--only", id]);
+
+/** The folder and the saved files of the first failure a run printed artifacts for. */
 function artifactsOf(output: string) {
   const found = /artifacts: (\S+) \(([^)]*)\)/.exec(output);
   assert.isNotNull(found, output);
@@ -39,9 +59,30 @@ function artifactsOf(output: string) {
     dir,
     saved: found![2]!.split(", "),
     read: (file: string) => NodeFS.readFileSync(NodePath.join(dir, file), "utf8"),
-    remove: () => NodeFS.rmSync(NodePath.dirname(dir), { recursive: true, force: true }),
   };
 }
+
+/** Every server a run printed as started: shared, fresh and second ones. */
+const startedServers = (output: string) =>
+  [...output.matchAll(/ server pid=(\d+) home=(\S+)/g)].map(([, pid, home]) => ({
+    pid: Number(pid),
+    home: home!,
+  }));
+
+function assertStopped(servers: ReadonlyArray<{ readonly pid: number; readonly home: string }>) {
+  assert.isNotEmpty(servers);
+  for (const { pid, home } of servers) {
+    assert.isFalse(alive(pid), `server ${pid} survived`);
+    assert.isFalse(NodeFS.existsSync(home), `${home} was kept`);
+  }
+}
+
+const parentOf = (pid: number) =>
+  Number(
+    NodeChildProcess.execFileSync("ps", ["-o", "ppid=", "-p", String(pid)], {
+      encoding: "utf8",
+    }).trim(),
+  );
 
 /** A pretty-printed server log entry at debug level: `[time] DEBUG (#fiber) ...`. */
 const DEBUG_ENTRY = / DEBUG \(#\d+\)/;
@@ -54,10 +95,36 @@ const UNMASKED_SECRETS = [
 ];
 
 function assertNoSecrets(dir: string) {
-  for (const file of NodeFS.readdirSync(dir).filter((name) => !name.endsWith(".png"))) {
+  for (const file of NodeFS.readdirSync(dir).filter((name) => !/\.(png|zip)$/.test(name))) {
     const text = NodeFS.readFileSync(NodePath.join(dir, file), "utf8");
     for (const pattern of UNMASKED_SECRETS) assert.notMatch(text, pattern, file);
   }
+}
+
+const fakeBin = (source: string) => {
+  const dir = scratch("scenario-fake-server-");
+  const file = NodePath.join(dir, "bin.mjs");
+  NodeFS.writeFileSync(file, source);
+  return { dir, file };
+};
+
+/** A fake server that only answers HTTP on the port it is given. */
+const HTTP_ONLY_SERVER = `
+  import * as http from "node:http";
+  const port = Number(process.argv[process.argv.indexOf("--port") + 1]);
+  http.createServer((_, response) => response.end("{}")).listen(port, "127.0.0.1", () => {
+    console.log("listening, no ready line");
+  });
+`;
+
+/** A `vp` first on PATH that prints `say` and exits with `code`, so no real build runs. */
+function fakeVp(say: string, code: number) {
+  const bin = scratch("scenario-fake-vp-");
+  removedAtEnd(bin);
+  NodeFS.writeFileSync(NodePath.join(bin, "vp"), `#!/bin/sh\necho ${say}\nexit ${code}\n`, {
+    mode: 0o755,
+  });
+  return { PATH: `${bin}${NodePath.delimiter}${NodeProcess.env.PATH ?? ""}` };
 }
 
 describe("refusalReason", () => {
@@ -82,54 +149,71 @@ describe("refusalReason", () => {
 
 it.live("refuses to start against real data before launching anything", () =>
   Effect.promise(async () => {
-    // os.homedir() honors these, so the runner's idea of "real data" is a scratch folder.
+    // os.homedir() honors these, so the launcher's idea of "real data" is a scratch folder.
     const fakeHome = scratch("scenario-fake-home-");
-    try {
-      const { code, output } = await spawnRunner([], {
-        HOME: fakeHome,
-        USERPROFILE: fakeHome,
-        T3CODE_HOME: NodePath.join(fakeHome, ".t3"),
-      }).done;
-      assert.strictEqual(code, 2);
-      assert.include(output, "refusing to run");
-      assert.notInclude(output, "scenarios: ready");
-    } finally {
-      NodeFS.rmSync(fakeHome, { recursive: true, force: true });
-    }
+    removedAtEnd(fakeHome);
+    const { code, output } = await spawnRunner([], {
+      HOME: fakeHome,
+      USERPROFILE: fakeHome,
+      T3CODE_HOME: NodePath.join(fakeHome, ".t3"),
+    }).done;
+    assert.strictEqual(code, 2);
+    assert.include(output, "refusing to run");
+    assert.notInclude(output, "scenarios: ready");
   }),
 );
 
-it.live("names the browser when it cannot be started", () =>
+it.live("names the browser when it cannot be started, before any server starts", () =>
   Effect.promise(async () => {
     const browser = missingPath("chromium");
-    const { code, output } = await spawnRunner(["--browser", browser]).done;
+    const { code, output } = await spawnRunner(["--selftest", ...only("T16"), "--browser", browser])
+      .done;
     assert.notStrictEqual(code, 0);
     assert.include(output, `Browser at ${browser} could not be started`);
+    assert.include(output, "Install it with");
+    assert.deepEqual(startedServers(output), []);
   }),
 );
 
-describe("scenario runner", () => {
-  it.live("names the server when it cannot start", () =>
+describe("scenario launcher", () => {
+  it.live("names the shared server when it cannot start, and reports every scenario", () =>
     Effect.promise(async () => {
-      const { code, output } = await spawnRunner(["--server-bin", missingPath("bin.ts")]).done;
-      assert.notStrictEqual(code, 0);
-      assert.include(output, "Probe server could not start");
+      const { code, output } = await spawnRunner([
+        "--selftest",
+        "--workers",
+        "2",
+        "--server-bin",
+        missingPath("bin.ts"),
+        ...only("T16", "T17"),
+      ]).done;
+      assert.strictEqual(code, 1);
+      for (const id of ["T16", "T17"]) {
+        assert.match(
+          output,
+          new RegExp(`FAIL\\s+${id} [^\\n]*: at stage "setup": Probe server could not start`),
+        );
+      }
+      assert.include(output, "Cannot find module");
+      assert.include(output, "scenarios: self-test 2 ran, 0 passed, 2 failed");
     }),
   );
 
-  it.live("reports a failing scenario by name and still runs the others", () =>
+  it.live("reports each failure by name with its evidence, then judges the perf self-tests", () =>
     Effect.promise(async () => {
-      const { code, output } = await spawnRunner(["--selftest"]).done;
-      assert.strictEqual(code, 1);
-      // Every scenario's time and teardown, and the run's total, pass or fail (AC-17).
+      const run = spawnRunner(["--selftest"]);
+      const { code, output } = await run.done;
+      assert.strictEqual(code, 1, output);
+      // Every scenario's time and teardown, and the run's total, pass or fail.
       assert.match(output, /PASS\s+T1 restart keeps data \(\d+\.\d s, teardown \d+ ms\)/);
       assert.match(
         output,
-        /FAIL\s+T2 deliberate failure \(\d+\.\d s, teardown \d+ ms\): at stage "setup": deliberate failure/,
+        /FAIL\s+T2 deliberate failure \(\d+\.\d s, teardown \d+ ms\): at stage "setup": deliberate failure [^\n]*expected "a title no page has", found /,
       );
+      assert.match(output, /scenarios: self-test 5 ran, 4 passed, 1 failed, \d+ checks skipped/);
       assert.match(output, /scenarios: total \d+\.\d s/);
-      // The failure leaves its evidence outside the removed home (AC-16).
+      // The failure leaves its evidence, a trace included, outside the removed home.
       const artifacts = artifactsOf(output);
+      assert.strictEqual(artifacts.dir, NodePath.join(run.artifacts, "T2"));
       assert.deepEqual(artifacts.saved, [
         "error.txt",
         "page-1-signed-in.png",
@@ -138,32 +222,74 @@ describe("scenario runner", () => {
         "server.log",
         "setup.json",
         "recorders.json",
+        "trace-1.zip",
       ]);
       assert.deepEqual(JSON.parse(artifacts.read("recorders.json")), {
         "page frames": ["a value the failure keeps"],
       });
-      artifacts.remove();
+      // The negative control: a scenario that passed leaves no failure artifacts.
+      const kept = NodeFS.readdirSync(run.artifacts);
+      for (const id of ["T1", "T4", "T10", "T11"]) assert.notInclude(kept, id);
+      assert.notInclude(NodeFS.readdirSync(NodePath.join(run.artifacts, "perf")), "T33");
+
+      // The second run: the perf self-tests, one within its budget and one over it.
+      assert.match(
+        output,
+        /PASS\s+T33 a perf self-test within its budget \([^)]*\)\n\s+PERF PASS T33 open-a-page \d+ ms, limit 60000 ms \(PRB\.T-040 AC-11\)/,
+      );
+      assert.match(
+        output,
+        /FAIL\s+T34 a perf self-test over its budget \([^)]*\): PERF FAIL T34 open-a-page \d+ ms, limit 1 ms \(PRB\.T-040 AC-11\)/,
+      );
+      assert.include(output, "perf: 2 measured, 1 over the limit");
+      assert.match(output, /scenarios: self-test 2 ran, 1 passed, 1 failed/);
+    }),
+  );
+
+  it.live("fails a scenario whose shared server dies, then runs the next on a working one", () =>
+    Effect.promise(async () => {
+      const { code, output } = await spawnRunner([
+        "--selftest",
+        "--workers",
+        "1",
+        ...only("T32", "T16", "T2", "T17"),
+      ]).done;
+      assert.strictEqual(code, 1, output);
+      const shared = [...output.matchAll(/shared server pid=(\d+) home=(\S+)/g)];
+      const killed =
+        /FAIL\s+T32 the shared server crashes mid-stage \([^)]*\): at stage "kill the shared server mid-stage": the shared server \(pid (\d+)\) exited unexpectedly with SIGKILL; its last lines:/.exec(
+          output,
+        );
+      assert.isNotNull(killed, output);
+      assert.strictEqual(killed![1], shared[0]?.[1]);
+      assert.match(output, /PASS\s+T16 /);
+      assert.match(
+        output,
+        /FAIL\s+T2 deliberate failure [^\n]*: at stage "setup": deliberate failure/,
+      );
+      assert.match(output, /PASS\s+T17 /);
+      // Each failure replaced its worker, and the worker its shared server.
+      assert.lengthOf(shared, 3);
+      assert.include(output, "scenarios: self-test 4 ran, 2 passed, 2 failed");
+      assertStopped(startedServers(output));
     }),
   );
 
   it.live("fails with a second server's output and still stops the one that started", () =>
     Effect.promise(async () => {
-      const { code, output } = await spawnRunner(["--selftest", "--only", "T3"]).done;
+      const { code, output } = await spawnRunner(["--selftest", ...only("T3")]).done;
       assert.strictEqual(code, 1);
       assert.match(
         output,
         /FAIL\s+T3 second server cannot start \([^)]*\): at stage "setup": Probe server could not start/,
       );
       assert.include(output, "Cannot find module");
-      const started = [...output.matchAll(/T3 (?:second )?server pid=(\d+) home=(\S+)/g)];
+      // The shared server and the second server that started.
+      const started = startedServers(output);
       assert.lengthOf(started, 2);
-      for (const [, pid, home] of started) {
-        assert.isFalse(alive(Number(pid)));
-        assert.isFalse(NodeFS.existsSync(home!));
-      }
-      // No page was opened, so there is no screenshot; both started servers left their logs.
-      const artifacts = artifactsOf(output);
-      assert.deepEqual(artifacts.saved, [
+      assertStopped(started);
+      // No page was opened, so there is no screenshot or trace; both started servers left their logs.
+      assert.deepEqual(artifactsOf(output).saved, [
         "error.txt",
         "server.stage.log",
         "server.log",
@@ -172,15 +298,14 @@ describe("scenario runner", () => {
         "setup.json",
         "recorders.json",
       ]);
-      artifacts.remove();
     }),
   );
 
   it.live("fails a setup call in setup, naming the call and the server's reason", () =>
     Effect.promise(async () => {
-      const { code, output } = await spawnRunner(["--selftest", "--only", "T12"]).done;
+      const { code, output } = await spawnRunner(["--selftest", ...only("T12")]).done;
       assert.strictEqual(code, 1);
-      const home = /T12 server pid=\d+ home=(\S+)/.exec(output)?.[1];
+      const home = /shared server pid=\d+ home=(\S+)/.exec(output)?.[1];
       const failed =
         /FAIL\s+T12 a setup call fails \([^)]*\): at stage "setup": setup call workspace\.addProject (\{.*\}) failed: WorkspaceProjectError: The folder does not exist: (\S+)/.exec(
           output,
@@ -200,7 +325,7 @@ describe("scenario runner", () => {
         "setup.json",
         "recorders.json",
       ]);
-      // What each call asked for and got back (AC-21).
+      // What each call asked for and got back.
       const notes = JSON.parse(artifacts.read("setup.json")) as ReadonlyArray<{
         call: string;
         asked: unknown;
@@ -219,20 +344,18 @@ describe("scenario runner", () => {
       });
       assert.include(artifacts.read("error.txt"), "setup call workspace.addProject");
       assertNoSecrets(artifacts.dir);
-      artifacts.remove();
     }),
   );
 
   it.live("names the workspace a page did not show, and saves the page", () =>
     Effect.promise(async () => {
-      const { code, output } = await spawnRunner(["--selftest", "--only", "T13"]).done;
+      const { code, output } = await spawnRunner(["--selftest", ...only("T13")]).done;
       assert.strictEqual(code, 1);
       assert.match(
         output,
         /FAIL\s+T13 a workspace is not shown \([^)]*\): at stage "show a workspace that does not exist": Workspace missing-\w+ was not shown/,
       );
-      const artifacts = artifactsOf(output);
-      assert.deepEqual(artifacts.saved, [
+      assert.deepEqual(artifactsOf(output).saved, [
         "error.txt",
         "page-1-signed-in.png",
         "page-1-signed-in.console.txt",
@@ -240,14 +363,14 @@ describe("scenario runner", () => {
         "server.log",
         "setup.json",
         "recorders.json",
+        "trace-1.zip",
       ]);
-      artifacts.remove();
     }),
   );
 
   it.live("labels every server's debug log and every page's console, with no secret in them", () =>
     Effect.promise(async () => {
-      const { code, output } = await spawnRunner(["--selftest", "--only", "T15"]).done;
+      const { code, output } = await spawnRunner(["--selftest", ...only("T15")]).done;
       assert.strictEqual(code, 1);
       assert.match(
         output,
@@ -269,6 +392,8 @@ describe("scenario runner", () => {
         "second-server.log",
         "setup.json",
         "recorders.json",
+        "trace-1.zip",
+        "trace-2.zip",
       ]);
       const signedIn = artifacts.read("page-1-signed-in.console.txt");
       const anonymous = artifacts.read("page-2-anonymous.console.txt");
@@ -276,98 +401,343 @@ describe("scenario runner", () => {
       assert.notInclude(signedIn, "T15 marker anonymous");
       assert.include(anonymous, "[log] T15 marker anonymous");
       assert.notInclude(anonymous, "T15 marker signed-in");
-      // The failing stage's slice holds the server's debug-level entries (AC-17).
+      // The failing stage's slice holds the server's debug-level entries.
       assert.match(artifacts.read("server.stage.log"), DEBUG_ENTRY);
       assertNoSecrets(artifacts.dir);
-      artifacts.remove();
     }),
   );
 
   it.live("reports the original error when the failure artifacts cannot be saved", () =>
     Effect.promise(async () => {
-      const blocker = NodePath.join(scratch("scenario-artifacts-"), "a-file");
-      NodeFS.writeFileSync(blocker, "");
-      const { code, output } = await spawnRunner([
-        "--selftest",
-        "--only",
-        "T2",
-        "--artifacts",
-        blocker,
-      ]).done;
+      const root = scratch("scenario-artifacts-");
+      // A file where T2's artifacts folder would go.
+      NodeFS.writeFileSync(NodePath.join(root, "T2"), "");
+      const { code, output } = await spawnRunner(["--selftest", ...only("T2")], {}, root).done;
       assert.strictEqual(code, 1);
       assert.match(output, /FAIL\s+T2 deliberate failure .*: at stage "setup": deliberate failure/);
-      assert.match(output, /artifact missing: .*a-file/);
-      NodeFS.rmSync(NodePath.dirname(blocker), { recursive: true, force: true });
+      assert.include(output, `artifact missing: ${NodePath.join(root, "T2")}: `);
     }),
   );
 
   it.live("stops on a failed web build and runs nothing", () =>
     Effect.promise(async () => {
-      const bin = scratch("scenario-fake-vp-");
-      NodeFS.writeFileSync(
-        NodePath.join(bin, "vp"),
-        "#!/bin/sh\necho boom-from-the-build\nexit 3\n",
-        {
-          mode: 0o755,
-        },
-      );
-      const { code, output } = await spawnRunner(["--rebuild"], {
-        PATH: `${bin}${NodePath.delimiter}${process.env.PATH ?? ""}`,
-      }).done;
+      const { code, output } = await spawnRunner(
+        ["--selftest", ...only("T16"), "--rebuild"],
+        fakeVp("boom-from-the-build", 3),
+      ).done;
       assert.notStrictEqual(code, 0);
       assert.include(output, "boom-from-the-build");
       assert.include(output, "The web build failed (exit code 3)");
       assert.notInclude(output, "scenarios: ready");
-      NodeFS.rmSync(bin, { recursive: true, force: true });
     }),
   );
 
-  it.live("records the server's prompt time and does not judge it", () =>
+  it.live("builds the web bundle once for a run on several workers, and names it", () =>
     Effect.promise(async () => {
-      // A slow startup file: the prompt comes after the old 700 ms limit, and the run passes.
-      const home = scratch("scenario-slow-home-");
-      NodeFS.writeFileSync(NodePath.join(home, ".zshrc"), "sleep 1\n");
-      const { code, output } = await spawnRunner(["--only", "E2-S3", "--own-shell-config"], {
-        HOME: home,
-        ZDOTDIR: "",
-        SHELL: "/usr/bin/zsh",
-        PLAYWRIGHT_BROWSERS_PATH:
-          process.env.PLAYWRIGHT_BROWSERS_PATH ??
-          NodePath.join(NodeOS.homedir(), ".cache", "ms-playwright"),
+      // T16 and T17 set up over the API only, so the fake build's bundle serves no page.
+      const { code, output } = await spawnRunner(
+        ["--selftest", "--rebuild", "--workers", "2", ...only("T16", "T17")],
+        fakeVp("fake-vp-build", 0),
+      ).done;
+      assert.strictEqual(code, 0, output);
+      assert.lengthOf(output.match(/fake-vp-build/g) ?? [], 1);
+      assert.lengthOf(output.match(/scenarios: building the web bundle \(--rebuild\)/g) ?? [], 1);
+      assert.match(output, /scenarios: web bundle rebuilt, built \S+/);
+      assert.match(output, /scenarios: ready \(2 workers,/);
+    }),
+  );
+
+  it.live(
+    "runs fresh-server scenarios beside shared ones on two workers, and stops every server",
+    () =>
+      Effect.promise(async () => {
+        // T1 restarts its server and T36 stops its shell host; the other four share.
+        const ids = ["T1", "T36", "T16", "T17", "T29", "T30"];
+        const { code, output } = await spawnRunner([
+          "--selftest",
+          "--workers",
+          "2",
+          ...only(...ids),
+        ]).done;
+        assert.strictEqual(code, 0, output);
+        assert.match(output, /scenarios: ready \(2 workers,/);
+        for (const id of ids) assert.match(output, new RegExp(`PASS\\s+${id} `));
+        assert.include(output, "scenarios: self-test 6 ran, 6 passed, 0 failed");
+
+        const fresh = ["T1", "T36"].map((id) => {
+          const line = new RegExp(`scenarios: ${id} server pid=(\\d+) home=(\\S+)`).exec(output);
+          assert.isNotNull(line, output);
+          return { pid: Number(line![1]), home: line![2]!, at: line!.index };
+        });
+        const shared = [...output.matchAll(/worker (\d+) shared server pid=/g)];
+        // One shared server per worker at most, and never more workers than asked for.
+        assert.isAtMost(shared.length, 2);
+        for (const [, worker] of shared) assert.isBelow(Number(worker), 2);
+        const started = startedServers(output);
+        assert.isBelow(started.length, ids.length, "as many servers as scenarios");
+        // A fresh server and its home are its scenario's own: no other line names either.
+        for (const { pid, home } of fresh) {
+          assert.lengthOf(
+            started.filter((server) => server.pid === pid || server.home === home),
+            1,
+          );
+        }
+        // Both fresh servers were up before any scenario ended, so two scenarios ran at once.
+        const firstEnd = output.search(/^(PASS|FAIL) /m);
+        for (const { at } of fresh) assert.isBelow(at, firstEnd);
+        assertStopped(started);
+      }),
+  );
+
+  it.live(
+    "keeps two scenarios on one shared server to their own, and fails a server-wide check",
+    () =>
+      Effect.promise(async () => {
+        const { code, output } = await spawnRunner([
+          "--selftest",
+          "--workers",
+          "1",
+          ...only("T-shared"),
+        ]).done;
+        assert.strictEqual(code, 1, output);
+        assert.match(output, /scenarios: ready \(1 worker,/);
+        assert.include(output, "scenarios: set T-shared: 3 members");
+        assert.match(output, /PASS\s+T29 /);
+        assert.match(output, /PASS\s+T30 /);
+        const failed =
+          /FAIL\s+T31 counts every workspace on its server \(negative control\) \([^)]*\): at stage "count every workspace on the server": every workspace on the server: expected (\[[^\]]*\]), found (\[[^\]]*\])/.exec(
+            output,
+          );
+        assert.isNotNull(failed, output);
+        const own = JSON.parse(failed![1]!) as ReadonlyArray<string>;
+        const every = JSON.parse(failed![2]!) as ReadonlyArray<string>;
+        assert.lengthOf(every, 3);
+        assert.includeMembers([...every], [...own]);
+        assert.lengthOf([...output.matchAll(/shared server pid=/g)], 1);
+        assert.include(output, "scenarios: set T-shared 2/3 passed");
+      }),
+  );
+
+  it.live("names the cause of each deliberate failure: UI state, missing output, server exit", () =>
+    Effect.promise(async () => {
+      const { code, output } = await spawnRunner(["--selftest", ...only("T-diagnosis")]).done;
+      assert.strictEqual(code, 1);
+      assert.include(output, "scenarios: set T-diagnosis: 3 members");
+      assert.match(
+        output,
+        /FAIL\s+T18 a wrong UI state \([^)]*\): at stage "count the projects in the tree": projects the tree shows for \S+: expected 2, found 1/,
+      );
+      assert.match(
+        output,
+        /FAIL\s+T19 terminal output that never comes \([^)]*\): at stage "wait for a line the shell never prints": Timed out after 2 s waiting for the line t19-43 in shell \S+ [^\n]*: expected t19-43, found /,
+      );
+      const t20 = /scenarios: T20 server pid=(\d+)/.exec(output);
+      assert.isNotNull(t20, output);
+      assert.match(
+        output,
+        new RegExp(
+          `FAIL\\s+T20 a server that crashes mid-stage \\([^)]*\\): at stage "kill the server mid-stage": the server \\(pid ${t20![1]}\\) exited unexpectedly with SIGKILL; its last lines:`,
+        ),
+      );
+      assert.include(output, "scenarios: set T-diagnosis 0/3 passed");
+      assertStopped(startedServers(output));
+    }),
+  );
+
+  it.live("runs composed scenarios step by step, naming a failed step and what did not run", () =>
+    Effect.promise(async () => {
+      const run = spawnRunner(["--selftest", ...only("T-compose")]);
+      const { code, output } = await run.done;
+      assert.strictEqual(code, 1);
+      const failed =
+        /FAIL\s+T21 a composed scenario whose second step fails \(composed, 3 steps, \d+\.\d s\): step 2 T18 at stage "count the projects in the tree": projects the tree shows for \S+: expected 2, found 1\n\s+not run: step 3 T17\n\s+artifacts: (\S+)/.exec(
+          output,
+        );
+      assert.isNotNull(failed, output);
+      assert.strictEqual(failed![1], NodePath.join(run.artifacts, "T21", "step-2-T18"));
+      assert.match(
+        output,
+        /PASS\s+T22 two handovers of a workspace \(composed, 4 steps, \d+\.\d s\)\n\s+step 1 T16 \(\d+\.\d s\)\n\s+step 2 T17 \(\d+\.\d s\)\n\s+step 3 T16 \(\d+\.\d s\)\n\s+step 4 T17 \(\d+\.\d s\)/,
+      );
+      assert.match(output, /PASS\s+T17 takes a workspace or makes its own/);
+      if (NodeProcess.getuid?.() === 0) {
+        // Root ignores permission bits, so the step that needs them is skipped and T25 passes.
+        assert.match(output, /SKIP {4}T25 /);
+        assert.include(output, "scenarios: set T-compose 3/4 passed");
+      } else {
+        assert.match(
+          output,
+          /FAIL\s+T25 fails while a folder is unwritable \([^)]*\): at stage "fail while the folder is unwritable": T25 fails on purpose while \S+ is unwritable/,
+        );
+        assert.match(output, /undone: write access to \S+t25-unwritable/);
+        assert.include(output, "scenarios: set T-compose 2/4 passed");
+      }
+    }),
+  );
+
+  it.live("gives server-wide and conditioned scenarios a server each", () =>
+    Effect.promise(async () => {
+      const { code, output } = await spawnRunner(["--selftest", ...only("T-needs")]).done;
+      assert.strictEqual(code, 0, output);
+      for (const id of ["T23", "T24"]) {
+        assert.match(output, new RegExp(`PASS\\s+${id} `));
+        assert.match(output, new RegExp(`scenarios: ${id} server pid=\\d+ home=`));
+      }
+      assert.notMatch(output, /shared server pid=/);
+      assert.include(output, "scenarios: set T-needs 2/2 passed");
+    }),
+  );
+
+  it.live("fails a held output let go too early or never, naming the check", () =>
+    Effect.promise(async () => {
+      const { code, output } = await spawnRunner(["--selftest", ...only("T27", "T28")]).done;
+      assert.strictEqual(code, 1);
+      assert.match(
+        output,
+        /FAIL\s+T27 [^\n]*: at stage "reload while the output is held": the held output of shell \S+ in its raw output once the reload began: expected not printed yet, found printed/,
+      );
+      assert.match(
+        output,
+        /FAIL\s+T28 [^\n]*: at stage "reload while the output is held": Timed out after 2 s waiting for the held output during-\w+-s4 after the reload/,
+      );
+    }),
+  );
+
+  it.live(
+    "refuses a gate run it cannot time, a name nothing has and a bare sandbox run, before anything starts",
+    () =>
+      Effect.promise(async () => {
+        for (const [args, says] of [
+          [["--gate", "--selftest", ...only("T-gate")], QUIET_UNCONFIRMED],
+          [
+            ["--gate", "--quiet-confirmed", ...only("perf-tree-node")],
+            "perf-tree-node is a perf scenario; the gate times check scenarios only",
+          ],
+          [
+            ["--gate", "--quiet-confirmed", "--selftest", ...only("T22")],
+            "T22 is a composed scenario; the gate times atomic checks only",
+          ],
+          [only("no-such-scenario"), "No scenario or set has the name no-such-scenario."],
+          [["--sandbox", "4194304"], "name each with --only"],
+        ] as const) {
+          const { code, output } = await spawnRunner(args).done;
+          assert.strictEqual(code, 2, output);
+          assert.include(output, says);
+          assert.notInclude(output, "web bundle");
+        }
+      }),
+  );
+
+  it.live(
+    "fails each timed scenario over a lowered cap, counting only a fresh server's start",
+    () =>
+      Effect.promise(async () => {
+        const { code, output } = await spawnRunner(
+          ["--gate", "--quiet-confirmed", "--selftest", ...only("T-gate")],
+          { SCENARIO_GATE_CAP_MS: "1" },
+        ).done;
+        assert.strictEqual(code, 1, output);
+        assert.match(output, /scenarios: ready \(1 worker,/);
+        assert.include(output, "NOT TIMED T22: composed; its steps are timed alone");
+        assert.match(output, /GATE FAIL T16 [\d.]+ s \(server start excluded\), cap 0\.001 s/);
+        assert.match(output, /GATE FAIL T1 [\d.]+ s \(server start included\), cap 0\.001 s/);
+        assert.include(output, "gate: 2 timed, 2 over the cap");
+      }),
+  );
+
+  it.live("never judges a normal run against the cap", () =>
+    Effect.promise(async () => {
+      const { code, output } = await spawnRunner(["--selftest", ...only("T-gate")], {
+        SCENARIO_GATE_CAP_MS: "1",
       }).done;
       assert.strictEqual(code, 0, output);
-      assert.match(output, /PASS\s+E2-S3/);
-      const serverMs = Number(/METRIC\s+E2-S3 start-to-prompt ms=(\d+)/.exec(output)?.[1]);
-      assert.isAtLeast(serverMs, 1000);
-      NodeFS.rmSync(home, { recursive: true, force: true });
+      assert.notMatch(output, /GATE /);
+      assert.include(output, "scenarios: set T-gate 3/3 passed");
     }),
   );
 
-  it.live("cleans up after a runner killed with SIGKILL, by the pids it recorded", () =>
+  it.live("measures the server's prompt time in the perf run, past a slow startup file", () =>
     Effect.promise(async () => {
-      // Killed once S2's first shell runs its agent, so a server, a shell host and a shell are left.
-      const run = spawnRunner(["--only", "S2"]);
-      const [, pid, home] = await run.line(/S2 server pid=(\d+) home=(\S+)/);
-      await run.line(/METRIC\s+S2 start-to-banner/);
-      const runnerPid = run.child.pid!;
+      // A slow startup file: the first prompt comes after the 700 ms limit.
+      const home = scratch("scenario-slow-home-");
+      removedAtEnd(home);
+      NodeFS.writeFileSync(NodePath.join(home, ".zshrc"), "sleep 1\n");
+      const { code, output } = await spawnRunner(
+        ["--perf", "--quiet-confirmed", ...only("perf-prompt-server"), "--own-shell-config"],
+        {
+          HOME: home,
+          ZDOTDIR: "",
+          SHELL: "/usr/bin/zsh",
+          PLAYWRIGHT_BROWSERS_PATH:
+            NodeProcess.env.PLAYWRIGHT_BROWSERS_PATH ??
+            NodePath.join(NodeOS.homedir(), ".cache", "ms-playwright"),
+        },
+      ).done;
+      assert.strictEqual(code, 1, output);
+      const serverMs = Number(
+        /PERF FAIL perf-prompt-server start-to-prompt (\d+) ms, limit 700 ms \(PRB\.E-002 NFR-1\)/.exec(
+          output,
+        )?.[1],
+      );
+      assert.isAtLeast(serverMs, 1000);
+      assert.notMatch(output, /METRIC/);
+    }),
+  );
+
+  it.live.each(["SIGINT", "SIGTERM", "SIGHUP"] as const)(
+    "stops every server, shell host and shell it started on %s",
+    (signal) =>
+      Effect.promise(async () => {
+        const run = spawnRunner(["--selftest", ...only("T35")]);
+        const [, shellPid, hostPid] = await run.line(/T35 shell pid=(\d+) host=(\d+)/);
+        run.child.kill(signal);
+        const { code, output } = await run.done;
+        assert.strictEqual(code, 130, output);
+        assertStopped(startedServers(output));
+        for (const pid of [shellPid, hostPid]) {
+          assert.isFalse(alive(Number(pid)), `${pid} survived`);
+        }
+      }),
+  );
+
+  it.live("cleans up after a launcher killed with SIGKILL, by the next run", () =>
+    Effect.promise(async () => {
+      const run = spawnRunner(["--selftest", ...only("T35")]);
+      const [, serverPid, home] = await run.line(/shared server pid=(\d+) home=(\S+)/);
+      const [, shellPid, hostPid] = await run.line(/T35 shell pid=(\d+) host=(\d+)/);
       run.child.kill("SIGKILL");
       await run.done;
-      const hostPid = Number(
-        NodeFS.readFileSync(NodePath.join(home!, "userdata", "shell-host-v1.pid"), "utf8"),
-      );
-      // The host's children, not the shell list: the runner may die before the server saves it.
-      const shellPids = childPids(hostPid);
-      const leftovers = [Number(pid), hostPid, ...shellPids];
-      assert.isNotEmpty(shellPids);
-      for (const leftover of leftovers)
-        assert.isTrue(alive(leftover), `${leftover} should be left`);
 
-      const { code, output } = await spawnRunner(["--selftest", "--only", "T1"]).done;
-      assert.strictEqual(code, 0, output);
-      assert.include(output, `cleaned up after run ${runnerPid}`);
-      for (const leftover of leftovers) assert.isFalse(alive(leftover), `${leftover} survived`);
+      const next = await spawnRunner(["--selftest", ...only("T16")]).done;
+      assert.strictEqual(next.code, 0, next.output);
+      for (const leftover of [serverPid, hostPid, shellPid]) {
+        assert.isFalse(alive(Number(leftover)), `${leftover} survived`);
+      }
       assert.isFalse(NodeFS.existsSync(home!));
     }),
+  );
+
+  it.live(
+    "reports a scenario whose worker was killed, runs the next, and sweeps what it left",
+    () =>
+      Effect.promise(async () => {
+        const run = spawnRunner(["--selftest", "--workers", "1", ...only("T35", "T16")]);
+        const [, serverPid, home] = await run.line(/shared server pid=(\d+) home=(\S+)/);
+        const [, shellPid, hostPid] = await run.line(/T35 shell pid=(\d+) host=(\d+)/);
+        // The worker started the shared server; its parent is Playwright, whose parent is this launcher.
+        const worker = parentOf(Number(serverPid));
+        assert.strictEqual(parentOf(parentOf(worker)), run.child.pid);
+        NodeProcess.kill(worker, "SIGKILL");
+        const { code, output } = await run.done;
+        assert.strictEqual(code, 1, output);
+        assert.match(output, /FAIL\s+T35 a shell held running until the run is stopped /);
+        assert.match(output, /PASS\s+T16 /);
+        assert.include(output, `cleaned up after run ${worker}`);
+        for (const leftover of [serverPid, hostPid, shellPid]) {
+          assert.isFalse(alive(Number(leftover)), `${leftover} survived`);
+        }
+        assert.isFalse(NodeFS.existsSync(home!));
+      }),
   );
 
   it.live("passes twice in a row beside a running server and leaves it alone", () =>
@@ -376,11 +746,10 @@ describe("scenario runner", () => {
       const bystander = await startServer({ home });
       try {
         for (const _ of [1, 2]) {
-          // One scenario is enough to show a run leaves the bystander alone.
-          const { code, output } = await spawnRunner(["--only", "S1"]).done;
-          assert.strictEqual(code, 0);
-          assert.include(output, "PASS    S1 boot");
-          assert.include(output, "scenarios: 1 ran, 1 passed, 0 failed");
+          const { code, output } = await spawnRunner(["--selftest", ...only("T16")]).done;
+          assert.strictEqual(code, 0, output);
+          assert.match(output, /PASS\s+T16 makes a workspace and returns it/);
+          assert.include(output, "scenarios: self-test 1 ran, 1 passed, 0 failed");
         }
         assert.isTrue(alive(bystander.pid()));
         assert.isTrue((await fetch(bystander.origin)).ok);
@@ -390,24 +759,83 @@ describe("scenario runner", () => {
       }
     }),
   );
+});
 
-  it.live("stops what it started and removes its data when interrupted", () =>
+describe("server ports", () => {
+  it.live("moves a real server to a newly leased port when another process took its own", () =>
     Effect.promise(async () => {
-      // The second row is interrupted once R1 runs both of its servers.
-      for (const [args, last] of [
-        [[], /S1 server pid=(\d+) home=(\S+)/],
-        [["--only", "R1"], /R1 second server pid=(\d+) home=(\S+)/],
-      ] as const) {
-        const run = spawnRunner(args);
-        await run.line(last);
-        run.child.kill("SIGINT");
-        const { output } = await run.done;
-        const started = [...output.matchAll(/server pid=(\d+) home=(\S+)/g)];
-        assert.isNotEmpty(started);
-        for (const [, pid, home] of started) {
-          assert.isFalse(alive(Number(pid)));
-          assert.isFalse(NodeFS.existsSync(home!));
+      const home = scratch("scenario-port-taken-");
+      removedAtEnd(home);
+      const foreign = NodeNet.createServer((socket) => socket.destroy());
+      const children: Array<NodeChildProcess.ChildProcess> = [];
+      const notes: Array<string> = [];
+      let taken: number | undefined;
+      try {
+        const { value: origin, lease } = await startOnLeasedPort(
+          async (port) => {
+            // The foreign listener takes the first leased port before the server binds it.
+            if (taken === undefined) {
+              taken = port;
+              await new Promise<void>((resolve) => foreign.listen(port, "127.0.0.1", resolve));
+            }
+            const child = NodeChildProcess.spawn(
+              "node",
+              [
+                SERVER_BIN,
+                "serve",
+                "--host",
+                "127.0.0.1",
+                "--port",
+                String(port),
+                "--base-dir",
+                home,
+                "--no-browser",
+              ],
+              { cwd: REPO_ROOT, env: childEnv(), stdio: ["ignore", "pipe", "pipe"] },
+            );
+            children.push(child);
+            const at = `http://127.0.0.1:${port}`;
+            await waitUntilServing(child, at, () => {});
+            return at;
+          },
+          { note: (line) => notes.push(line) },
+        );
+        try {
+          const port = Number(new URL(origin).port);
+          assert.notStrictEqual(port, taken);
+          assert.deepEqual(notes, [portTakenLine(taken!, port)]);
+          assert.isTrue((await fetch(`${origin}/.well-known/t3/environment`)).ok);
+        } finally {
+          lease.release();
         }
+      } finally {
+        for (const child of children) child.kill("SIGKILL");
+        if (foreign.listening) await new Promise<void>((resolve) => foreign.close(() => resolve()));
+      }
+    }),
+  );
+
+  it.live("starts several servers at once, each on a free port of its own", () =>
+    Effect.promise(async () => {
+      const { dir, file } = fakeBin(HTTP_ONLY_SERVER);
+      removedAtEnd(dir);
+      const homes = [1, 2, 3, 4].map(() => scratch("scenario-ports-home-"));
+      for (const home of homes) removedAtEnd(home);
+      const starts = await Promise.allSettled(
+        homes.map((home) => startServer({ home, serverBin: file })),
+      );
+      const servers = starts.flatMap((start) =>
+        start.status === "fulfilled" ? [start.value] : [],
+      );
+      try {
+        assert.deepEqual(
+          starts.flatMap((start) => (start.status === "rejected" ? [String(start.reason)] : [])),
+          [],
+        );
+        assert.lengthOf(new Set(servers.map(({ origin }) => origin)), homes.length);
+        for (const server of servers) assert.isTrue((await fetch(server.origin)).ok);
+      } finally {
+        await Promise.all(servers.map((server) => server.kill()));
       }
     }),
   );
@@ -583,22 +1011,9 @@ describe("leftover cleanup", () => {
 });
 
 describe("server readiness", () => {
-  const fakeBin = (source: string) => {
-    const dir = scratch("scenario-fake-server-");
-    const file = NodePath.join(dir, "bin.mjs");
-    NodeFS.writeFileSync(file, source);
-    return { dir, file };
-  };
-
   it.live("is ready when the server answers over HTTP, whatever it prints", () =>
     Effect.promise(async () => {
-      const { dir, file } = fakeBin(`
-        import * as http from "node:http";
-        const port = Number(process.argv[process.argv.indexOf("--port") + 1]);
-        http.createServer((_, response) => response.end("{}")).listen(port, "127.0.0.1", () => {
-          console.log("listening, no ready line");
-        });
-      `);
+      const { dir, file } = fakeBin(HTTP_ONLY_SERVER);
       const home = scratch("scenario-ready-home-");
       const server = await startServer({ home, serverBin: file });
       await server.kill();

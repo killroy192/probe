@@ -39,6 +39,12 @@ import {
 } from "./selftest/signal-waits.ts";
 import { failsWhileUnwritable } from "./selftest/step-undo.ts";
 import { unstatedNeeds } from "./selftest/unstated-needs.ts";
+import { heldShell } from "./selftest/held-shell.ts";
+import { overBudget } from "./selftest/over-budget.perf.ts";
+import { sharedServerKilled } from "./selftest/shared-exit.ts";
+import { everyWorkspace, ownWorkspaceFirst, ownWorkspaceSecond } from "./selftest/shared-server.ts";
+import { stopsShellHost } from "./selftest/shell-host-stop.ts";
+import { withinBudget } from "./selftest/within-budget.perf.ts";
 import type { Runnable } from "./registryRules.ts";
 import type { CheckScenario, ComposedScenario, PerfScenario, ScenarioSet } from "./scenario.ts";
 
@@ -107,7 +113,16 @@ export const pickedSelftests: ReadonlyArray<Runnable> = [
   serverCondition,
   failsWhileUnwritable,
   withRestartStep,
+  ownWorkspaceFirst,
+  ownWorkspaceSecond,
+  everyWorkspace,
+  sharedServerKilled,
+  heldShell,
+  stopsShellHost,
 ];
+
+/** Run by `--selftest` after the check self-tests, on one worker. */
+export const perfSelftests: ReadonlyArray<PerfScenario> = [withinBudget, overBudget];
 
 export const selftestSets: ReadonlyArray<ScenarioSet> = [
   { name: "T-lib", members: ["T10", "T11", "T12", "T13", "T14", "T15"] },
@@ -117,4 +132,5 @@ export const selftestSets: ReadonlyArray<ScenarioSet> = [
   { name: "T-sandbox", members: ["T16", "T17", "T22"] },
   { name: "T-restart-set", members: ["T16", "T1"] },
   { name: "T-gate", members: ["T16", "T1", "T22"] },
+  { name: "T-shared", members: ["T29", "T30", "T31"] },
 ];

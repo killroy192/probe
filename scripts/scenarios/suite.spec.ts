@@ -1,15 +1,26 @@
 import * as NodeProcess from "node:process";
 
 import { readRunPlan } from "./environment.ts";
-import { checks, composed, perfScenarios, pickedSelftests, selftests } from "./registry.ts";
+import {
+  checks,
+  composed,
+  perfScenarios,
+  perfSelftests,
+  pickedSelftests,
+  selftests,
+} from "./registry.ts";
 import type { AnyScenario } from "./scenario.ts";
 import { scenarioTest as test } from "./testFixtures.ts";
 
 const registered = new Map<string, AnyScenario>(
-  [...checks, ...composed, ...perfScenarios, ...selftests, ...pickedSelftests].map((scenario) => [
-    scenario.id,
-    scenario,
-  ]),
+  [
+    ...checks,
+    ...composed,
+    ...perfScenarios,
+    ...selftests,
+    ...pickedSelftests,
+    ...perfSelftests,
+  ].map((scenario) => [scenario.id, scenario]),
 );
 const planned = readRunPlan(NodeProcess.env)?.ids ?? [...registered.keys()];
 

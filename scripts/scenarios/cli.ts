@@ -34,6 +34,7 @@ import {
   checks,
   composed,
   perfScenarios,
+  perfSelftests,
   pickedSelftests,
   selftests,
   selftestSets,
@@ -562,7 +563,7 @@ async function main(): Promise<number> {
   const onSandbox = options.sandbox !== undefined;
 
   const suite: Registry = { checks, composed, perfScenarios, sets };
-  const selftest = registryOf([...selftests, ...pickedSelftests], selftestSets);
+  const selftest = registryOf([...selftests, ...pickedSelftests, ...perfSelftests], selftestSets);
   const sandbox: Registry = {
     checks: [...suite.checks, ...selftest.checks],
     composed: [...suite.composed, ...selftest.composed],
