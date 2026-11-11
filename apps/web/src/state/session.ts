@@ -33,6 +33,16 @@ export function useEnvironmentScope(
   return sessionHasScope(result, scope);
 }
 
+/** False until the session that decides this client's scopes first arrives. */
+export function useEnvironmentScopesKnown(environmentId: EnvironmentId | null): boolean {
+  const result = useAtomValue(
+    environmentId === null
+      ? EMPTY_SESSION_STATE_ATOM
+      : environmentSession.sessionStateAtom(environmentId),
+  );
+  return !AsyncResult.isInitial(result);
+}
+
 export function sessionHasScope(
   result: AsyncResult.AsyncResult<AuthSessionState, unknown>,
   scope: AuthEnvironmentScope,
