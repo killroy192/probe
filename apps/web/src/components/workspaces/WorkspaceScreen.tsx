@@ -96,12 +96,12 @@ export function WorkspaceScreen() {
 }
 
 /** The shown workspace's shells as tabs; every tab stays mounted, only the active one shows. */
-function ShellTabs({
+export function ShellTabs({
   environmentId,
   view,
 }: {
   readonly environmentId: EnvironmentId;
-  readonly view: WorkspacesView;
+  readonly view: Pick<WorkspacesView, "tabs" | "activateShell" | "closeTab">;
 }) {
   const { shells } = useShells(environmentId);
   const tabShells = view.tabs.shellIds.flatMap((id) => {
@@ -121,20 +121,10 @@ function ShellTabs({
               <div
                 key={shell.shellId}
                 className={cn(
-                  "group/tab flex items-center gap-1.5 rounded-t-md border-b-2 px-3 py-1.5 text-xs",
-                  active
-                    ? "border-primary text-foreground"
-                    : "border-transparent text-muted-foreground hover:text-foreground",
+                  "group/tab relative flex text-xs",
+                  active ? "text-foreground" : "text-muted-foreground hover:text-foreground",
                 )}
               >
-                {/* Closing only hides the tab; the shell keeps running in the tree. */}
-                <PanelTabCloseButton
-                  label={`Close ${label(shell)}`}
-                  tooltip="Close tab"
-                  onClick={() => view.closeTab(shell.shellId)}
-                >
-                  <SquareTerminalIcon className="size-3.5" />
-                </PanelTabCloseButton>
                 <button
                   type="button"
                   role="tab"
@@ -144,10 +134,24 @@ function ShellTabs({
                     view.activateShell(shell.shellId);
                     focusShell(environmentId, shell.shellId);
                   }}
-                  className="cursor-pointer"
+                  className={cn(
+                    "flex cursor-pointer items-center rounded-t-md border-b-2 py-1.5 pr-3 pl-8",
+                    active ? "border-primary" : "border-transparent",
+                  )}
                 >
                   {label(shell)}
                 </button>
+                {/* Closing only hides the tab; the shell keeps running in the tree. */}
+                <span className="absolute top-1/2 left-1.5 flex -translate-y-1/2">
+                  <PanelTabCloseButton
+                    label={`Close ${label(shell)}`}
+                    tooltip="Close tab"
+                    size="lg"
+                    onClick={() => view.closeTab(shell.shellId)}
+                  >
+                    <SquareTerminalIcon className="size-3.5" />
+                  </PanelTabCloseButton>
+                </span>
               </div>
             );
           })}

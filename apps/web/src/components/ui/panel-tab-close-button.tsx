@@ -1,5 +1,6 @@
 import { X } from "lucide-react";
 import type { ReactNode } from "react";
+import { cn } from "~/lib/utils";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
 
 interface PanelTabCloseButtonProps {
@@ -7,6 +8,8 @@ interface PanelTabCloseButtonProps {
   label: string;
   onClick: () => void;
   tooltip?: string;
+  /** `lg` is a 24px target with an accent hover, for a tab strip with room for it. */
+  size?: "default" | "lg";
 }
 
 export function PanelTabCloseButton({
@@ -14,11 +17,15 @@ export function PanelTabCloseButton({
   label,
   onClick,
   tooltip,
+  size = "default",
 }: PanelTabCloseButtonProps) {
   const button = (
     <button
       type="button"
-      className="cursor-pointer group/close relative flex size-4 shrink-0 items-center justify-center rounded-sm hover:bg-muted"
+      className={cn(
+        "cursor-pointer group/close relative flex shrink-0 items-center justify-center",
+        size === "lg" ? "size-6 rounded-md hover:bg-accent" : "size-4 rounded-sm hover:bg-muted",
+      )}
       aria-label={label}
       onClick={onClick}
     >
