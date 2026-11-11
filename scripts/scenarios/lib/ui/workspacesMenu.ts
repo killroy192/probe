@@ -8,6 +8,12 @@ export async function openWorkspacesMenu(
   submenu?: "Open workspace" | "Remove workspace",
 ) {
   await page.getByRole("button", { name: "Workspaces" }).click();
+  // "Create workspace" joins the menu's top once the page learns it may change workspaces; until
+  // then the items below it move and the submenu under the pointer shuts. Harness pages may.
+  await waitFor(
+    page.getByRole("menuitem", { name: "Create workspace" }),
+    'the "Workspaces" menu to offer Create workspace',
+  );
   if (submenu !== undefined) await page.getByRole("menuitem", { name: submenu }).click();
 }
 
