@@ -31,6 +31,8 @@
         "verify-windows-desktop-artifact.ts",
       ],
       "ignoreDependencies": ["agent-device", "esbuild"],
+      // The scenario runner's config sits beside its spec, not at the workspace root.
+      "playwright": { "config": ["scenarios/playwright.config.ts"] },
       // The `t3` npm package's files: copied into the package, never imported.
       // knip-schemas.test.ts writes a throwaway project to .knip-test-*, which a
       // knip run beside it in check:changed must not report.

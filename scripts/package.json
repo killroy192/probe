@@ -22,6 +22,7 @@
   },
   "devDependencies": {
     "@effect/vitest": "catalog:",
+    "@playwright/test": "1.60.0",
     "@types/plist": "catalog:",
     "@types/pngjs": "6.0.5",
     "esbuild": "0.28.2",
