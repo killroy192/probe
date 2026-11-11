@@ -562,7 +562,8 @@ export const deletedFolder = defineCheck(import.meta.url, {
     const { page, routes, setup, ws } = await begin(ctx, "deleted-folder");
     const plain = await setup.folder("plain");
     const other = await setup.folder("other");
-    await setup.project(ws, plain);
+    // A missing project with no shell leaves the workspace on the next read, so plain holds one.
+    await setup.shell(await setup.project(ws, plain));
     await setup.project(ws, other);
     await showWorkspace(page, ws);
     await ctx.trail.stage("AC-15", async () => {
@@ -654,7 +655,11 @@ export const startEndLines = defineCheck(import.meta.url, {
     const folder = await setup.folder("lines");
     const shell = await setup.shell(await setup.project(ws, folder));
     await ctx.trail.stage("AC-19", async () => {
-      expected({ what: "the started shell's pid", expected: "a pid", found: shell.pid ?? "none" });
+      expected({
+        what: "whether the started shell has a pid",
+        expected: true,
+        found: shell.pid !== null,
+      });
       NodeProcess.kill(shell.pid!, "SIGKILL");
       await shellEnded(setup.shells, shell);
       await expectLogged(
