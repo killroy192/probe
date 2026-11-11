@@ -13,6 +13,7 @@ import {
   MAX_PORT_RESTARTS,
   type PortLease,
   portTakenLine,
+  releaseDeadLeases,
   startOnLeasedPort,
 } from "./ports.ts";
 
@@ -82,6 +83,19 @@ describe("port leases", () => {
       expect(readLock(dir, dead!)).toMatchObject({ pid: process.pid });
       expect(readLock(dir, live!)).toMatchObject({ pid: process.ppid });
       expect(NodeFS.existsSync(NodePath.join(dir, `${dead}.takeover`))).toBe(false);
+    } finally {
+      NodeFS.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("sweeps the leases of dead owners, and leaves a live or unreadable one alone", () => {
+    const dir = scratch();
+    try {
+      writeLock(dir, 20001, DEAD);
+      writeLock(dir, 20002, { pid: process.ppid, startTime: processStartTime(process.ppid) });
+      NodeFS.writeFileSync(NodePath.join(dir, "20003.json"), "{ half written");
+      expect(releaseDeadLeases(dir)).toEqual([20001]);
+      expect(NodeFS.readdirSync(dir).toSorted()).toEqual(["20002.json", "20003.json"]);
     } finally {
       NodeFS.rmSync(dir, { recursive: true, force: true });
     }

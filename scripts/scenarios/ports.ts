@@ -67,19 +67,51 @@ const createExclusive = (path: string, owner: Owner) => {
 function tryLock(dir: string, port: number, owner: Owner): boolean {
   const path = NodePath.join(dir, `${port}.json`);
   if (createExclusive(path, owner)) return true;
+  return removeIfDead(dir, port, owner, () => createExclusive(path, owner));
+}
+
+/**
+ * Removes `<port>.json` when its owner is dead, then runs `then`; false when the owner lives or
+ * the lock is unreadable. Two processes may see the same dead owner; the take-over lock makes one
+ * of them re-read and delete, so a lock just taken by the other is never removed.
+ */
+function removeIfDead(dir: string, port: number, owner: Owner, then: () => boolean): boolean {
+  const path = NodePath.join(dir, `${port}.json`);
   const holder = readOwner(path);
   if (holder === null || processStartTime(holder.pid) === holder.startTime) return false;
-  // Two processes may see the same dead owner; the take-over lock makes one of them re-read and
-  // delete, so a lock just taken by the other is never removed.
   const takeover = NodePath.join(dir, `${port}.takeover`);
   if (!createExclusive(takeover, owner)) return false;
   try {
     if (!sameOwner(readOwner(path), holder)) return false;
     NodeFS.rmSync(path, { force: true });
-    return createExclusive(path, owner);
+    return then();
   } finally {
     NodeFS.rmSync(takeover, { force: true });
   }
+}
+
+/**
+ * Removes every lease whose owner is dead. A SIGKILLed worker or sandbox never releases its own,
+ * and a scan meets a given port too rarely for the take-over to clear them; the launcher's and
+ * the sandbox's sweeps call this.
+ */
+export function releaseDeadLeases(dir = PORTS_DIR): ReadonlyArray<number> {
+  let names: ReadonlyArray<string> = [];
+  try {
+    names = NodeFS.readdirSync(dir);
+  } catch {
+    return [];
+  }
+  const owner: Owner = {
+    pid: NodeProcess.pid,
+    startTime: processStartTime(NodeProcess.pid) ?? "",
+  };
+  return names.flatMap((name) => {
+    const port = /^(\d+)\.json$/.exec(name)?.[1];
+    return port !== undefined && removeIfDead(dir, Number(port), owner, () => true)
+      ? [Number(port)]
+      : [];
+  });
 }
 
 /** Whether nothing listens on the port on loopback now. */

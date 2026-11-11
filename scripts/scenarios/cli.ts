@@ -50,6 +50,7 @@ import {
   validateRegistry,
 } from "./registryRules.ts";
 import { sandboxRefusals, staleSandboxFile } from "./sandboxRules.ts";
+import { releaseDeadLeases } from "./ports.ts";
 import type { PerfScenario } from "./scenario.ts";
 import { REPO_ROOT } from "./server.ts";
 
@@ -605,6 +606,7 @@ async function main(): Promise<number> {
     releaseSandbox = lock.release;
   }
   cleanLeftovers(write);
+  releaseDeadLeases();
   const manifest = openManifest();
   try {
     if (!options.list) {
@@ -647,6 +649,7 @@ async function main(): Promise<number> {
     }
     // Sweeps what a killed worker left, while this run still knows it ended.
     cleanLeftovers(write);
+    releaseDeadLeases();
     return exitCode;
   } finally {
     manifest.close();

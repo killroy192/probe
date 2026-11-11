@@ -23,6 +23,7 @@ import {
   type SandboxOptions,
 } from "./environment.ts";
 import { sandboxFixtures, selftestFixtures } from "./lib/setup.ts";
+import { releaseDeadLeases } from "./ports.ts";
 import { REPO_ROOT, shellHostPidIn, startServer, type ServerHandle } from "./server.ts";
 
 /**
@@ -84,6 +85,7 @@ async function main(): Promise<number> {
   }
 
   cleanLeftovers(note);
+  releaseDeadLeases();
   manifest = openManifest();
   const bundle = await ensureWebBundle(REPO_ROOT, parsed.rebuild, note);
 

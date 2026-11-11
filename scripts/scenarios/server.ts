@@ -202,16 +202,38 @@ export const waitUntilServing = (
     );
   });
 
-const runCli = (serverBin: string, args: ReadonlyArray<string>, env: NodeJS.ProcessEnv) =>
-  new Promise<string>((resolve, reject) => {
-    NodeChildProcess.execFile(
-      "node",
-      [serverBin, ...args],
-      { cwd: REPO_ROOT, env, encoding: "utf8", maxBuffer: 10 * 1024 * 1024 },
-      (error, stdout, stderr) =>
-        error ? reject(new Error(`${error.message}\n${stderr}`)) : resolve(stdout),
-    );
-  });
+/**
+ * Runs the server CLI on `home`. The CLI makes a missing home, so a call on a home removed before
+ * or during it (a stopped sandbox, a swept server) would leave a new one in `<tmp>`: refused
+ * before, and one made during the call is removed. The home's `harness` folder, which the CLI
+ * never makes, tells the harness's home from a new one (a new folder may reuse the inode).
+ */
+export async function runCliOn(
+  serverBin: string,
+  home: string,
+  args: ReadonlyArray<string>,
+  env: NodeJS.ProcessEnv,
+): Promise<string> {
+  const harnessMade = () => NodeFS.existsSync(NodePath.dirname(harnessLogFileIn(home)));
+  if (!harnessMade()) throw new Error(`The server's home ${home} is gone; the CLI is not run.`);
+  const outcome = await new Promise<{ readonly stdout: string } | { readonly error: Error }>(
+    (resolve) => {
+      NodeChildProcess.execFile(
+        "node",
+        [serverBin, ...args, "--base-dir", home],
+        { cwd: REPO_ROOT, env, encoding: "utf8", maxBuffer: 10 * 1024 * 1024 },
+        (error, stdout, stderr) =>
+          resolve(error ? { error: new Error(`${error.message}\n${stderr}`) } : { stdout }),
+      );
+    },
+  );
+  if (!harnessMade()) {
+    NodeFS.rmSync(home, { recursive: true, force: true });
+    throw new Error(`The server's home ${home} was removed while the CLI ran on it.`);
+  }
+  if ("error" in outcome) throw outcome.error;
+  return outcome.stdout;
+}
 
 export function parsePairingCredentialOutput(output: string): string {
   const start = output.indexOf("{");
@@ -425,7 +447,7 @@ export async function startServer(options: {
   };
   const shellHostPid = () => shellHostPidIn(options.home);
   const cli = (args: ReadonlyArray<string>) =>
-    runCli(serverBin, [...args, "--base-dir", options.home], envFor(startEnv));
+    runCliOn(serverBin, options.home, args, envFor(startEnv));
   return {
     home: options.home,
     origin,
@@ -509,7 +531,7 @@ export function attachServer(
   };
   let pairings = 0;
   const cli = (args: ReadonlyArray<string>) =>
-    runCli(DEFAULT_SERVER_BIN, [...args, "--base-dir", target.home], childEnv());
+    runCliOn(DEFAULT_SERVER_BIN, target.home, args, childEnv());
   const refused = (need: string) => () => Promise.reject(refuse(need));
   return {
     home: target.home,
