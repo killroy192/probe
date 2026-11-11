@@ -85,6 +85,8 @@ export interface CheckScenario {
   readonly needs: ScenarioNeeds;
   /** The criteria it proves, as `"S7 AC-6"`. */
   readonly covers?: ReadonlyArray<string>;
+  /** Why a sandbox refuses it although its needs are `{}`, as `"it SIGKILLs its server"`. */
+  readonly offSandbox?: string;
   readonly takes?: ResultKind;
   readonly returns?: ResultKind;
   run(context: ScenarioContext, given: StepValue | undefined): Promise<StepValue | void>;
@@ -141,6 +143,7 @@ export function defineCheck<const T extends ResultKind = never, const R extends 
     readonly title: string;
     readonly needs: ScenarioNeeds;
     readonly covers?: ReadonlyArray<string>;
+    readonly offSandbox?: string;
     readonly takes?: T;
     readonly returns?: R;
     readonly run: (context: ScenarioContext, given: Given<T>) => Promise<Returned<R>>;

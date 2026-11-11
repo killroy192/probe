@@ -131,6 +131,7 @@ Every atomic check scenario must finish under 20 s. That is a separate gate, nev
   - `serverWide: "<why>"` when it changes or depends on state every scenario on its server sees (the starting-script list, the server's own state folders, the server process itself);
   - `condition` when its server must start under a condition (an environment variable, a faulty git config): a reason and the variables for the server's home. A condition is met by starting a server under it, never by restarting into it.
 - A scenario that needs a restart, an empty home, server-wide state or a condition gets a server of its own; `secondServer` alone does not ([The runner](#the-runner)). The sandbox refuses the same scenarios, plus `secondServer`.
+- A self-test that must run on a shared server but would break one others share (`T32` SIGKILLs it) states `needs: {}` and says why in `offSandbox`; the sandbox refuses it with that reason.
 - A check that is not a self-test lists the criteria it proves in `covers`, as `"S7 AC-6"`. The sets of the old ids are derived from it, and a registry test fails when a criterion of an old id is covered by no check.
 
 ## The sandbox

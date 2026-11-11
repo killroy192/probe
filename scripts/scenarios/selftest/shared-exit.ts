@@ -9,8 +9,9 @@ import { defineCheck } from "../scenario.ts";
 export const sharedServerKilled = defineCheck(import.meta.url, {
   id: "T32",
   title: "the shared server crashes mid-stage",
-  // Untrue on purpose: it must run on the shared server it kills, so no `shared` or sandbox set holds it.
+  // Untrue on purpose: it must run on the shared server it kills; `offSandbox` keeps it off a sandbox.
   needs: {},
+  offSandbox: "it SIGKILLs the server it runs on, which every run on the sandbox shares",
   run: async (ctx) => {
     const page = await ctx.trail.stage("open a page", async () => {
       const opened = await ctx.openPage();

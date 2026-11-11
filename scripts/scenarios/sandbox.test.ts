@@ -26,6 +26,7 @@ import { parseSandboxArgs } from "./environment.ts";
 import { withClient } from "./lib/api.ts";
 import { alive, gone } from "./lib/waits.ts";
 import { sandboxRefusal, staleSandboxFile } from "./sandboxRules.ts";
+import { sharedServerKilled } from "./selftest/shared-exit.ts";
 import { attachServer, REPO_ROOT } from "./server.ts";
 import { type Spawned, spawnScript } from "./spawned.ts";
 
@@ -39,6 +40,10 @@ describe("sandbox rules", () => {
     const base = { id: "X", title: "x" };
     assert.isUndefined(sandboxRefusal({ ...base, needs: {} }));
     assert.include(sandboxRefusal(base) ?? "", "does not state its needs");
+    assert.include(
+      sandboxRefusal(sharedServerKilled) ?? "",
+      "T32 cannot run on a sandbox: it SIGKILLs the server it runs on",
+    );
     for (const [needs, reason] of [
       [{ restart: true }, "restarts the server"],
       [{ secondServer: true }, "starts a second server"],

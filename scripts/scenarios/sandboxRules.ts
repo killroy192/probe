@@ -51,16 +51,25 @@ function refusedNeeds(needs: ScenarioNeeds): ReadonlyArray<string> {
   ].filter((reason) => typeof reason === "string");
 }
 
+const refusedReasons = (scenario: {
+  readonly needs: ScenarioNeeds;
+  readonly offSandbox?: string;
+}): ReadonlyArray<string> => [
+  ...(scenario.offSandbox === undefined ? [] : [scenario.offSandbox]),
+  ...refusedNeeds(scenario.needs),
+];
+
 /** Why `scenario` may not run on a server other runs share; undefined when it may. */
 export function sandboxRefusal(scenario: {
   readonly id: string;
   readonly needs?: ScenarioNeeds;
+  readonly offSandbox?: string;
 }): string | undefined {
   const { id, needs } = scenario;
   if (needs === undefined) {
     return `${id} does not state its needs, so it is not known to be safe on a shared server (${REGISTERING}).`;
   }
-  const reasons = refusedNeeds(needs);
+  const reasons = refusedReasons({ ...scenario, needs });
   return reasons.length === 0 ? undefined : `${id} cannot run on a sandbox: ${reasons.join("; ")}.`;
 }
 
@@ -72,7 +81,7 @@ export function sandboxRefusals(targets: ReadonlyArray<Runnable>): ReadonlyArray
   return targets.flatMap((target) => {
     if (target.kind === "check") return sandboxRefusal(target) ?? [];
     return target.steps.flatMap(({ scenario }, index) => {
-      const reasons = refusedNeeds(scenario.needs);
+      const reasons = refusedReasons(scenario);
       return reasons.length === 0
         ? []
         : `${target.id} step ${index + 1} (${scenario.id}) cannot run on a sandbox: ${reasons.join("; ")}.`;
