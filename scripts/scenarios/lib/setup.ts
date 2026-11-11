@@ -99,6 +99,17 @@ export interface WorldResult {
   readonly shown?: ShownPage;
 }
 
+/**
+ * A running shell whose tab was closed on a page that still shows its workspace: its row stays in
+ * the tree. The step that made it closes its setup connection when it ends, so a step that takes
+ * it connects again as `shown.page`.
+ */
+export interface ClosedTabShellResult {
+  readonly kind: "closedTabShell";
+  readonly shell: ShellResult;
+  readonly shown: ShownPage;
+}
+
 /** Every value a setup step returns, by its `kind`. */
 export interface SetupResults {
   readonly folder: FolderResult;
@@ -108,6 +119,7 @@ export interface SetupResults {
   readonly shell: ShellResult;
   readonly world: WorldResult;
   readonly page: ShownPage;
+  readonly closedTabShell: ClosedTabShellResult;
 }
 
 /** Where a shell starts in a git project; absent is the project's own checkout. */

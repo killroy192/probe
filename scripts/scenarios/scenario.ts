@@ -3,7 +3,12 @@
 import * as NodeURL from "node:url";
 
 import type { PointerPage } from "./browser.ts";
-import type { ShellResult, WorkspaceResult, WorldResult } from "./lib/setup.ts";
+import type {
+  ClosedTabShellResult,
+  ShellResult,
+  WorkspaceResult,
+  WorldResult,
+} from "./lib/setup.ts";
 import type { Trail } from "./lib/trail.ts";
 import type { ServerEnv, ServerHandle } from "./server.ts";
 
@@ -57,11 +62,12 @@ export interface ServerCondition {
   readonly env: (home: string) => ServerEnv | Promise<ServerEnv>;
 }
 
-/** What a check step can hand the next one, by its `kind`; PRB.T-039 adds kinds here. */
+/** What a check step can hand the next one, by its `kind`. */
 export interface ResultKinds {
   readonly workspace: WorkspaceResult;
   readonly shell: ShellResult;
   readonly world: WorldResult;
+  readonly closedTabShell: ClosedTabShellResult;
 }
 
 export type ResultKind = keyof ResultKinds;
