@@ -1,5 +1,6 @@
 // @effect-diagnostics nodeBuiltinImport:off - Makes folder fixtures in the throwaway home.
 
+import * as NodeCrypto from "node:crypto";
 import * as NodeFSP from "node:fs/promises";
 import * as NodePath from "node:path";
 
@@ -132,9 +133,12 @@ export interface SetupResults {
   readonly closedTabShell: ClosedTabShellResult;
 }
 
-/** Where a shell starts in a git project; absent is the project's own checkout. */
+/**
+ * Where a shell starts in a git project; absent is the project's own checkout. A fork gets a
+ * random name of the form the server accepts (`probe-worktree-<6 hex>`).
+ */
 export type ShellWorktree =
-  | { readonly fork: { readonly from: WorkspaceStartingPoint; readonly name: string } }
+  | { readonly fork: { readonly from: WorkspaceStartingPoint } }
   | { readonly existing: string };
 
 export interface ShellOptions {
@@ -278,7 +282,7 @@ export async function setupOn(
               "fork" in worktree
                 ? {
                     kind: "new" as const,
-                    name: worktree.fork.name,
+                    name: `probe-worktree-${NodeCrypto.randomBytes(3).toString("hex")}`,
                     startingPoint: worktree.fork.from,
                   }
                 : { kind: "existing" as const, path: worktree.existing },

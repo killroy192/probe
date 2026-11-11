@@ -213,9 +213,7 @@ export const probeKill = defineCheck(import.meta.url, {
 
     const { worktree, neighbour } = await ctx.trail.stage("AC-12", async () => {
       const forked = await setup.shell(repo, {
-        worktree: {
-          fork: { from: { kind: "branch", name: "main" }, name: `probe-kill-${ctx.runId}` },
-        },
+        worktree: { fork: { from: { kind: "branch", name: "main" } } },
       });
       const worktree = forked.cwd;
       const neighbour = await setup.shell(repo, { ...agent, worktree: { existing: worktree } });
@@ -382,9 +380,7 @@ export const removeWorkspaceScenario = defineCheck(import.meta.url, {
         { project: 0 },
         {
           project: 0,
-          worktree: {
-            fork: { from: { kind: "branch", name: "main" }, name: `s6-remove-${ctx.runId}` },
-          },
+          worktree: { fork: { from: { kind: "branch", name: "main" } } },
         },
         { project: 1 },
       ],

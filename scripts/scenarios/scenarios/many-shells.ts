@@ -34,7 +34,7 @@ export const manyShellsCheck = defineCheck(import.meta.url, {
       const inRepo = await setup.project(ws, repo);
       const inSecond = await setup.project(ws, await setup.repo({ label: "second" }));
       const inPlain = await setup.project(ws, await setup.folder("plain"));
-      const fork = { from: { kind: "branch", name: "main" }, name: `fork-${ctx.runId}` } as const;
+      const fork = { from: { kind: "branch", name: "main" } } as const;
       const started = [
         await setup.shell(inRepo),
         await setup.shell(inSecond),
