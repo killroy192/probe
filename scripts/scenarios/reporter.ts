@@ -95,7 +95,16 @@ function timing(outcome: ScenarioOutcome | undefined, result: ResultLike): strin
   return `(${seconds(outcome.durationMs)}, teardown ${Math.round(outcome.teardownMs)} ms)`;
 }
 
+// A failure can quote raw terminal output; printed as is, its escapes would drive the developer's terminal.
+const CONTROL = /[\u0000-\u0008\u000b-\u001f\u007f]/g;
+const visible = (text: string) =>
+  text.replace(CONTROL, (char) => `\\x${char.charCodeAt(0).toString(16).padStart(2, "0")}`);
+
 function failureReason(outcome: ScenarioOutcome | undefined, result: ResultLike): string {
+  return visible(rawFailureReason(outcome, result));
+}
+
+function rawFailureReason(outcome: ScenarioOutcome | undefined, result: ResultLike): string {
   if (outcome?.failure === undefined) return playwrightReason(result);
   const steps = outcome.steps ?? [];
   const failed = steps.findIndex(({ outcome: stepOutcome }) => stepOutcome === "failed");

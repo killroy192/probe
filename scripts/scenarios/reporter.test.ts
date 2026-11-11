@@ -61,7 +61,7 @@ describe("scenario reporter", () => {
       result(
         "failed",
         atomic("T1", {
-          failure: 'at stage "open tab": tab count: expected 2, found 1',
+          failure: 'at stage "open tab": tab count: expected 2, found 1\u001b[?2004h',
           artifacts: ["artifacts: /a/T1 (page-1.png)", "artifact missing: console"],
           undone: ["write access to /w/p"],
         }),
@@ -70,7 +70,7 @@ describe("scenario reporter", () => {
     );
     expect(lines()).toEqual([
       "PASS    T2 second (2.3 s, teardown 82 ms)",
-      'FAIL    T1 first (2.3 s, teardown 82 ms): at stage "open tab": tab count: expected 2, found 1',
+      'FAIL    T1 first (2.3 s, teardown 82 ms): at stage "open tab": tab count: expected 2, found 1\\x1b[?2004h',
       "        artifacts: /a/T1 (page-1.png)",
       "        artifact missing: console",
       "        undone: write access to /w/p",
