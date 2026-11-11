@@ -38,19 +38,6 @@ export const projectPaths = (client: WsClient, name: string) =>
     Effect.map((detail) => detail.projects.map(({ path }) => path)),
   );
 
-/** Fixtures: a git project with a linked worktree, and a plain folder, in the server's home. */
-export async function projects(server: ServerHandle) {
-  const folders = NodePath.join(server.home, "folders");
-  const repo = NodePath.join(folders, "repo");
-  const linked = NodePath.join(folders, "linked");
-  const plain = NodePath.join(folders, "plain");
-  for (const dir of [repo, plain]) await NodeFSP.mkdir(dir, { recursive: true });
-  await gitOk(repo, "init", "-q", "-b", "main");
-  await gitOk(repo, "commit", "-q", "--allow-empty", "-m", "first");
-  await gitOk(repo, "worktree", "add", "-q", "-b", "topic", linked);
-  return { repo, linked, plain };
-}
-
 /** Creates the workspace `name` in the UI and adds `folders` to it. */
 export async function setUp(page: PointerPage, folders: ReadonlyArray<string>, name = "sparta") {
   await page.setViewportSize({ width: 1200, height: 800 });
