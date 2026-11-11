@@ -1,6 +1,6 @@
 import * as Effect from "effect/Effect";
 
-import { frameHolder } from "../browser.ts";
+import { frameHolder, type PointerPage } from "../browser.ts";
 import {
   layoutSaved,
   layoutState,
@@ -15,8 +15,9 @@ import { setupOn, type Setup, type ShellResult } from "../lib/setup.ts";
 import { shellTab } from "../lib/ui/tabs.ts";
 import { shellPanel, shellReady } from "../lib/ui/terminal.ts";
 import { openFromTree } from "../lib/ui/tree.ts";
+import { expected } from "../lib/expect.ts";
 import { check } from "../lib/waits.ts";
-import { defineCheck } from "../scenario.ts";
+import { defineCheck, type ScenarioContext } from "../scenario.ts";
 
 /** The request that saves a workspace's tabs, as the page sends it. */
 const SAVE_TABS = '"workspace.saveTabs"';
@@ -30,48 +31,71 @@ async function shellsInFolder(setup: Setup, count: number) {
   return { ws, shells };
 }
 
-export const tabSignals = defineCheck(import.meta.url, {
-  id: "T-041a",
-  title: "a shell tab says it is attached and ready, hidden or not, after a reload and a restart",
-  needs: { restart: true },
-  covers: ["T-041a AC-4", "T-041a AC-6"],
-  run: async (ctx) => {
-    const { openPage, trail } = ctx;
-    const page = await openPage();
-    const setup = await setupOn(ctx, { as: page });
-    const { ws, shells: both } = await shellsInFolder(setup, 2);
-    const hidden = both[0]!;
-    await showWorkspace(page, ws);
-    for (const shell of both) await openTab(page, shell);
-    const readyBoth = async (target: typeof page) => {
-      for (const shell of both) await shellReady(target, shell.shellId);
-    };
+/** A page showing a workspace with two shells, both tabs open and the first one hidden. */
+async function twoTabs(ctx: ScenarioContext) {
+  const page = await ctx.openPage();
+  const setup = await setupOn(ctx, { as: page });
+  const { ws, shells: both } = await shellsInFolder(setup, 2);
+  await showWorkspace(page, ws);
+  for (const shell of both) await openTab(page, shell);
+  const readyBoth = async (target: PointerPage) => {
+    for (const shell of both) await shellReady(target, shell.shellId);
+  };
+  return { page, setup, ws, hidden: both[0]!, readyBoth };
+}
 
-    // AC-6: the hidden tab stays mounted, attached and ready like the shown one.
+export const hiddenAndReload = defineCheck(import.meta.url, {
+  id: "T-041a.hidden-and-reload",
+  title:
+    "a shell tab says it is attached and ready while hidden, after a reload and in a second client",
+  needs: {},
+  // One page with a hidden and a shown tab: each later stage reads the same two tabs again.
+  covers: ["T-041a AC-6", "T-041a AC-4 reload", "T-041a AC-4 second client"],
+  run: async (ctx) => {
+    const { trail } = ctx;
+    const { page, ws, hidden, readyBoth } = await twoTabs(ctx);
+
     await trail.stage("AC-6", async () => {
       await readyBoth(page);
-      check(
-        (await shellPanel(page, hidden.shellId).getAttribute("hidden")) !== null,
-        "The first shell's tab is not the hidden one (AC-6).",
-      );
+      expected({
+        what: `the hidden attribute on shell ${hidden.shellId}'s tab`,
+        expected: true,
+        found: (await shellPanel(page, hidden.shellId).getAttribute("hidden")) !== null,
+      });
     });
-
-    // AC-4: after a reload, a server restart that reattaches the shells, and in a second client.
     await trail.stage("AC-4 reload", async () => {
       await reloadShowing(page, ws.name);
       await readyBoth(page);
     });
-    await trail.stage("AC-4 restart", async () => {
-      await restartAndReload(ctx, page, ws, setup);
-      await readyBoth(page);
-    });
     await trail.stage("AC-4 second client", async () => {
-      const other = await openPage();
+      const other = await ctx.openPage();
       await reloadShowing(other, ws.name);
       await readyBoth(other);
     });
   },
 });
+
+export const afterRestart = defineCheck(import.meta.url, {
+  id: "T-041a.after-restart",
+  title: "a shell tab says it is attached and ready again after a server restart reattaches it",
+  needs: { restart: true },
+  covers: ["T-041a AC-4 restart"],
+  run: async (ctx) => {
+    const { trail } = ctx;
+    const { page, setup, ws, readyBoth } = await twoTabs(ctx);
+    await readyBoth(page);
+
+    await trail.stage("AC-4 restart", async () => {
+      await restartAndReload(ctx, page, ws, setup);
+      await readyBoth(page);
+    });
+  },
+});
+
+export const successors = [hiddenAndReload, afterRestart];
+
+// temporary: PRB.T-039 10A removes this alias.
+export const tabSignals = hiddenAndReload;
 
 export const layoutSignal = defineCheck(import.meta.url, {
   id: "T-041b",
