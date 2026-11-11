@@ -33,12 +33,14 @@ export interface ScenarioOutcome {
   readonly artifacts?: ReadonlyArray<string>;
   readonly undone?: ReadonlyArray<string>;
   readonly steps?: ReadonlyArray<StepOutcome>;
+  /** A perf scenario's verdict on its measured value; a missed limit is also its `failure`. */
+  readonly perf?: { readonly line: string; readonly pass: boolean };
 }
 
 export type GateJudge = typeof judgeGate;
 
 export interface ReporterOptions {
-  readonly mode?: "suite" | "selftest" | "sandbox";
+  readonly mode?: "suite" | "selftest" | "perf" | "sandbox";
   readonly sandboxPid?: number;
   readonly sets?: ReadonlyArray<ScenarioSet>;
   /** Sets the run was started with, announced before the first scenario. */
@@ -62,6 +64,7 @@ interface ResultRow {
   readonly teardownMs: number | undefined;
   readonly freshServer: boolean | undefined;
   readonly steps: ReadonlyArray<StepOutcome> | undefined;
+  readonly perf: ScenarioOutcome["perf"];
 }
 
 type CaseLike = Pick<TestCase, "title">;
@@ -111,6 +114,7 @@ function scenarioLines(test: CaseLike, result: ResultLike): ReadonlyArray<string
         ...steps.map(
           ({ n, id, durationMs }) => `${INDENT}step ${n} ${id} (${seconds(durationMs)})`,
         ),
+        ...(outcome?.perf === undefined ? [] : [`${INDENT}${outcome.perf.line}`]),
       ]
     : [
         `FAIL    ${test.title} ${timing(outcome, result)}: ${failureReason(outcome, result)}`,
@@ -135,7 +139,9 @@ function summaryLines(
       ? `on sandbox ${options.sandboxPid}, `
       : options.mode === "selftest"
         ? "self-test "
-        : "";
+        : options.mode === "perf"
+          ? "perf "
+          : "";
   const byId = new Map(rows.map((row) => [row.id, row]));
   const setLines = (options.sets ?? []).flatMap(({ name, members }) => {
     const ran = members.filter((id) => byId.has(id));
@@ -143,7 +149,19 @@ function summaryLines(
     const setPassed = ran.filter((id) => byId.get(id)!.outcome === "passed").length;
     return [`scenarios: set ${name} ${setPassed}/${members.length} passed`];
   });
-  return [`scenarios: ${prefix}${counts}`, ...setLines, `scenarios: total ${seconds(totalMs)}`];
+  const measured = rows.flatMap(({ perf }) => (perf === undefined ? [] : [perf]));
+  const perfLines =
+    measured.length === 0
+      ? []
+      : [
+          `perf: ${measured.length} measured, ${measured.filter(({ pass }) => !pass).length} over the limit`,
+        ];
+  return [
+    ...perfLines,
+    `scenarios: ${prefix}${counts}`,
+    ...setLines,
+    `scenarios: total ${seconds(totalMs)}`,
+  ];
 }
 
 export default class ScenarioReporter implements Reporter {
@@ -202,6 +220,7 @@ export default class ScenarioReporter implements Reporter {
       teardownMs: outcome?.teardownMs,
       freshServer: outcome?.freshServer,
       steps: outcome?.steps,
+      perf: outcome?.perf,
     });
   }
 

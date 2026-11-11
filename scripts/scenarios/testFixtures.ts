@@ -1,4 +1,4 @@
-// @effect-diagnostics nodeBuiltinImport:off globalDate:off - Playwright fixtures own the run's servers, homes and log files directly, and time each scenario.
+// @effect-diagnostics nodeBuiltinImport:off globalDate:off globalTimers:off - Playwright fixtures own the run's servers, homes and log files directly, time each scenario, and watch a sandbox they do not own.
 
 import * as NodeCrypto from "node:crypto";
 import * as NodeFS from "node:fs";
@@ -14,14 +14,15 @@ import {
   type ManifestEntry,
   openManifest,
   processStartTime,
+  sandboxEnded,
 } from "./cleanup.ts";
 import { type ComposedOutcome, runComposed } from "./compose.ts";
 import { createThrowawayHome, readRunPlan, removeThrowawayHome } from "./environment.ts";
-import { ACTION_MS } from "./lib/deadlines.ts";
+import { ACTION_MS, SANDBOX_POLL_MS } from "./lib/deadlines.ts";
 import { createTrail, type Trail } from "./lib/trail.ts";
 import { resetRecorders } from "./lib/waits.ts";
 import { composedNeeds, freshServerNeeded, perfVerdict } from "./registryRules.ts";
-import { OUTCOME_ATTACHMENT, type StepOutcome } from "./reporter.ts";
+import { OUTCOME_ATTACHMENT, type ScenarioOutcome, type StepOutcome } from "./reporter.ts";
 import type {
   AnyScenario,
   ScenarioContext,
@@ -39,11 +40,12 @@ import {
   guardShared,
   raceServerExit,
   runUndos,
+  sandboxEndedMessage,
   scenarioOutcome,
   sharedLogFile,
   type Undo,
 } from "./scenarioRun.ts";
-import { type ServerHandle, startServer } from "./server.ts";
+import { attachServer, type ServerHandle, startServer } from "./server.ts";
 
 const plan = readRunPlan(NodeProcess.env);
 const VIEWPORT = { width: 1200, height: 800 };
@@ -175,6 +177,7 @@ function exitSignal() {
   });
   return {
     exited,
+    report: (cause: string) => report(cause),
     watch: (label: string, server: ServerHandle) => {
       let pid: number | undefined;
       try {
@@ -186,6 +189,27 @@ function exitSignal() {
     },
   };
 }
+
+/**
+ * Calls `ended` once the sandbox is stopping or gone, until the returned stop is called. The
+ * sandbox is not this run's child, so no exit event reaches it; its record is read instead.
+ */
+function watchSandbox(pid: number, ended: () => void): () => void {
+  const timer = setInterval(() => {
+    if (!sandboxEnded(pid)) return;
+    clearInterval(timer);
+    ended();
+  }, SANDBOX_POLL_MS);
+  return () => clearInterval(timer);
+}
+
+/** A failure on a sandbox that is stopping is the sandbox's end, whatever the step saw first. */
+const blameSandbox = (caught: unknown) =>
+  plan?.sandbox !== undefined &&
+  !(caught instanceof Error && caught.message.includes(sandboxEndedMessage(plan.sandbox.pid))) &&
+  sandboxEnded(plan.sandbox.pid)
+    ? new Error(sandboxEndedMessage(plan.sandbox.pid))
+    : caught;
 
 interface Runtime {
   readonly scenario: AnyScenario;
@@ -301,14 +325,18 @@ async function runStep<A>(
     openPage: () => newPage(true),
     openAnonymousPage: () => newPage(false),
     startSecondServer: (options) =>
-      startFresh(rt, "second server", options?.serverBin ?? plan?.serverBin),
+      plan?.sandbox === undefined
+        ? startFresh(rt, "second server", options?.serverBin ?? plan?.serverBin)
+        : Promise.reject(
+            new Error(`${step.id} tried a second server on the sandbox, a need it did not state.`),
+          ),
   };
   let failure: unknown;
   let value: A | undefined;
   try {
     value = await raceServerExit(step.body(context), rt.exits.exited, rt.trail.current);
   } catch (caught) {
-    failure = asStageFailure(caught, rt.trail.current());
+    failure = asStageFailure(blameSandbox(caught), rt.trail.current());
     await saveArtifacts(rt, step.dir, failure);
   }
   // After the artifacts, so they show the state the failure left.
@@ -345,6 +373,16 @@ export const scenarioTest = base.extend<Fixtures, WorkerFixtures>({
 
   sharedServer: [
     async ({ workerManifest }, use, workerInfo) => {
+      const sandbox = plan?.sandbox;
+      if (sandbox !== undefined) {
+        // The sandbox owns its server: a run only reads it, and every end or restart is refused.
+        const attached = attachServer(
+          sandbox.record,
+          (need) => new Error(`A scenario tried ${need} on the sandbox, a need it did not state.`),
+        );
+        await use({ get: async () => attached });
+        return;
+      }
       const root = artifactsRootOf(workerInfo.project.outputDir);
       let started: Promise<SharedRun> | undefined;
       let n = 0;
@@ -424,6 +462,8 @@ export const scenarioTest = base.extend<Fixtures, WorkerFixtures>({
       let startedMs = clock();
       let failure: string | undefined;
       let steps: ReadonlyArray<StepOutcome> | undefined;
+      let perf: ScenarioOutcome["perf"];
+      let stopSandboxWatch = () => {};
       try {
         let server: ServerHandle;
         let sessionKey: ServerHandle;
@@ -432,6 +472,17 @@ export const scenarioTest = base.extend<Fixtures, WorkerFixtures>({
           startedMs = clock();
           server = await startFresh(rt, "server", plan?.serverBin, needs.condition);
           sessionKey = server;
+        } else if (plan?.sandbox !== undefined) {
+          const { pid, record } = plan.sandbox;
+          sessionKey = await sharedServer.get();
+          startedMs = clock();
+          server = attachServer(
+            record,
+            (need) =>
+              new Error(`${scenario.id} tried ${need} on the sandbox, a need it did not state.`),
+          );
+          rt.trail.addServer("sandbox server", server);
+          stopSandboxWatch = watchSandbox(pid, () => rt.exits.report(sandboxEndedMessage(pid)));
         } else {
           sessionKey = await sharedServer.get();
           startedMs = clock();
@@ -459,7 +510,7 @@ export const scenarioTest = base.extend<Fixtures, WorkerFixtures>({
               body: (context) => scenario.run(context),
             });
             const verdict = perfVerdict(scenario, ms);
-            write(verdict.line);
+            perf = { line: verdict.line, pass: verdict.pass };
             if (!verdict.pass) failure = verdict.line;
             break;
           }
@@ -498,10 +549,11 @@ export const scenarioTest = base.extend<Fixtures, WorkerFixtures>({
           }
         }
       } catch (caught) {
-        const error = asStageFailure(caught, rt.trail.current());
+        const error = asStageFailure(blameSandbox(caught), rt.trail.current());
         failure = failureMessage(error);
         if (!rt.saved.has(error)) await saveArtifacts(rt, ownDir, error);
       }
+      stopSandboxWatch();
       const durationMs = clock() - startedMs;
       for (const { label, bytes } of rt.trail.logSizes()) {
         write(`scenarios: ${scenario.id} ${label} log=${Math.ceil(bytes / 1024)}KiB`);
@@ -518,6 +570,7 @@ export const scenarioTest = base.extend<Fixtures, WorkerFixtures>({
         artifacts: rt.artifacts,
         undone: rt.undone,
         steps,
+        perf,
       });
       await testInfo.attach(OUTCOME_ATTACHMENT, {
         body: JSON.stringify(outcome),
