@@ -17,6 +17,7 @@ import * as HostProcess from "@t3tools/shared/HostProcess";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Base64Url from "effect/encoding/Base64Url";
+import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
 import * as Exit from "effect/Exit";
 import * as Fiber from "effect/Fiber";
 import * as FileSystem from "effect/FileSystem";
@@ -31,6 +32,7 @@ import * as Schema from "effect/Schema";
 import * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
 import * as SynchronizedRef from "effect/SynchronizedRef";
+import * as TestClock from "effect/testing/TestClock";
 import { expect, vi } from "vite-plus/test";
 
 import * as ProcessRunner from "../processRunner.ts";
@@ -288,7 +290,7 @@ interface CreateManagerOptions {
   }>;
   processTable?: Effect.Effect<
     ReadonlyArray<{ readonly pid: number; readonly ppid: number; readonly name: string }>,
-    never
+    TerminalManager.TerminalSubprocessCheckError
   >;
   subprocessPollIntervalMs?: number;
   processKillGraceMs?: number;
@@ -836,6 +838,64 @@ it.layer(
         false,
       ]);
     }),
+  );
+
+  it.effect("keeps the poll interval while ps stands in for the native process table", () =>
+    Effect.gen(function* () {
+      // A missing monitor binary is the usual case in dev; ps is cheap, PowerShell is not.
+      for (const [platform, expectedSnapshots] of [
+        ["linux", 6],
+        ["win32", 2],
+      ] as const) {
+        const nativeAsked = yield* Ref.make(0);
+        const fallback = ProcessRunner.ProcessRunner.of({
+          run: () =>
+            Effect.succeed({
+              stdout: "",
+              stderr: "",
+              code: ChildProcessSpawner.ExitCode(0),
+              timedOut: false,
+              stdoutTruncated: false,
+              stderrTruncated: false,
+              stdoutInvalidUtf8: false,
+              stderrInvalidUtf8: false,
+            }),
+        });
+        yield* Effect.scoped(
+          Effect.gen(function* () {
+            const { manager, ptyAdapter } = yield* createManager(5, {
+              processTable: Ref.update(nativeAsked, (count) => count + 1).pipe(
+                Effect.andThen(
+                  Effect.fail(
+                    new TerminalManager.TerminalSubprocessCheckError({
+                      command: "resource-monitor",
+                    }),
+                  ),
+                ),
+              ),
+            }).pipe(
+              Effect.provideService(ProcessRunner.ProcessRunner, fallback),
+              Effect.provide(layerWithHostPlatform(platform)),
+            );
+            // The fake PTY never exits on kill, and the kill grace would wait on the test clock.
+            yield* Effect.addFinalizer(() =>
+              Effect.sync(() => ptyAdapter.processes[0]?.emitExit({ exitCode: 0, signal: 0 })),
+            );
+            yield* manager.open(openInput());
+            // Typing keeps the shell from counting as quiet, which would skip snapshots.
+            for (let second = 0; second < 6; second += 1) {
+              yield* manager.write({
+                threadId: "thread-1",
+                terminalId: DEFAULT_TERMINAL_ID,
+                data: "x",
+              });
+              yield* TestClock.adjust("1 second");
+            }
+            expect(yield* Ref.get(nativeAsked), platform).toBe(expectedSnapshots);
+          }),
+        );
+      }
+    }).pipe(Effect.provide(TestClock.layer())),
   );
 
   it.effect("keeps terminals that get input or output while closeIdle checks them", () =>
