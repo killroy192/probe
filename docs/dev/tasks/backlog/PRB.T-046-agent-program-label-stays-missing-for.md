@@ -60,6 +60,17 @@ What the code shows (read 2026-11-11, not run):
   warning.
 - Neither is confirmed; the run's server log has no debug lines on the poll.
 
+## Cause (confirmed 2026-11-11)
+
+The back-off. Debugging PRB.T-050 by hand on a dev server, with debug lines on the poll: the native
+monitor binary was missing (`Resource monitor binary was not found for linux/arm64`, the usual case
+in dev and in scenario sandboxes), every tick fell back to `ps`, `ps` found the right program, and
+the tick still counted as failed, so the delay went 2, 4, 8, 16, 32, then 60 s. Fixed in
+`Manager.ts` by counting a `ps` fallback as a good snapshot on Linux and macOS; Windows keeps the
+back-off because its fallback is PowerShell. Test: "keeps the poll interval while ps stands in for
+the native process table" in `Manager.test.ts`. Left: the label bound on a server with about 150
+shells (the second criterion below) is not measured yet.
+
 ## Acceptance criteria
 
 - A test that fails on `main`: a started agent's label is published within one poll interval of
