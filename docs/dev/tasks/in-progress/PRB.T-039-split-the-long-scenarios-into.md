@@ -5,7 +5,7 @@ parent: PRB.E-005
 phase: 1
 labels: [testing, plan]
 created: 2026-11-09
-updated: 2026-11-09
+updated: 2026-11-11
 ---
 
 # Convert every scenario into atomic, composable check scenarios
