@@ -1,4 +1,4 @@
-// @effect-diagnostics nodeBuiltinImport:off globalFetchInEffect:off - Spawns the scenario runner as a real subprocess.
+// @effect-diagnostics nodeBuiltinImport:off globalFetch:off globalFetchInEffect:off - Spawns the scenario runner as a real subprocess.
 
 import * as NodeChildProcess from "node:child_process";
 import * as NodeFS from "node:fs";
@@ -11,12 +11,13 @@ import * as Effect from "effect/Effect";
 
 import * as Fiber from "effect/Fiber";
 
+import { launchBrowser } from "./browser.ts";
 import { bundleState } from "./bundle.ts";
 import { childPids, cleanLeftovers, processStartTime } from "./cleanup.ts";
 import { refusalReason } from "./environment.ts";
-import { connectRpc } from "./lib/api.ts";
-import { issueBearerToken } from "./lib/seam.ts";
-import { agentTypedOnceAfterPrompt, MOCK_AGENT_LINES } from "./lib/shells.ts";
+import { connectApi, issueBearerToken } from "./lib/api.ts";
+import { agentTypedOnceAfterPrompt, followShells, MOCK_AGENT_LINES } from "./lib/shells.ts";
+import { createTrail, StageFailure } from "./lib/trail.ts";
 import { alive, follow, recorder } from "./lib/waits.ts";
 import { childEnv, startServer, waitUntilServing } from "./server.ts";
 import { spawnScript } from "./spawned.ts";
@@ -28,6 +29,36 @@ const spawnRunner = (args: ReadonlyArray<string>, env: NodeJS.ProcessEnv = {}) =
 
 const scratch = (label: string) => NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), label));
 const missingPath = (name: string) => NodePath.join(NodeOS.tmpdir(), "scenario-missing", name);
+
+/** The folder and the saved files of the one failure a run printed artifacts for. */
+function artifactsOf(output: string) {
+  const found = /artifacts: (\S+) \(([^)]*)\)/.exec(output);
+  assert.isNotNull(found, output);
+  const dir = found![1]!;
+  return {
+    dir,
+    saved: found![2]!.split(", "),
+    read: (file: string) => NodeFS.readFileSync(NodePath.join(dir, file), "utf8"),
+    remove: () => NodeFS.rmSync(NodePath.dirname(dir), { recursive: true, force: true }),
+  };
+}
+
+/** A pretty-printed server log entry at debug level: `[time] DEBUG (#fiber) ...`. */
+const DEBUG_ENTRY = / DEBUG \(#\d+\)/;
+
+const UNMASKED_SECRETS = [
+  /wsTicket=(?!\[redacted\])/,
+  /\/pair#(?!\[redacted\])/,
+  /\bBearer\s+(?!\[redacted\])/i,
+  /t3_session\w*=(?!\[redacted\])/,
+];
+
+function assertNoSecrets(dir: string) {
+  for (const file of NodeFS.readdirSync(dir).filter((name) => !name.endsWith(".png"))) {
+    const text = NodeFS.readFileSync(NodePath.join(dir, file), "utf8");
+    for (const pattern of UNMASKED_SECRETS) assert.notMatch(text, pattern, file);
+  }
+}
 
 describe("refusalReason", () => {
   const home = NodePath.join(NodeOS.tmpdir(), "scenario-fake-home");
@@ -94,20 +125,24 @@ describe("scenario runner", () => {
       assert.match(output, /PASS\s+T1 restart keeps data \(\d+\.\d s, teardown \d+ ms\)/);
       assert.match(
         output,
-        /FAIL\s+T2 deliberate failure \(\d+\.\d s, teardown \d+ ms\): deliberate failure/,
+        /FAIL\s+T2 deliberate failure \(\d+\.\d s, teardown \d+ ms\): at stage "setup": deliberate failure/,
       );
       assert.match(output, /scenarios: total \d+\.\d s/);
       // The failure leaves its evidence outside the removed home (AC-16).
-      const dir = /artifacts: (\S+) \(/.exec(output)?.[1];
-      assert.isDefined(dir);
-      for (const file of ["error.txt", "page-1.png", "server-log-tail.txt", "recorders.json"]) {
-        assert.isTrue(NodeFS.existsSync(NodePath.join(dir!, file)), file);
-      }
-      assert.deepEqual(
-        JSON.parse(NodeFS.readFileSync(NodePath.join(dir!, "recorders.json"), "utf8")),
-        { "page frames": ["a value the failure keeps"] },
-      );
-      NodeFS.rmSync(NodePath.dirname(dir!), { recursive: true, force: true });
+      const artifacts = artifactsOf(output);
+      assert.deepEqual(artifacts.saved, [
+        "error.txt",
+        "page-1-signed-in.png",
+        "page-1-signed-in.console.txt",
+        "server.stage.log",
+        "server.log",
+        "setup.json",
+        "recorders.json",
+      ]);
+      assert.deepEqual(JSON.parse(artifacts.read("recorders.json")), {
+        "page frames": ["a value the failure keeps"],
+      });
+      artifacts.remove();
     }),
   );
 
@@ -117,7 +152,7 @@ describe("scenario runner", () => {
       assert.strictEqual(code, 1);
       assert.match(
         output,
-        /FAIL\s+T3 second server cannot start \([^)]*\): Probe server could not start/,
+        /FAIL\s+T3 second server cannot start \([^)]*\): at stage "setup": Probe server could not start/,
       );
       assert.include(output, "Cannot find module");
       const started = [...output.matchAll(/T3 (?:second )?server pid=(\d+) home=(\S+)/g)];
@@ -126,14 +161,125 @@ describe("scenario runner", () => {
         assert.isFalse(alive(Number(pid)));
         assert.isFalse(NodeFS.existsSync(home!));
       }
-      // No page was opened, so there is no screenshot; both started servers left a log tail.
-      const saved = /artifacts: \S+ \(([^)]*)\)/.exec(output)?.[1]?.split(", ");
-      assert.deepEqual(saved, [
+      // No page was opened, so there is no screenshot; both started servers left their logs.
+      const artifacts = artifactsOf(output);
+      assert.deepEqual(artifacts.saved, [
         "error.txt",
-        "server-log-tail.txt",
-        "second-server-log-tail.txt",
+        "server.stage.log",
+        "server.log",
+        "second-server.stage.log",
+        "second-server.log",
+        "setup.json",
         "recorders.json",
       ]);
+      artifacts.remove();
+    }),
+  );
+
+  it.live("fails a setup call in setup, naming the call and the server's reason", () =>
+    Effect.promise(async () => {
+      const { code, output } = await spawnRunner(["--selftest", "--only", "T12"]).done;
+      assert.strictEqual(code, 1);
+      const home = /T12 server pid=\d+ home=(\S+)/.exec(output)?.[1];
+      const failed =
+        /FAIL\s+T12 a setup call fails \([^)]*\): at stage "setup": setup call workspace\.addProject (\{.*\}) failed: WorkspaceProjectError: The folder does not exist: (\S+)/.exec(
+          output,
+        );
+      assert.isNotNull(failed, output);
+      const asked = JSON.parse(failed![1]!) as { name: string; path: string };
+      const runId = /^t12-(\w+)-1$/.exec(asked.name)?.[1];
+      assert.isDefined(runId, asked.name);
+      assert.strictEqual(asked.path, NodePath.join(home!, "folders", runId!, "missing"));
+      assert.strictEqual(failed![2], asked.path);
+
+      const artifacts = artifactsOf(output);
+      assert.deepEqual(artifacts.saved, [
+        "error.txt",
+        "server.stage.log",
+        "server.log",
+        "setup.json",
+        "recorders.json",
+      ]);
+      // What each call asked for and got back (AC-21).
+      const notes = JSON.parse(artifacts.read("setup.json")) as ReadonlyArray<{
+        call: string;
+        asked: unknown;
+        got: unknown;
+      }>;
+      assert.deepEqual(
+        notes.map(({ call, asked }) => ({ call, asked })),
+        [
+          { call: "workspace.create", asked: { name: asked.name } },
+          { call: "workspace.addProject", asked: { mode: "import", ...asked } },
+        ],
+      );
+      assert.isDefined(notes[0]!.got);
+      assert.deepEqual(notes[1]!.got, {
+        failed: `WorkspaceProjectError: The folder does not exist: ${asked.path}`,
+      });
+      assert.include(artifacts.read("error.txt"), "setup call workspace.addProject");
+      assertNoSecrets(artifacts.dir);
+      artifacts.remove();
+    }),
+  );
+
+  it.live("names the workspace a page did not show, and saves the page", () =>
+    Effect.promise(async () => {
+      const { code, output } = await spawnRunner(["--selftest", "--only", "T13"]).done;
+      assert.strictEqual(code, 1);
+      assert.match(
+        output,
+        /FAIL\s+T13 a workspace is not shown \([^)]*\): at stage "show a workspace that does not exist": Workspace missing-\w+ was not shown/,
+      );
+      const artifacts = artifactsOf(output);
+      assert.deepEqual(artifacts.saved, [
+        "error.txt",
+        "page-1-signed-in.png",
+        "page-1-signed-in.console.txt",
+        "server.stage.log",
+        "server.log",
+        "setup.json",
+        "recorders.json",
+      ]);
+      artifacts.remove();
+    }),
+  );
+
+  it.live("labels every server's debug log and every page's console, with no secret in them", () =>
+    Effect.promise(async () => {
+      const { code, output } = await spawnRunner(["--selftest", "--only", "T15"]).done;
+      assert.strictEqual(code, 1);
+      assert.match(
+        output,
+        /FAIL\s+T15 labelled failure artifacts \([^)]*\): at stage "fail after a reload": T15 fails on purpose/,
+      );
+      for (const label of ["server", "second-server"]) {
+        assert.match(output, new RegExp(`scenarios: T15 ${label} log=\\d+KiB`));
+      }
+      const artifacts = artifactsOf(output);
+      assert.deepEqual(artifacts.saved, [
+        "error.txt",
+        "page-1-signed-in.png",
+        "page-1-signed-in.console.txt",
+        "page-2-anonymous.png",
+        "page-2-anonymous.console.txt",
+        "server.stage.log",
+        "server.log",
+        "second-server.stage.log",
+        "second-server.log",
+        "setup.json",
+        "recorders.json",
+      ]);
+      const signedIn = artifacts.read("page-1-signed-in.console.txt");
+      const anonymous = artifacts.read("page-2-anonymous.console.txt");
+      assert.include(signedIn, "[log] T15 marker signed-in");
+      assert.notInclude(signedIn, "T15 marker anonymous");
+      assert.include(anonymous, "[log] T15 marker anonymous");
+      assert.notInclude(anonymous, "T15 marker signed-in");
+      // The failing stage's slice holds the server's debug-level entries (AC-17).
+      assert.match(artifacts.read("server.stage.log"), DEBUG_ENTRY);
+      assertNoSecrets(artifacts.dir);
+      artifacts.remove();
     }),
   );
 
@@ -149,7 +295,7 @@ describe("scenario runner", () => {
         blocker,
       ]).done;
       assert.strictEqual(code, 1);
-      assert.match(output, /FAIL\s+T2 deliberate failure .*: deliberate failure/);
+      assert.match(output, /FAIL\s+T2 deliberate failure .*: at stage "setup": deliberate failure/);
       assert.match(output, /artifact missing: .*a-file/);
       NodeFS.rmSync(NodePath.dirname(blocker), { recursive: true, force: true });
     }),
@@ -490,6 +636,157 @@ describe("server readiness", () => {
   );
 });
 
+describe("failure artifacts", () => {
+  it.live("keep the failing stage's server lines past what the log buffer holds", () =>
+    Effect.promise(async () => {
+      // 6 MiB in one stage, more than the server handle's 4 MiB in-memory log.
+      const dir = scratch("scenario-fake-server-");
+      const bin = NodePath.join(dir, "bin.mjs");
+      NodeFS.writeFileSync(
+        bin,
+        `
+        import * as http from "node:http";
+        const port = Number(process.argv[process.argv.indexOf("--port") + 1]);
+        const filler = "x".repeat(1023) + "\\n";
+        http.createServer((request, response) => {
+          if (request.url === "/before") console.log("AC18 before the stage");
+          if (request.url === "/flood") {
+            console.log("AC18 stage start");
+            process.stdout.write(filler.repeat(6 * 1024));
+            console.log("AC18 stage end");
+          }
+          response.end("{}");
+        }).listen(port, "127.0.0.1", () => console.log("listening"));
+      `,
+      );
+      const home = scratch("scenario-flood-home-");
+      const artifactsDir = NodePath.join(dir, "artifacts");
+      const server = await startServer({ home, serverBin: bin });
+      try {
+        const trail = createTrail();
+        trail.addServer("server", server);
+        await fetch(`${server.origin}/before`);
+        await server.logged("the line before the stage", (entry) =>
+          entry.includes("AC18 before the stage"),
+        );
+        const failure = await trail
+          .stage("flood the log", async () => {
+            const from = server.logMark();
+            await fetch(`${server.origin}/flood`);
+            await server.logged("the flood's end", (entry) => entry.includes("AC18 stage end"), {
+              from,
+            });
+            throw new Error("fails after the flood");
+          })
+          .then(
+            () => null,
+            (cause: unknown) => cause,
+          );
+        assert.instanceOf(failure, StageFailure);
+        assert.notInclude(server.logs(), "AC18 stage start", "the buffer still holds the start");
+
+        const { saved, missing } = await trail.save(artifactsDir, failure);
+        assert.deepEqual(missing, []);
+        assert.includeMembers([...saved], ["server.stage.log", "server.log"]);
+        const read = (file: string) =>
+          NodeFS.readFileSync(NodePath.join(artifactsDir, file), "utf8");
+        const stageLog = read("server.stage.log");
+        assert.isTrue(stageLog.startsWith("AC18 stage start"), stageLog.slice(0, 200));
+        assert.include(stageLog, "AC18 stage end");
+        assert.notInclude(stageLog, "AC18 before the stage");
+        assert.include(read("server.log"), "AC18 before the stage");
+      } finally {
+        await server.kill();
+        NodeFS.rmSync(dir, { recursive: true, force: true });
+        NodeFS.rmSync(home, { recursive: true, force: true });
+      }
+    }),
+  );
+
+  it.live("save every other piece and name the screenshot of a closed page as missing", () =>
+    Effect.promise(async () => {
+      const dir = scratch("scenario-closed-page-");
+      const browser = await launchBrowser(undefined);
+      try {
+        const page = await (await browser.newContext()).newPage();
+        const trail = createTrail();
+        trail.addPage("closed", page);
+        await Promise.all([
+          page.waitForEvent("console"),
+          page.evaluate("console.log('AC20 before the close')"),
+        ]);
+        await page.close();
+        const { saved, missing } = await trail.save(dir, new Error("the original failure"));
+        assert.deepEqual(missing, ["page-1-closed.png: the page was closed before the failure"]);
+        assert.deepEqual(saved, [
+          "error.txt",
+          "page-1-closed.console.txt",
+          "setup.json",
+          "recorders.json",
+        ]);
+        const read = (file: string) => NodeFS.readFileSync(NodePath.join(dir, file), "utf8");
+        assert.include(read("error.txt"), "the original failure");
+        assert.include(read("page-1-closed.console.txt"), "AC20 before the close");
+      } finally {
+        await browser.close();
+        NodeFS.rmSync(dir, { recursive: true, force: true });
+      }
+    }),
+  );
+});
+
+describe("server log level", () => {
+  /** Starts a server at `logLevel`, starts and kills one shell, and returns its whole log and token. */
+  const shellRunAt = (logLevel: string | null) =>
+    Effect.gen(function* () {
+      const home = scratch("scenario-log-level-");
+      const server = yield* Effect.promise(() => startServer({ home, logLevel }));
+      const token = yield* Effect.promise(() => issueBearerToken(server));
+      const rpc = yield* Effect.promise(() => connectApi(server, { bearerToken: token }));
+      return yield* Effect.gen(function* () {
+        const shells = followShells(rpc.client);
+        const shell = yield* rpc.client["shell.open"]({ cwd: home, cols: 80, rows: 24 });
+        yield* Effect.promise(() =>
+          shells.lists.until(
+            "the shell's first prompt",
+            (list) => list.some((entry) => entry.shellId === shell.shellId && entry.promptReady),
+            0,
+          ),
+        );
+        yield* rpc.client["shell.kill"]({ shellId: shell.shellId });
+        // Logged after the first prompt's entry on the same stdout, so that one is in by now.
+        yield* Effect.promise(() =>
+          server.logged(
+            "the shell's end",
+            (entry) => entry.includes("shell ended") && entry.includes(shell.shellId),
+          ),
+        );
+        return { log: server.logSince(0), token };
+      }).pipe(
+        Effect.ensuring(
+          Effect.promise(async () => {
+            await rpc.close();
+            await server.kill();
+            await server.stopShellHost("SIGKILL");
+            NodeFS.rmSync(home, { recursive: true, force: true });
+          }),
+        ),
+      );
+    });
+
+  // A shell start runs the debug entry "shell first prompt"; null starts with no log flag.
+  it.live("prints debug entries only when asked, and never the bearer token", () =>
+    Effect.gen(function* () {
+      const debug = yield* shellRunAt("debug");
+      const quiet = yield* shellRunAt(null);
+      assert.match(debug.log, /DEBUG \(#\d+\)[^\n]*: shell first prompt/);
+      assert.notMatch(quiet.log, DEBUG_ENTRY);
+      assert.notInclude(quiet.log, "shell first prompt");
+      for (const { log, token } of [debug, quiet]) assert.notInclude(log, token);
+    }),
+  );
+});
+
 describe("shell isolation", () => {
   const MARKER = "PROBE-LEAK-$((6*7))";
 
@@ -500,7 +797,7 @@ describe("shell isolation", () => {
       homes.push(home);
       const server = yield* Effect.promise(() => startServer({ home, ambient, isolateShell }));
       const rpc = yield* Effect.promise(async () =>
-        connectRpc(server.origin, { bearerToken: await issueBearerToken(server) }),
+        connectApi(server, { bearerToken: await issueBearerToken(server) }),
       );
       return yield* Effect.gen(function* () {
         const shell = yield* rpc.client["shell.open"]({ cwd: home, cols: 80, rows: 24 });
