@@ -2,14 +2,14 @@
 
 import * as NodeChildProcess from "node:child_process";
 import * as NodeFS from "node:fs";
-import * as NodeNet from "node:net";
 import * as NodePath from "node:path";
 import * as NodeProcess from "node:process";
 import * as NodeURL from "node:url";
 
 import { isolatedShellEnv, SCENARIO_GITCONFIG } from "./isolation.ts";
-import { START_MS, WAIT_MS } from "./lib/deadlines.ts";
-import { alive } from "./lib/waits.ts";
+import { PROCESS_END_MS, seconds, START_MS, WAIT_MS } from "./lib/deadlines.ts";
+import { alive, gone } from "./lib/waits.ts";
+import { leasePort, type PortLease, startOnLeasedPort } from "./ports.ts";
 
 export const REPO_ROOT = NodePath.resolve(NodeURL.fileURLToPath(import.meta.url), "../../..");
 const DEFAULT_SERVER_BIN = NodePath.join(REPO_ROOT, "apps/server/src/bin.ts");
@@ -87,21 +87,6 @@ export const childEnv = (
   return env;
 };
 
-const reservePort = () =>
-  new Promise<number>((resolve, reject) => {
-    const server = NodeNet.createServer();
-    server.once("error", reject);
-    server.listen(0, HOST, () => {
-      const address = server.address();
-      if (!address || typeof address === "string") {
-        server.close();
-        reject(new Error("Could not reserve a local port."));
-        return;
-      }
-      server.close((error) => (error ? reject(error) : resolve(address.port)));
-    });
-  });
-
 const exited = (child: NodeChildProcess.ChildProcess) =>
   child.exitCode !== null || child.signalCode !== null;
 
@@ -113,7 +98,7 @@ async function stopChild(
   const done = new Promise<void>((resolve) => child.once("exit", () => resolve()));
   child.kill(signal);
   const escalate =
-    signal === "SIGKILL" ? undefined : setTimeout(() => child.kill("SIGKILL"), 5_000);
+    signal === "SIGKILL" ? undefined : setTimeout(() => child.kill("SIGKILL"), PROCESS_END_MS);
   await done;
   clearTimeout(escalate);
 }
@@ -165,7 +150,7 @@ export const waitUntilServing = (
     child.once("exit", (code, signal) => fail(`exited with ${signal ?? `code ${String(code)}`}`));
     // oxlint-disable-next-line t3code/no-real-time-wait-in-tests -- permanent (b): deadline raced against output, exit and the HTTP answer, named in the failure
     const timer = setTimeout(
-      () => fail(`no answer over HTTP within ${timeoutMs / 1000} s`),
+      () => fail(`no answer over HTTP within ${seconds(timeoutMs)}`),
       timeoutMs,
     );
   });
@@ -249,7 +234,9 @@ const waitForLog =
       // oxlint-disable-next-line t3code/no-real-time-wait-in-tests -- permanent (b): deadline raced against the log line, named in the failure
       const timer = setTimeout(() => {
         unsubscribe();
-        reject(new Error(`Timed out waiting for the server to log ${what}.`));
+        reject(
+          new Error(`Timed out after ${seconds(WAIT_MS)} waiting for the server to log ${what}.`),
+        );
       }, WAIT_MS);
       unsubscribe = subscribe(check);
       check();
@@ -270,16 +257,8 @@ async function stopShellHostIn(home: string, signal: NodeJS.Signals = "SIGTERM")
   const pid = shellHostPidIn(home);
   if (pid === null) return;
   NodeProcess.kill(pid, signal);
-  // Up to 5 s for the host to end its shells, then it is killed outright.
-  // oxlint-disable-next-line t3code/no-polling-loop-in-tests -- permanent (c): no exit event, the detached host is not our child and drops its pid file before it exits
-  for (let attempt = 0; alive(pid); attempt++) {
-    if (attempt === 100) {
-      NodeProcess.kill(pid, "SIGKILL");
-      break;
-    }
-    // oxlint-disable-next-line t3code/no-real-time-wait-in-tests -- permanent (c): no exit event, the detached host is not our child
-    await new Promise((resolve) => setTimeout(resolve, 50));
-  }
+  // The host gets PROCESS_END_MS to end its shells, then it is killed outright.
+  if (!(await gone(pid))) NodeProcess.kill(pid, "SIGKILL");
 }
 
 export async function startServer(options: {
@@ -297,10 +276,12 @@ export async function startServer(options: {
   readonly onExit?: (how: string) => void;
   /** The server's `--log-level`, debug unless given; null starts it without the flag. */
   readonly logLevel?: string | null;
+  /** Where a move to another port is printed; stdout unless given. */
+  readonly note?: (line: string) => void;
 }): Promise<ServerHandle> {
   const serverBin = options.serverBin ?? DEFAULT_SERVER_BIN;
-  const port = await reservePort();
-  const origin = `http://${HOST}:${port}`;
+  let port = 0;
+  let origin = "";
   let child: NodeChildProcess.ChildProcess | undefined;
   let logs = "";
   const logFile = harnessLogFileIn(options.home);
@@ -359,10 +340,24 @@ export async function startServer(options: {
       throw error;
     }
   };
-  await start();
+  let lease: PortLease | undefined = (
+    await startOnLeasedPort(
+      (leased) => {
+        port = leased;
+        origin = `http://${HOST}:${port}`;
+        return start();
+      },
+      { note: options.note ?? ((line) => NodeProcess.stdout.write(`${line}\n`)) },
+    )
+  ).lease;
+  const release = () => {
+    lease?.release();
+    lease = undefined;
+  };
 
   const stop = async () => {
     if (child) await stopChild(child);
+    release();
   };
   const shellHostPid = () => shellHostPidIn(options.home);
   const cli = (args: ReadonlyArray<string>) =>
@@ -377,9 +372,15 @@ export async function startServer(options: {
     stop,
     kill: async () => {
       if (child) await stopChild(child, "SIGKILL");
+      release();
     },
     restart: async (restartOptions) => {
-      await stop();
+      if (child) await stopChild(child);
+      lease ??= await leasePort({ range: { first: port, last: port } }).catch(() => {
+        throw new Error(
+          `The server cannot start again on port ${port}: another process took it after the stop.`,
+        );
+      });
       await start(restartOptions?.env);
     },
     logs: () => logs,

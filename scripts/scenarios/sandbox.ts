@@ -44,6 +44,7 @@ let stopping: Promise<void> | undefined;
 /** Ends the server, its shell host and shells by recorded pid, and removes the home unless kept. */
 function stop(): Promise<void> {
   stopping ??= (async () => {
+    manifest?.markSandboxStopping();
     await server?.kill().catch(() => undefined);
     const keepHome = options?.keepHome ?? false;
     if (entry !== undefined) killServerTree(entry, { keepHome });

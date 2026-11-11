@@ -6,7 +6,13 @@ import * as NodePath from "node:path";
 
 import { describe, expect, it } from "vite-plus/test";
 
-import { abandonment, cleanLeftovers, openManifest, type ProcessIdentity } from "./cleanup.ts";
+import {
+  abandonment,
+  cleanLeftovers,
+  openManifest,
+  type ProcessIdentity,
+  sandboxEnded,
+} from "./cleanup.ts";
 
 const worker = { pid: 101, startTime: "w" };
 const launcher = { pid: 100, startTime: "l" };
@@ -44,6 +50,28 @@ describe("abandoned manifests", () => {
       expect(NodeFS.existsSync(path)).toBe(true);
       expect(lines).toEqual([]);
       manifest.close();
+    } finally {
+      NodeFS.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("a sandbox counts as ended once it marks itself stopping, while its server still runs", () => {
+    const dir = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "scenario-runs-"));
+    try {
+      const manifest = openManifest(dir);
+      manifest.describeSandbox({
+        origin: "http://127.0.0.1:20000",
+        home: dir,
+        serverPid: process.pid,
+        logFile: NodePath.join(dir, "server.log"),
+        startedMs: 0,
+        bundleBuiltMs: null,
+      });
+      expect(sandboxEnded(process.pid, dir)).toBe(false);
+      manifest.markSandboxStopping();
+      expect(sandboxEnded(process.pid, dir)).toBe(true);
+      manifest.close();
+      expect(sandboxEnded(process.pid, dir)).toBe(true);
     } finally {
       NodeFS.rmSync(dir, { recursive: true, force: true });
     }
