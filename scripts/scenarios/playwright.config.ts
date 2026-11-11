@@ -9,4 +9,5 @@ export default defineConfig({
   forbidOnly: true,
   fullyParallel: true,
   workers: 1,
+  reporter: [["./reporter.ts"]],
 });
