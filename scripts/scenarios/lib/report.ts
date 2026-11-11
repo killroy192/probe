@@ -29,3 +29,24 @@ export function metric(scenarioId: string, name: string, ms: number, note?: stri
     `METRIC  ${scenarioId} ${name} ms=${Math.round(ms)}${note === undefined ? "" : ` (${note})`}\n`,
   );
 }
+
+const MASK = "[redacted]";
+const SECRET_KEYS = "wsTicket|token|credential|secret|password";
+
+/**
+ * Masks what would let a reader of a failure's artifacts sign in: query and JSON credentials,
+ * bearer tokens, pairing fragments and cookie values.
+ */
+export function redact(text: string): string {
+  return text
+    .replace(/(\/pair#)[^\s"'`<>]+/g, `$1${MASK}`)
+    .replace(new RegExp(`((?:${SECRET_KEYS})=)[^\\s&#"'\`<>;,]+`, "gi"), `$1${MASK}`)
+    .replace(new RegExp(`("(?:\\w*(?:${SECRET_KEYS}))"\\s*:\\s*")[^"]*`, "gi"), `$1${MASK}`)
+    .replace(/(\bBearer\s+)[^\s"'`,;]+/gi, `$1${MASK}`)
+    .replace(/(\bt3_session\w*=)[^\s;"'`,]+/g, `$1${MASK}`)
+    .replace(
+      /((?:set-)?cookie"?\s*[:=]\s*"?)([^\n"]*)/gi,
+      (_, head: string, value: string) =>
+        `${head}${value.replace(/([^=;\s]+=)[^;\s]*/g, `$1${MASK}`)}`,
+    );
+}
