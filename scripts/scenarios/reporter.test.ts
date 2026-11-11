@@ -169,7 +169,7 @@ describe("scenario reporter", () => {
       "PASS    T16 returns (2.3 s, teardown 82 ms)",
       "FAIL    T1 fails (2.3 s, teardown 82 ms): x",
       "scenarios: self-test 2 ran, 1 passed, 1 failed, 0 checks skipped",
-      "scenarios: set T-gate 1/3 passed",
+      "scenarios: set T-gate 1/2 passed, 1 not run",
       "scenarios: total 1.0 s",
     ]);
   });

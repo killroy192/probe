@@ -147,7 +147,10 @@ function summaryLines(
     const ran = members.filter((id) => byId.has(id));
     if (ran.length === 0) return [];
     const setPassed = ran.filter((id) => byId.get(id)!.outcome === "passed").length;
-    return [`scenarios: set ${name} ${setPassed}/${members.length} passed`];
+    const notRun = members.length - ran.length;
+    return [
+      `scenarios: set ${name} ${setPassed}/${ran.length} passed${notRun === 0 ? "" : `, ${notRun} not run`}`,
+    ];
   });
   const measured = rows.flatMap(({ perf }) => (perf === undefined ? [] : [perf]));
   const perfLines =
