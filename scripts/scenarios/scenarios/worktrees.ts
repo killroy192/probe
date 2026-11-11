@@ -1,4 +1,4 @@
-// @effect-diagnostics nodeBuiltinImport:off globalDate:off - Makes git fixtures in the throwaway home, ends shells' processes and times the start.
+// @effect-diagnostics nodeBuiltinImport:off - Makes git fixtures in the throwaway home and ends shells' processes.
 
 import * as NodeFSP from "node:fs/promises";
 import * as NodePath from "node:path";
@@ -9,7 +9,6 @@ import type { PointerPage } from "../browser.ts";
 import { addStartingScript, gitOk } from "../lib/files.ts";
 import { restartAndReload, showWorkspace } from "../lib/navigate.ts";
 import { pageFrames } from "../lib/network.ts";
-import { metric } from "../lib/report.ts";
 import { expectLogged } from "../lib/serverLog.ts";
 import { setupOn, type ProjectResult } from "../lib/setup.ts";
 import { MOCK_AGENT_LINES, runningIn } from "../lib/shells.ts";
@@ -220,15 +219,10 @@ export const worktrees = defineCheck(import.meta.url, {
       await tabs(page)
         .filter({ hasText: /^Shell 1 · repo$/ })
         .waitFor();
-      // A recorded metric (FR-4), never compared.
-      // oxlint-disable-next-line t3code/no-wall-clock-in-tests -- temporary: PRB.T-039 moves this metric into a perf scenario
-      const switchedAt = Date.now();
       await typeLine(page, "git switch -q other");
       await worktreeNodeLabel(page, repo)
         .filter({ hasText: /^primary · other$/ })
         .waitFor();
-      // oxlint-disable-next-line t3code/no-wall-clock-in-tests -- temporary: PRB.T-039 moves this metric into a perf scenario
-      metric("S3", "branch-label", Date.now() - switchedAt, "AC-26, was a 4000 ms gate");
       check(
         (await worktreeNode(page, repo).locator("[data-shell-id]").count()) === 2,
         "The worktree's shells did not both stay under its node (AC-26).",
@@ -321,9 +315,6 @@ export const worktrees = defineCheck(import.meta.url, {
       await pickItem(page, "Fork from", "branch:other");
       const name = await proposedName(page);
       const framesBefore = frames.mark();
-      // A recorded metric (FR-4), never compared.
-      // oxlint-disable-next-line t3code/no-wall-clock-in-tests -- temporary: PRB.T-039 moves this metric into a perf scenario
-      const clickedAt = Date.now();
       check((await startFromModal(page)) === null, "The fork failed (AC-5).");
       const path1 = NodePath.join(repoWorktrees, name);
       const [shell1] = await runningIn(setup.shells.lists, path1, 1);
@@ -333,8 +324,6 @@ export const worktrees = defineCheck(import.meta.url, {
         (frame) => frame.includes(MOCK_AGENT_LINES.banner),
         framesBefore,
       );
-      // oxlint-disable-next-line t3code/no-wall-clock-in-tests -- temporary: PRB.T-039 moves this metric into a perf scenario
-      metric("S3", "fork-start-to-banner", Date.now() - clickedAt);
       check(
         (await gitOk(path1, "branch", "--show-current")) === name,
         "The branch is not named as shown.",

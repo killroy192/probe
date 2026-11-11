@@ -1,4 +1,4 @@
-// @effect-diagnostics nodeBuiltinImport:off globalDate:off - Makes folder fixtures in the throwaway home, edits its starting scripts and times the start.
+// @effect-diagnostics nodeBuiltinImport:off - Makes folder fixtures in the throwaway home and edits its starting scripts.
 
 import * as NodeFSP from "node:fs/promises";
 
@@ -7,8 +7,7 @@ import type { StartingScript } from "@t3tools/contracts";
 import { readStartingScripts, startingScriptsFile, writeStartingScripts } from "../lib/files.ts";
 import { restartAndReload, showWorkspace } from "../lib/navigate.ts";
 import { pageFrames } from "../lib/network.ts";
-import { metric } from "../lib/report.ts";
-import { expectLogged, logEntries, serverPromptMs } from "../lib/serverLog.ts";
+import { expectLogged, logEntries } from "../lib/serverLog.ts";
 import { setupOn } from "../lib/setup.ts";
 import {
   agentTypedOnceAfterPrompt,
@@ -73,26 +72,15 @@ export const plainShell = defineCheck(import.meta.url, {
       );
     });
 
-    // Timed like the baseline: the first start on a fresh server, in the project's checkout. The
-    // times are recorded, not judged (FR-4); the 700 ms budget is checked by a serial perf run.
+    // The 700 ms budget for this start is perf-prompt-harness and perf-prompt-server.
     await trail.stage("AC-2b", async () => {
       check((await selectedScriptKey(page)) === "plain", "Plain shell is not preselected.");
       const from = frames.mark();
-      // oxlint-disable-next-line t3code/no-wall-clock-in-tests -- temporary: PRB.T-039 moves this metric into a perf scenario
-      const clickedAt = Date.now();
       await startButton(page).click();
       await frames.until("the first prompt", (frame) => frame.includes(FRAME_PROMPT_MARK), from);
-      // oxlint-disable-next-line t3code/no-wall-clock-in-tests -- temporary: PRB.T-039 moves this metric into a perf scenario
-      metric("E2-S3", "click-to-prompt", Date.now() - clickedAt, "harness, includes the browser");
       await dialog(page).waitFor({ state: "detached" });
-      const [timed] = await shellsIn(setup.shells.lists, repo, 1);
-      check(timed !== undefined, "The plain shell is not listed.");
-      metric(
-        "E2-S3",
-        "start-to-prompt",
-        await serverPromptMs(server, timed.shellId),
-        "server, start request to first prompt",
-      );
+      const [started] = await shellsIn(setup.shells.lists, repo, 1);
+      check(started !== undefined, "The plain shell is not listed.");
     });
 
     // AC-13a: the variable that used to set every shell's command has no effect any more.

@@ -1,14 +1,19 @@
 import { boot } from "./scenarios/boot.ts";
+import { branchLabelPerf } from "./scenarios/branch-label.perf.ts";
 import { closeTabScenario } from "./scenarios/close-tab.ts";
 import { killShell } from "./scenarios/kill-shell.ts";
 import { manyShells } from "./scenarios/many-shells.ts";
 import { plusModal } from "./scenarios/plus-modal.ts";
+import { promptHarnessPerf } from "./scenarios/prompt-harness.perf.ts";
+import { promptServerPerf } from "./scenarios/prompt-server.perf.ts";
 import { restartSurvival } from "./scenarios/restart.ts";
 import { restoreShell } from "./scenarios/restore-shell.ts";
 import { secondServer } from "./scenarios/second-server.ts";
 import { layoutReload, layoutSignal, tabSignals } from "./scenarios/signals.ts";
 import { plainShell, startFailures, userScripts } from "./scenarios/starting-scripts.ts";
 import { standaloneShell } from "./scenarios/standalone-shell.ts";
+import { startToBannerPerf } from "./scenarios/start-to-banner.perf.ts";
+import { treeNodePerf } from "./scenarios/tree-node.perf.ts";
 import { worktrees } from "./scenarios/worktrees.ts";
 import { changedRerun } from "./selftest/changed-rerun.ts";
 import { deliberateFailure } from "./selftest/deliberate-failure.ts";
@@ -54,7 +59,13 @@ export const checks: ReadonlyArray<CheckScenario> = [
 export const composed: ReadonlyArray<ComposedScenario> = [];
 
 /** Run only in the serial perf run, never as set members. */
-export const perfScenarios: ReadonlyArray<PerfScenario> = [];
+export const perfScenarios: ReadonlyArray<PerfScenario> = [
+  treeNodePerf,
+  startToBannerPerf,
+  branchLabelPerf,
+  promptServerPerf,
+  promptHarnessPerf,
+];
 
 /** Ids and set names share one namespace. */
 export const sets: ReadonlyArray<ScenarioSet> = [];

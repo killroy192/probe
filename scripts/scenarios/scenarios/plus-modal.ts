@@ -1,4 +1,4 @@
-// @effect-diagnostics nodeBuiltinImport:off globalTimers:off globalDate:off - Makes folder fixtures in the throwaway home, ends a shell's process and times the start.
+// @effect-diagnostics nodeBuiltinImport:off globalTimers:off - Makes folder fixtures in the throwaway home and ends a shell's process.
 
 import * as NodeFSP from "node:fs/promises";
 import * as NodePath from "node:path";
@@ -12,7 +12,7 @@ import { connectionCutter, type PointerPage } from "../browser.ts";
 import { addStartingScript, git } from "../lib/files.ts";
 import { reloadShowing, restartAndReload } from "../lib/navigate.ts";
 import { pageFrames } from "../lib/network.ts";
-import { metric, unlessRoot } from "../lib/report.ts";
+import { unlessRoot } from "../lib/report.ts";
 import { expectLogged } from "../lib/serverLog.ts";
 import { setupOn } from "../lib/setup.ts";
 import {
@@ -158,23 +158,16 @@ export const plusModal = defineCheck(import.meta.url, {
         check(await modeButton(page, "Fork").isDisabled(), "Fork is offered with no commit.");
       });
 
-      // AC-2, AC-3, AC-21: one click starts a shell; its node appears within 1 s.
+      // AC-2, AC-3, AC-21: one click starts a shell; perf-tree-node times its node.
       const first = await trail.stage("AC-2, AC-3, AC-21", async () => {
         const framesBefore = frames.mark();
-        // Clock reads below are recorded metrics (FR-4), never compared.
-        // oxlint-disable-next-line t3code/no-wall-clock-in-tests -- temporary: PRB.T-039 moves this metric into a perf scenario
-        const clickedAt = Date.now();
         await startButton(page).click();
         await shellNodes(page, repo).first().waitFor();
-        // oxlint-disable-next-line t3code/no-wall-clock-in-tests -- temporary: PRB.T-039 moves this metric into a perf scenario
-        metric("S2", "tree-node", Date.now() - clickedAt, "AC-3, was a 1000 ms gate");
         await frames.until(
           "the mock CLI banner",
           (frame) => frame.includes(MOCK_AGENT_LINES.banner),
           framesBefore,
         );
-        // oxlint-disable-next-line t3code/no-wall-clock-in-tests -- temporary: PRB.T-039 moves this metric into a perf scenario
-        metric("S2", "start-to-banner", Date.now() - clickedAt);
         await frames.until(
           "the mock CLI session id",
           (frame) => /session: mock-[0-9a-f]{8}/.test(frame),
