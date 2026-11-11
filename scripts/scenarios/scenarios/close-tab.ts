@@ -57,18 +57,21 @@ export const outputWhileClosed = defineCheck(import.meta.url, {
     await ctx.trail.stage("AC-6", async () => {
       await writeLine(setup.client, setup.shells, first.shellId, "read word; echo after-$word-s5");
       await closeTab(page, first.shellId);
+      // The page may keep its attach while the tab is closed and send no new snapshot on reopen,
+      // and the terminal draws no DOM text, so the output counts from before it was made.
+      const madeFrom = frames.mark();
       await printedAfter(setup, first.shellId, "go", "after-go-s5");
       expected({
         what: `the output made while the tab was closed in the history of ${first.shellId}`,
         expected: true,
         found: (await history(setup.client, first.shellId)).includes("after-go-s5"),
       });
-      const reopenedFrom = frames.mark();
       await openFromTree(page, first.shellId);
+      await shellReady(page, first.shellId);
       await frames.until(
-        "the output made while the tab was closed, in the reopened tab",
+        "the output made while the tab was closed, on the page",
         (frame) => frame.includes("after-go-s5"),
-        reopenedFrom,
+        madeFrom,
       );
     });
   },
