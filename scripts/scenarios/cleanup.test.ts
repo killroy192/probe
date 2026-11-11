@@ -8,8 +8,10 @@ import { describe, expect, it } from "vite-plus/test";
 
 import {
   abandonment,
+  bundleUsers,
   cleanLeftovers,
   openManifest,
+  processStartTime,
   type ProcessIdentity,
   sandboxEnded,
 } from "./cleanup.ts";
@@ -72,6 +74,27 @@ describe("abandoned manifests", () => {
       expect(sandboxEnded(process.pid, dir)).toBe(true);
       manifest.close();
       expect(sandboxEnded(process.pid, dir)).toBe(true);
+    } finally {
+      NodeFS.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("names the other live runs that serve a checkout's bundle, not itself, dead ones or other checkouts", () => {
+    const dir = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "scenario-runs-"));
+    try {
+      const other = (pid: number, startTime: string, root: string) =>
+        NodeFS.writeFileSync(
+          NodePath.join(dir, `${pid}.json`),
+          JSON.stringify({ runner: { pid, startTime }, entries: [], bundle: { root, builtMs: 1 } }),
+        );
+      const parent = process.ppid;
+      other(parent, processStartTime(parent) ?? "", "/repo");
+      other(2 ** 22 + 1, "gone", "/repo");
+      const manifest = openManifest(dir);
+      manifest.useBundle({ root: "/repo", builtMs: 1 });
+      expect(bundleUsers("/repo", dir)).toEqual([parent]);
+      expect(bundleUsers("/other", dir)).toEqual([]);
+      manifest.close();
     } finally {
       NodeFS.rmSync(dir, { recursive: true, force: true });
     }

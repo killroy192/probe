@@ -182,6 +182,29 @@ describe("scenario reporter", () => {
     );
   });
 
+  it("prints each perf verdict and counts the misses in the perf run's summary", async () => {
+    const { instance, lines } = reporter({ mode: "perf" });
+    const within = "PERF PASS perf-a a 120 ms, limit 700 ms (PRB.E-002 NFR-1)";
+    const over = "PERF FAIL perf-b b 900 ms, limit 700 ms (PRB.E-002 NFR-1)";
+    instance.onTestEnd(
+      { title: "perf-a a" },
+      result("passed", atomic("perf-a", { perf: { line: within, pass: true } })),
+    );
+    instance.onTestEnd(
+      { title: "perf-b b" },
+      result("failed", atomic("perf-b", { perf: { line: over, pass: false }, failure: over })),
+    );
+    await instance.onEnd({ duration: 1000 });
+    expect(lines()).toEqual([
+      "PASS    perf-a a (2.3 s, teardown 82 ms)",
+      `        ${within}`,
+      `FAIL    perf-b b (2.3 s, teardown 82 ms): ${over}`,
+      "perf: 2 measured, 1 over the limit",
+      "scenarios: perf 2 ran, 1 passed, 1 failed, 0 checks skipped",
+      "scenarios: total 1.0 s",
+    ]);
+  });
+
   it("hands timed rows to the gate judge, lists composed ones as not timed, and fails the run on its verdict", async () => {
     const seen: Array<unknown> = [];
     const judge: GateJudge = (rows, capMs) => {

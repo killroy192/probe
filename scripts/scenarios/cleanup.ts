@@ -48,6 +48,13 @@ export interface Manifest {
   readonly run?: ProcessIdentity;
   readonly entries: ReadonlyArray<ManifestEntry>;
   readonly sandbox?: SandboxRecord;
+  /** The checkout's web bundle a launcher's run serves, so another run there does not rebuild it. */
+  readonly bundle?: BundleUse;
+}
+
+export interface BundleUse {
+  readonly root: string;
+  readonly builtMs: number | null;
 }
 
 /** The sandbox's server output file, next to its manifest and removed with it. */
@@ -121,17 +128,23 @@ export function openManifest(dir = RUNS_DIR, run?: ProcessIdentity) {
   const runner = { pid: NodeProcess.pid, startTime: processStartTime(NodeProcess.pid) ?? "" };
   let entries: Array<ManifestEntry> = [];
   let sandbox: SandboxRecord | undefined;
+  let bundle: BundleUse | undefined;
   const save = () =>
     writeManifest(path, {
       runner,
       ...(run ? { run } : {}),
       entries,
       ...(sandbox ? { sandbox } : {}),
+      ...(bundle ? { bundle } : {}),
     });
   save();
   return {
     describeSandbox: (record: SandboxRecord) => {
       sandbox = record;
+      save();
+    },
+    useBundle: (use: BundleUse) => {
+      bundle = use;
       save();
     },
     markSandboxStopping: () => {
@@ -191,6 +204,31 @@ export function findSandbox(
     };
   }
   return { sandbox };
+}
+
+/** The live runs, other than this process, whose manifest says they serve `root`'s web bundle. */
+export function bundleUsers(root: string, dir = RUNS_DIR): ReadonlyArray<number> {
+  let names: ReadonlyArray<string> = [];
+  try {
+    names = NodeFS.readdirSync(dir).filter((name) => /^\d+\.json$/.test(name));
+  } catch {
+    return [];
+  }
+  return names.flatMap((name) => {
+    try {
+      const manifest = JSON.parse(
+        NodeFS.readFileSync(NodePath.join(dir, name), "utf8"),
+      ) as Manifest;
+      const { runner, bundle } = manifest;
+      return runner.pid !== NodeProcess.pid &&
+        bundle?.root === root &&
+        isSameProcess(runner.pid, runner.startTime)
+        ? [runner.pid]
+        : [];
+    } catch {
+      return [];
+    }
+  });
 }
 
 /** True once the sandbox is stopping or gone: it marks its record before it ends its server. */

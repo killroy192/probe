@@ -51,6 +51,10 @@ export function failureMessage(error: unknown, stepPrefix?: string): string {
   return `at stage "${error.stage.slice(prefix.length)}": ${cause}`;
 }
 
+/** Why a run on the sandbox `pid` fails once that sandbox stops under it. */
+export const sandboxEndedMessage = (pid: number) =>
+  `The sandbox ${pid} ended during the run; no server is started in its place.`;
+
 const LAST_LINES = 5;
 
 /** Names a server's exit and the last lines it printed, for the failure of the stage it ended. */
@@ -144,6 +148,7 @@ export function scenarioOutcome(input: {
   readonly artifacts: ReadonlyArray<string>;
   readonly undone: ReadonlyArray<string>;
   readonly steps: ReadonlyArray<StepOutcome> | undefined;
+  readonly perf?: ScenarioOutcome["perf"];
 }): ScenarioOutcome {
   return {
     id: input.id,
@@ -154,6 +159,7 @@ export function scenarioOutcome(input: {
     ...(input.artifacts.length > 0 && { artifacts: input.artifacts }),
     ...(input.undone.length > 0 && { undone: input.undone }),
     ...(input.steps !== undefined && { steps: input.steps }),
+    ...(input.perf !== undefined && { perf: input.perf }),
   };
 }
 
