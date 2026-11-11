@@ -1,9 +1,9 @@
 import * as Effect from "effect/Effect";
 
 import type { PointerPage } from "../browser.ts";
+import { type CheckScenario, defineCheck } from "../scenario.ts";
 import type { ServerHandle } from "../server.ts";
 import type { Deadline } from "./deadlines.ts";
-import { type CheckScenario, defineCheck } from "../scenario.ts";
 import { expected } from "./expect.ts";
 import { layoutSaved } from "./navigate.ts";
 import { type pageFrames, timesSeen } from "./network.ts";

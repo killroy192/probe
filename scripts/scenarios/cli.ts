@@ -30,6 +30,7 @@ import {
 } from "./environment.ts";
 import { gateCapMs, gateTargets, QUIET_UNCONFIRMED } from "./gate.ts";
 import { scenarioShell } from "./isolation.ts";
+import { releaseDeadLeases } from "./ports.ts";
 import {
   checks,
   composed,
@@ -50,7 +51,6 @@ import {
   validateRegistry,
 } from "./registryRules.ts";
 import { sandboxRefusals, staleSandboxFile } from "./sandboxRules.ts";
-import { releaseDeadLeases } from "./ports.ts";
 import type { PerfScenario } from "./scenario.ts";
 import { REPO_ROOT } from "./server.ts";
 
