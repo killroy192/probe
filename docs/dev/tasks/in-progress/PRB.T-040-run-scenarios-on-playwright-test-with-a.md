@@ -276,3 +276,9 @@ Order (epic, user decision 2026-11-10): PRB.T-037, PRB.T-038, PRB.T-043, PRB.T-0
 - The 60 s Vitest project timeout on the spawned harness cases under `check:changed` load (plan risk; U9 is the last resort).
 - Worker replacement after every failure costs one cold start per failure; leftovers on a long-lived shared server (D-5) show in the teardown counts.
 - A-11's "before" run was not possible: PRB.T-041 landed first (EC-12); A-11 stays unverified (AC-16).
+
+**Final runs (V7, 2026-11-11, the user confirmed the machine was quiet; tip `abbe5f6db`).**
+- Cap gate: `vp run scenarios:gate -- --quiet-confirmed` timed 103, 0 over the 20 s cap; the slowest was S7.lost-host at 16.6 s.
+- Perf run: `vp run test:scenarios:perf -- --quiet-confirmed` ran 5 and passed 5.
+- Loop: `vp run test:scenarios:loop -- 3 --quiet-confirmed`. Check suite 3/3 runs at 104/104. Perf runs: `perf-branch-label` failed 2 of 3 (2042 ms and 2055 ms against 2000 ms), a product limit miss recorded in PRB.T-039 "Product defects found in verification". AC-15 and the epic flake KPI are therefore not met.
+- V8 (macOS, A-16) was skipped by the developer (2026-11-11).

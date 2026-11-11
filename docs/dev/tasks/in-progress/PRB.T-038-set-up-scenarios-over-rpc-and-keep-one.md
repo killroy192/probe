@@ -339,3 +339,13 @@ Setup that is not the subject goes over the API; the subject still happens by th
 - **AC-13 met.** Every library wait races an event against a `lib/deadlines.ts` deadline and names both. The one check loop is the class (c) process-end loop. No fixed sleep. No scenario passes a deadline number. Nits:
   - `run.ts` polls the sandbox at a literal 250 ms.
   - S1, S2, S3, E2 and signals still call Playwright's own `waitFor` about 50 times. Those inherit `ACTION_MS`, but their failures name a locator, not the milestone.
+
+**Before and after runs (V7, 2026-11-11).** One serial `vp run test:scenarios` each on the devcontainer, after the user confirmed the machine was quiet. Before: `ebb9d3287`, info level, 350.8 s, 13/16 passed. After: tag `e005-t038`, debug level, 284.4 s, 14/16 passed. Times in seconds; a failed scenario's time runs to its failure (marked ✗).
+
+| Run | S1 | S2 | S3 | S4 | S5 | S6 | S7 | S8 | T-002 | R1 | E2-S3 | E2-S1 | E2-S4 | T-041a | T-041b | T-041c |
+| --- | -- | -- | -- | -- | -- | -- | -- | -- | ----- | -- | ----- | ----- | ----- | ------ | ------ | ------ |
+| Before | 19.3 | 37.6 | 35.7 | 18.5 | 9.9 | 25.5 ✗ | 28.1 ✗ | 28.2 ✗ | 12.1 | 17.9 | 14.5 | 35.2 | 11.4 | 16.1 | 12.5 | 11.0 |
+| After | 18.5 | 38.1 | 18.9 ✗ | 8.4 ✗ | 8.9 | 16.6 | 30.9 | 16.0 | 11.4 | 16.1 | 13.3 | 33.6 | 10.0 | 13.1 | 10.4 | 9.2 |
+
+- Before failures, in the pre-epic code (artifacts `/tmp/probe-scenario-artifacts/2026-11-11T08-46-16-686Z/`): S6 is the typed-chunk defect (PRB.T-041 Follow-ups; the typed line arrived as `PROBE_SHttp://…`); S7 timed out waiting for the killed and exited shells to leave the list; S8 timed out after 10 s at "no restore for exit or kill".
+- After failures, both in code that exists only at the tag (U8: AC-25 for the user to judge; artifacts `/tmp/probe-scenario-artifacts/2026-11-11T08-52-08-475Z/`): S4's API fork name was refused by `workspace.startShell` schema validation, which is fixed at the tip in `1dad979eb`; S3 AC-29 timed out after 10 s waiting for a project added over the API to show. `worktrees.ts` is gone at the tip, and the tip's S3 set passed 16/16.
