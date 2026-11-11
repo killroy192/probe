@@ -40,3 +40,24 @@ export function redact(text: string): string {
         `${head}${value.replace(/([^=;\s]+=)[^;\s]*/g, `$1${MASK}`)}`,
     );
 }
+
+/**
+ * Redacts a stream of output a line at a time, so a secret split across two chunks is still
+ * masked: `write` passes on every whole line, `end` the rest.
+ */
+export function lineRedactor(out: (text: string) => void) {
+  let pending = "";
+  return {
+    write: (chunk: string) => {
+      pending += chunk;
+      const cut = pending.lastIndexOf("\n") + 1;
+      if (cut === 0) return;
+      out(redact(pending.slice(0, cut)));
+      pending = pending.slice(cut);
+    },
+    end: () => {
+      if (pending !== "") out(redact(pending));
+      pending = "";
+    },
+  };
+}

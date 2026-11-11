@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import { redact } from "./report.ts";
+import { lineRedactor, redact } from "./report.ts";
 
 describe("redact", () => {
   it.each([
@@ -30,5 +30,25 @@ describe("redact", () => {
   it("leaves a log line without secrets alone", () => {
     const line = "2026-11-11T10:00:00.000Z DEBUG shell.open cwd=/tmp/x cols=80";
     expect(redact(line)).toBe(line);
+  });
+});
+
+describe("lineRedactor", () => {
+  it("masks a secret split across chunks, and passes on the last unfinished line at the end", () => {
+    const out: Array<string> = [];
+    const log = lineRedactor((text) => out.push(text));
+    for (const chunk of [
+      "pairingUrl: http://h/pa",
+      "ir#token=s3c",
+      "r3t\nready\nlast t3_sess",
+      "ion=s3cr3t",
+    ]) {
+      log.write(chunk);
+    }
+    expect(out.join("")).toBe("pairingUrl: http://h/pair#[redacted]\nready\n");
+    log.end();
+    expect(out.join("")).toBe(
+      "pairingUrl: http://h/pair#[redacted]\nready\nlast t3_session=[redacted]",
+    );
   });
 });

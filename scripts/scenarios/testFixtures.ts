@@ -20,6 +20,7 @@ import { type ComposedOutcome, runComposed } from "./compose.ts";
 import { createThrowawayHome, readRunPlan, removeThrowawayHome } from "./environment.ts";
 import { ACTION_MS, SANDBOX_POLL_MS } from "./lib/deadlines.ts";
 import { pageFrames } from "./lib/network.ts";
+import { lineRedactor } from "./lib/report.ts";
 import { createTrail, type Trail } from "./lib/trail.ts";
 import { resetRecorders } from "./lib/waits.ts";
 import { composedNeeds, freshServerNeeded, perfVerdict } from "./registryRules.ts";
@@ -127,7 +128,7 @@ export interface SharedServer {
 interface SharedRun {
   readonly owned: OwnedServer & { readonly handle: ServerHandle };
   readonly pid: number;
-  readonly log: NodeFS.WriteStream;
+  readonly log: ReturnType<typeof maskedLog>;
   scenarios: number;
   exited: boolean;
 }
@@ -139,7 +140,20 @@ async function stopShared(run: SharedRun) {
   const shells = host === null ? 0 : childPids(host).length;
   write(`scenarios: server ${run.pid}: ${run.scenarios} scenarios, ${shells} shells running`);
   await run.owned.stop();
-  await new Promise<void>((resolve) => run.log.end(resolve));
+  await run.log.end();
+}
+
+/** A shared server's whole log, kept with the run, so masked a line at a time like an artifact. */
+function maskedLog(file: string) {
+  const stream = NodeFS.createWriteStream(file, { flags: "a" });
+  const lines = lineRedactor((text) => stream.write(text));
+  return {
+    write: lines.write,
+    end: () => {
+      lines.end();
+      return new Promise<void>((resolve) => stream.end(resolve));
+    },
+  };
 }
 
 const needsOf = (scenario: AnyScenario): ScenarioNeeds =>
@@ -392,7 +406,7 @@ export const scenarioTest = base.extend<Fixtures, WorkerFixtures>({
         n += 1;
         const file = sharedLogFile(root, workerInfo.workerIndex, n);
         NodeFS.mkdirSync(NodePath.dirname(file), { recursive: true });
-        const log = NodeFS.createWriteStream(file, { flags: "a" });
+        const log = maskedLog(file);
         let owned: OwnedServer | undefined;
         try {
           const startedOwned = await startOwned(workerManifest, {
@@ -418,7 +432,7 @@ export const scenarioTest = base.extend<Fixtures, WorkerFixtures>({
           return run;
         } catch (error) {
           await owned?.stop();
-          log.end();
+          await log.end();
           throw error;
         }
       };

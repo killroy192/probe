@@ -344,6 +344,12 @@ describe("scenario launcher", () => {
       });
       assert.include(artifacts.read("error.txt"), "setup call workspace.addProject");
       assertNoSecrets(artifacts.dir);
+      // The shared server's whole log, kept with the run, has its pairing URL masked.
+      const sharedLog = /shared server pid=\d+ home=\S+ log=(\S+)/.exec(output)?.[1];
+      assert.isDefined(sharedLog, output);
+      const whole = NodeFS.readFileSync(sharedLog!, "utf8");
+      assert.include(whole, "/pair#[redacted]");
+      for (const pattern of UNMASKED_SECRETS) assert.notMatch(whole, pattern, sharedLog);
     }),
   );
 
