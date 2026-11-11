@@ -451,6 +451,27 @@ describe("GhosttyTerminalSurface visibility", () => {
     expect(onLinkActivate).not.toHaveBeenCalled();
   });
 
+  it("places the cursor of a snapshot replayed while hidden where the shell put it once shown", async () => {
+    const harness = createHarness();
+    // A tab that is open but not selected is hidden, so its mount has no size.
+    harness.mount.clientWidth = 0;
+    harness.mount.clientHeight = 0;
+    const surface = await harness.create({ visible: false });
+    surface.setSharedGrid({ cols: 80, rows: 24 });
+    // The server's reattach snapshot: content, then the cursor placed after the prompt.
+    surface.resetAndWrite("first line\r\n$ echo hi\x1b[2;11H");
+    harness.mount.clientWidth = 168;
+    harness.mount.clientHeight = 104;
+    surface.setVisible(true);
+
+    const shown = harness.renderedSnapshot;
+    expect(shown.rowData.slice(0, 2).map((row) => row.text.trimEnd())).toEqual([
+      "first line",
+      "$ echo hi",
+    ]);
+    expect([shown.cursorX, shown.cursorY]).toEqual([10, 1]);
+  });
+
   it.each([false, true])(
     "uses visibility %s if it changes while WASM initializes",
     async (visible) => {
