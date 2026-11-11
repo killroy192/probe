@@ -912,7 +912,15 @@ export class GhosttyTerminalSurface {
     if (this.disposed) return;
     if (this.sharedGrid?.cols === grid?.cols && this.sharedGrid?.rows === grid?.rows) return;
     this.sharedGrid = grid;
-    if (this.hasSize && this.applyGrid()) this.requestRender();
+    if (this.hasSize) {
+      if (this.applyGrid()) this.requestRender();
+    } else if (grid !== null) {
+      // An unsized (hidden) surface still replays the server's snapshot, encoded for this grid; at
+      // the 1x1 construction grid its cursor clamps to the last printed cell and stays there.
+      this.cols = grid.cols;
+      this.rows = grid.rows;
+      this.core.resize(grid.cols, grid.rows, this.metrics.width, this.metrics.height);
+    }
   }
 
   private applyGrid(): boolean {
