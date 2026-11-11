@@ -896,32 +896,37 @@ describe("web bundle", () => {
     NodeFS.rmSync(root, { recursive: true, force: true });
   });
 
-  it.live("builds without the caller's Vite variables or forced colour, and prints no escapes", () =>
-    Effect.promise(async () => {
-      const { root } = tree();
-      const bin = scratch("scenario-fake-vp-");
-      onTestFinished(() => {
-        for (const dir of [root, bin]) NodeFS.rmSync(dir, { recursive: true, force: true });
-      });
-      // A stand-in build: records what it was given and writes the bundle.
-      NodeFS.writeFileSync(
-        NodePath.join(bin, "vp"),
-        "#!/bin/sh\nenv > build-env.txt\nprintf '\\033[33m[PLUGIN_TIMINGS] \\033[0mslow\\n' >&2\nmkdir -p apps/web/dist\n: > apps/web/dist/index.html\n",
-        { mode: 0o755 },
-      );
-      const lines: Array<string> = [];
-      const state = await ensureWebBundle(root, false, (line) => lines.push(line), {
-        PATH: `${bin}${NodePath.delimiter}${NodeProcess.env.PATH ?? ""}`,
-        VITE_HTTP_URL: "http://ambient.example",
-        FORCE_COLOR: "1",
-      });
-      assert.strictEqual(state.state, "current", lines.join("\n"));
-      const env = NodeFS.readFileSync(NodePath.join(root, "build-env.txt"), "utf8").split("\n");
-      assert.isFalse(env.some((entry) => /^(VITE_|FORCE_COLOR=)/.test(entry)), env.join("\n"));
-      assert.include(env, "NO_COLOR=1");
-      assert.include(lines, "[PLUGIN_TIMINGS] slow");
-      assert.notMatch(lines.join("\n"), /\u001b/);
-    }),
+  it.live(
+    "builds without the caller's Vite variables or forced colour, and prints no escapes",
+    () =>
+      Effect.promise(async () => {
+        const { root } = tree();
+        const bin = scratch("scenario-fake-vp-");
+        onTestFinished(() => {
+          for (const dir of [root, bin]) NodeFS.rmSync(dir, { recursive: true, force: true });
+        });
+        // A stand-in build: records what it was given and writes the bundle.
+        NodeFS.writeFileSync(
+          NodePath.join(bin, "vp"),
+          "#!/bin/sh\nenv > build-env.txt\nprintf '\\033[33m[PLUGIN_TIMINGS] \\033[0mslow\\n' >&2\nmkdir -p apps/web/dist\n: > apps/web/dist/index.html\n",
+          { mode: 0o755 },
+        );
+        const lines: Array<string> = [];
+        const state = await ensureWebBundle(root, false, (line) => lines.push(line), {
+          PATH: `${bin}${NodePath.delimiter}${NodeProcess.env.PATH ?? ""}`,
+          VITE_HTTP_URL: "http://ambient.example",
+          FORCE_COLOR: "1",
+        });
+        assert.strictEqual(state.state, "current", lines.join("\n"));
+        const env = NodeFS.readFileSync(NodePath.join(root, "build-env.txt"), "utf8").split("\n");
+        assert.isFalse(
+          env.some((entry) => /^(VITE_|FORCE_COLOR=)/.test(entry)),
+          env.join("\n"),
+        );
+        assert.include(env, "NO_COLOR=1");
+        assert.include(lines, "[PLUGIN_TIMINGS] slow");
+        assert.notMatch(lines.join("\n"), /\u001b/);
+      }),
   );
 });
 
