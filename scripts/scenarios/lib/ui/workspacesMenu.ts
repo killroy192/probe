@@ -8,9 +8,7 @@ export async function openWorkspacesMenu(
   submenu?: "Open workspace" | "Remove workspace",
 ) {
   await page.getByRole("button", { name: "Workspaces" }).click();
-  // A submenu opens on hover only, and a click on its trigger turns the parent menu's hover off:
-  // a click before the hover delay ends leaves the submenu shut.
-  if (submenu !== undefined) await page.getByRole("menuitem", { name: submenu }).hover();
+  if (submenu !== undefined) await page.getByRole("menuitem", { name: submenu }).click();
 }
 
 /** Fills the open create dialog and confirms; returns the dialog's refusal, or null once it closes. */
