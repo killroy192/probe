@@ -3,13 +3,17 @@
 import * as NodeFSP from "node:fs/promises";
 import * as NodePath from "node:path";
 
+import type { StartingScriptChoice, WorkspaceStartingPoint } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 
 import type { PointerPage } from "../browser.ts";
+import type { ScenarioContext } from "../scenario.ts";
 import type { ServerHandle } from "../server.ts";
-import { type WsClient, withClient } from "./api.ts";
+import { call, connectApi, serverToken, type WsClient } from "./api.ts";
 import { gitOk } from "./files.ts";
-import { issueBearerToken } from "./seam.ts";
+import { showWorkspace, type ShownPage } from "./navigate.ts";
+import { shellEnded, shellList } from "./shells.ts";
+import { createTrail, type Trail } from "./trail.ts";
 import { addProject } from "./ui/addProject.ts";
 import { createWorkspace } from "./ui/workspacesMenu.ts";
 import { check } from "./waits.ts";
@@ -57,6 +61,334 @@ export const seedWorkspace: (
   yield* client["workspace.addProject"]({ mode: "import", name, path: folder });
 });
 
+export interface FolderResult {
+  readonly kind: "folder";
+  readonly path: string;
+}
+
+export interface RepoResult {
+  readonly kind: "repo";
+  readonly path: string;
+  readonly linked: ReadonlyArray<{ readonly path: string; readonly branch: string }>;
+}
+
+export interface WorkspaceResult {
+  readonly kind: "workspace";
+  readonly name: string;
+}
+
+export interface ProjectResult {
+  readonly kind: "project";
+  readonly workspace: string;
+  /** The project's path as the server stores it. */
+  readonly path: string;
+  readonly isGit: boolean;
+  /** The imported linked worktree when its repository was added instead. */
+  readonly resolvedFrom: string | null;
+}
+
+export interface ShellResult {
+  readonly kind: "shell";
+  readonly shellId: string;
+  readonly pid: number | null;
+  readonly cwd: string;
+  readonly workspace: string;
+  readonly project: string;
+}
+
+export interface WorldResult {
+  readonly kind: "world";
+  readonly workspace: WorkspaceResult;
+  readonly projects: ReadonlyArray<ProjectResult>;
+  readonly shells: ReadonlyArray<ShellResult>;
+  readonly setup: Setup;
+  readonly shown?: ShownPage;
+}
+
+/** Every value a setup step returns, by its `kind`. */
+export interface SetupResults {
+  readonly folder: FolderResult;
+  readonly repo: RepoResult;
+  readonly workspace: WorkspaceResult;
+  readonly project: ProjectResult;
+  readonly shell: ShellResult;
+  readonly world: WorldResult;
+  readonly page: ShownPage;
+}
+
+/** Where a shell starts in a git project; absent is the project's own checkout. */
+export type ShellWorktree =
+  | { readonly fork: { readonly from: WorkspaceStartingPoint; readonly name: string } }
+  | { readonly existing: string };
+
+export interface ShellOptions {
+  readonly worktree?: ShellWorktree;
+  /** Absent for a plain shell. */
+  readonly script?: StartingScriptChoice;
+  readonly cols?: number;
+  readonly rows?: number;
+  /** Waits for the shell's first prompt, so nothing typed reaches it before; on by default. */
+  readonly ready?: boolean;
+}
+
+/** What setup reads from a scenario's context; a sandbox fixture builds one of its own. */
+export type SetupContext = Pick<ScenarioContext, "server" | "runId" | "trail"> &
+  Partial<Pick<ScenarioContext, "onStepEnd">>;
+
+const counters = new WeakMap<Trail, number>();
+
+/** The next number on this trail, so a setup run twice under one `runId` names nothing twice. */
+function nextSeq(trail: Trail): number {
+  const seq = (counters.get(trail) ?? 0) + 1;
+  counters.set(trail, seq);
+  return seq;
+}
+
+// Annotated: the inferred type is too large to export.
+export interface Setup {
+  readonly client: WsClient;
+  /** The server's shell list, followed for as long as the connection is open. */
+  readonly shells: ReturnType<typeof shellList>;
+  readonly folder: (label?: string) => Promise<FolderResult>;
+  readonly repo: (options?: {
+    readonly label?: string | undefined;
+    readonly linkedWorktree?: boolean | undefined;
+  }) => Promise<RepoResult>;
+  /** A workspace named `<label>-<runId>-<seq>`, or exactly `label` with `exact`. */
+  readonly workspace: (
+    label?: string,
+    options?: { readonly exact?: boolean },
+  ) => Promise<WorkspaceResult>;
+  readonly project: (
+    ws: WorkspaceResult,
+    from: FolderResult | RepoResult,
+  ) => Promise<ProjectResult>;
+  readonly shell: (project: ProjectResult, options?: ShellOptions) => Promise<ShellResult>;
+  /** Kills the shell over the API and waits for the server's end event. */
+  readonly killShell: (shell: ShellResult) => Promise<void>;
+  readonly removeProject: (project: ProjectResult) => Promise<void>;
+  readonly removeWorkspace: (ws: WorkspaceResult) => Promise<void>;
+  readonly close: () => Promise<void>;
+}
+
+/**
+ * Setup over the server API, signed in as `as` (its cookie) or with the server's bearer token.
+ * The connection closes when the scenario's step ends, or with `close`.
+ */
+export async function setupOn(
+  ctx: SetupContext,
+  { as }: { readonly as?: PointerPage } = {},
+): Promise<Setup> {
+  const { server, runId, trail } = ctx;
+  const rpc = await connectApi(server, as ?? { bearerToken: await serverToken(server) });
+  const client = rpc.client;
+  const shells = shellList(client);
+  ctx.onStepEnd?.("the setup connection", rpc.close);
+
+  const named = (label: string) => `${label}-${runId}-${nextSeq(trail)}`;
+  const folderPath = async (label: string) => {
+    const path = NodePath.join(server.home, "folders", runId, `${label}-${nextSeq(trail)}`);
+    await NodeFSP.mkdir(path, { recursive: true });
+    return path;
+  };
+
+  const folder = async (label = "folder"): Promise<FolderResult> => {
+    const path = await folderPath(label);
+    trail.note({ call: "folder", asked: { label }, got: { path } });
+    return { kind: "folder", path };
+  };
+
+  const repo = async ({
+    label = "repo",
+    linkedWorktree = false,
+  }: {
+    readonly label?: string | undefined;
+    readonly linkedWorktree?: boolean | undefined;
+  } = {}): Promise<RepoResult> => {
+    const path = await folderPath(label);
+    await gitOk(path, "init", "-q", "-b", "main");
+    await gitOk(path, "commit", "-q", "--allow-empty", "-m", "first");
+    const linked: Array<{ path: string; branch: string }> = [];
+    if (linkedWorktree) {
+      const branch = "topic";
+      const linkedPath = `${path}-linked`;
+      await gitOk(path, "worktree", "add", "-q", "-b", branch, linkedPath);
+      linked.push({ path: linkedPath, branch });
+    }
+    trail.note({ call: "repo", asked: { label, linkedWorktree }, got: { path, linked } });
+    return { kind: "repo", path, linked };
+  };
+
+  const workspace = async (
+    label = "ws",
+    { exact = false }: { readonly exact?: boolean } = {},
+  ): Promise<WorkspaceResult> => {
+    const name = exact ? label : named(label);
+    await call(trail, "workspace.create", { name }, client["workspace.create"]({ name }));
+    return { kind: "workspace", name };
+  };
+
+  const project = async (
+    ws: WorkspaceResult,
+    from: FolderResult | RepoResult,
+  ): Promise<ProjectResult> => {
+    const asked = { mode: "import", name: ws.name, path: from.path } as const;
+    const added = await call(
+      trail,
+      "workspace.addProject",
+      asked,
+      client["workspace.addProject"](asked),
+    );
+    const stored = added.workspace.projects.find((entry) => entry.path === added.project);
+    return {
+      kind: "project",
+      workspace: ws.name,
+      path: added.project,
+      isGit: stored?.isGitRepository ?? false,
+      resolvedFrom: added.resolvedFrom,
+    };
+  };
+
+  const shell = async (
+    of: ProjectResult,
+    { worktree, script, cols = 120, rows = 30, ready = true }: ShellOptions = {},
+  ): Promise<ShellResult> => {
+    const asked = {
+      name: of.workspace,
+      project: of.path,
+      ...(worktree !== undefined
+        ? {
+            worktree:
+              "fork" in worktree
+                ? {
+                    kind: "new" as const,
+                    name: worktree.fork.name,
+                    startingPoint: worktree.fork.from,
+                  }
+                : { kind: "existing" as const, path: worktree.existing },
+          }
+        : of.isGit
+          ? { worktree: { kind: "checkout" as const } }
+          : {}),
+      ...(script === undefined ? {} : { script }),
+      cols,
+      rows,
+    };
+    const started = await call(
+      trail,
+      "workspace.startShell",
+      asked,
+      client["workspace.startShell"](asked),
+    );
+    if (ready) {
+      await shells.lists.until(
+        `the first prompt of shell ${started.shellId}`,
+        (list) => list.some((entry) => entry.shellId === started.shellId && entry.promptReady),
+        0,
+      );
+    }
+    return {
+      kind: "shell",
+      shellId: started.shellId,
+      pid: started.pid,
+      cwd: started.cwd,
+      workspace: of.workspace,
+      project: of.path,
+    };
+  };
+
+  const killShell = async (of: ShellResult) => {
+    const asked = { shellId: of.shellId };
+    await call(trail, "shell.kill", asked, client["shell.kill"](asked));
+    await shellEnded(shells, of);
+  };
+
+  const removeProject = async (of: ProjectResult) => {
+    const asked = { name: of.workspace, project: of.path };
+    await call(trail, "workspace.removeProject", asked, client["workspace.removeProject"](asked));
+  };
+
+  const removeWorkspace = async (ws: WorkspaceResult) => {
+    const asked = { name: ws.name };
+    await call(trail, "workspace.remove", asked, client["workspace.remove"](asked));
+  };
+
+  return {
+    client,
+    shells,
+    folder,
+    repo,
+    workspace,
+    project,
+    shell,
+    killShell,
+    removeProject,
+    removeWorkspace,
+    close: rpc.close,
+  };
+}
+
+export interface WorldSpec {
+  readonly workspace?: string;
+  readonly projects: ReadonlyArray<{
+    readonly kind: "repo" | "folder";
+    readonly label?: string;
+    readonly linkedWorktree?: boolean;
+  }>;
+  readonly shells?: ReadonlyArray<
+    { readonly project: number; readonly count?: number } & Omit<ShellOptions, "ready">
+  >;
+  /** Opens a signed-in page, sets up as it, and shows the workspace on it last. */
+  readonly page?: true;
+}
+
+/** A workspace with its projects and shells, made over the API; the page, when asked, shows it last. */
+export async function world(
+  ctx: SetupContext & Pick<ScenarioContext, "openPage">,
+  spec: WorldSpec,
+): Promise<WorldResult> {
+  const page = spec.page ? await ctx.openPage() : undefined;
+  const setup = await setupOn(ctx, page === undefined ? {} : { as: page });
+  const ws = await setup.workspace(spec.workspace);
+  const projects: Array<ProjectResult> = [];
+  for (const entry of spec.projects) {
+    const made =
+      entry.kind === "repo"
+        ? await setup.repo({ label: entry.label, linkedWorktree: entry.linkedWorktree })
+        : await setup.folder(entry.label);
+    projects.push(await setup.project(ws, made));
+  }
+  const shells: Array<ShellResult> = [];
+  for (const { project: index, count = 1, ...options } of spec.shells ?? []) {
+    const of = projects[index];
+    check(of !== undefined, `The world has no project ${index}.`);
+    for (let n = 0; n < count; n++) shells.push(await setup.shell(of, options));
+  }
+  const shown = page === undefined ? undefined : await showWorkspace(page, ws);
+  return {
+    kind: "world",
+    workspace: ws,
+    projects,
+    shells,
+    setup,
+    ...(shown === undefined ? {} : { shown }),
+  };
+}
+
+/**
+ * The step input of kind `kind` when one was given, else the value `build` makes; a value of
+ * another kind is a wiring error and fails naming both kinds.
+ */
+export async function given<K extends keyof SetupResults>(
+  kind: K,
+  value: { readonly kind: string } | undefined,
+  build: () => Promise<SetupResults[K]>,
+): Promise<SetupResults[K]> {
+  if (value === undefined) return build();
+  check(value.kind === kind, `This step takes a ${kind}, but it was given a ${value.kind}.`);
+  return value as SetupResults[K];
+}
+
 /** What a named fixture made; every name and folder in it carries the `runId` it was given. */
 export interface FixtureState {
   readonly workspace: string;
@@ -66,32 +398,22 @@ export interface FixtureState {
 
 type Fixture = (server: ServerHandle, runId: string) => Promise<FixtureState>;
 
-/** A workspace `fixture-<runId>` with one git project, made over the server API. */
-async function gitWorkspace(server: ServerHandle, runId: string, shells: number) {
-  const workspace = `fixture-${runId}`;
-  const project = NodePath.join(server.home, "folders", runId, "project");
-  await NodeFSP.mkdir(project, { recursive: true });
-  await gitOk(project, "init", "-q", "-b", "main");
-  await gitOk(project, "commit", "-q", "--allow-empty", "-m", "first");
-  const shellIds = await withClient(server.origin, await issueBearerToken(server), (client) =>
-    Effect.gen(function* () {
-      yield* client["workspace.create"]({ name: workspace });
-      yield* client["workspace.addProject"]({ mode: "import", name: workspace, path: project });
-      const started: Array<string> = [];
-      for (let index = 0; index < shells; index++) {
-        const shell = yield* client["workspace.startShell"]({
-          name: workspace,
-          project,
-          worktree: { kind: "checkout" },
-          cols: 120,
-          rows: 30,
-        });
-        started.push(shell.shellId);
-      }
-      return started;
-    }),
-  );
-  return { workspace, project, shellIds };
+/** A workspace `fixture-<runId>` with one git project and `count` plain shells, made by setup. */
+async function gitWorkspace(server: ServerHandle, runId: string, count: number) {
+  const setup = await setupOn({ server, runId, trail: createTrail() });
+  try {
+    const repo = await setup.repo({ label: "project" });
+    // PRB.T-037's sandbox prints this exact name.
+    const ws = await setup.workspace(`fixture-${runId}`, { exact: true });
+    const project = await setup.project(ws, repo);
+    const shellIds: Array<string> = [];
+    for (let index = 0; index < count; index++) {
+      shellIds.push((await setup.shell(project)).shellId);
+    }
+    return { workspace: ws.name, project: project.path, shellIds };
+  } finally {
+    await setup.close();
+  }
 }
 
 /** The fixtures a sandbox can start with (`--fixture <name>`); later stories add theirs here. */

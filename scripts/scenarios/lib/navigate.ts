@@ -3,6 +3,9 @@ import type { ServerEnv, ServerHandle } from "../server.ts";
 import { connectRpc, type RpcConnection } from "./api.ts";
 import { ACTION_MS, type Deadline, seconds } from "./deadlines.ts";
 import { waitFor } from "./waits.ts";
+import type { ShellResult, WorkspaceResult } from "./setup.ts";
+import { openFromTree } from "./ui/tree.ts";
+import { openWorkspace } from "./ui/workspacesMenu.ts";
 
 /**
  * Records every layout save state the page shows, from each page load on, so a scenario can
@@ -99,3 +102,48 @@ export async function restartAndReload(
   await reloadShowing(page, "sparta");
   return connectRpc(server.origin, page);
 }
+
+/** A page showing a workspace. */
+export interface ShownPage {
+  readonly kind: "page";
+  readonly page: PointerPage;
+  readonly workspace: WorkspaceResult;
+}
+
+/**
+ * Brings the page to `ws` with the "Workspaces" menu, from the start screen or another workspace,
+ * and waits for the tree to show it; a failure names the workspace and what the menu offered.
+ */
+export async function showWorkspace(page: PointerPage, ws: WorkspaceResult): Promise<ShownPage> {
+  const shown: ShownPage = { kind: "page", page, workspace: ws };
+  const tree = page.getByRole("tree");
+  const header = tree.getByRole("treeitem", { level: 1, name: ws.name, exact: true });
+  const startScreen = page
+    .getByTestId("workspace-screen")
+    .getByRole("button", { name: "Open workspace" });
+  // A remembered workspace may still be coming back: wait until the page settles on one or none.
+  await startScreen
+    .or(tree.getByRole("treeitem", { level: 1 }))
+    .first()
+    .waitFor();
+  if ((await header.count()) > 0) return shown;
+  try {
+    await openWorkspace(page, ws.name);
+  } catch (cause) {
+    const offered = await page.getByRole("menu").last().getByRole("menuitem").allTextContents();
+    const list = offered.map((name) => JSON.stringify(name.trim())).join(", ");
+    throw new Error(
+      `Workspace ${ws.name} was not shown: the "Open workspace" list offers ${list || "nothing"}.`,
+      { cause },
+    );
+  }
+  try {
+    await header.waitFor();
+  } catch (cause) {
+    throw new Error(`Workspace ${ws.name} was not shown: the tree never showed it.`, { cause });
+  }
+  return shown;
+}
+
+/** Opens a shell's tab from its tree row, since a shell started over the API gets no tab. */
+export const openTab = (page: PointerPage, shell: ShellResult) => openFromTree(page, shell.shellId);
