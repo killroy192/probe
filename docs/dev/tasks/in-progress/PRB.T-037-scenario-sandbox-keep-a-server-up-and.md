@@ -240,7 +240,7 @@ Not done: the lock takeover after a killed run is not atomic. Two runs taking ov
 - AC-22 walkthrough (2026-11-11, a fresh agent session working from `.agents/rules/scenarios.md`): it started a sandbox, ran `S5` (PASS 7.4 s), then `S4` (PASS 17.4 s) on the same server pid, with no server start. `--only scripts/scenarios/scenarios/workspaceUi.ts` was refused as a path to a script, and `--only S7` was refused because it restarts the server; both exited 2 without touching the server. `kill <pid>` ended the sandbox, server and shell host and removed the home. No file was written in the checkout. Gaps it hit, now closed in the rules file: which scenarios a sandbox accepts (`needs: {}` in the scenario's file), waiting for `ready`, a script path is given to `--only`, and when `shell-host-pid` prints. S4's 17.4 s on a shared machine is not a cap result.
 - verify-story-implementation: fail on AC-13 (fixed since by T6 and its test), AC-22 and the full-suite half of AC-23; no gate scored 0.
 
-Open:
+- AC-23 full suite (2026-11-11, on the branch rebased on `main` 7be34739b): `vp run test:scenarios` passed every scenario, S1 to S8, T-002, R1, E2-S3, E2-S1 and E2-S4 ("8/8 passing, story checks: 5/5 passing", 321.3 s). The `--selftest` run above was before the rebase.
 
-- AC-23: one full `vp run test:scenarios` run, held by the developer while other sessions run scenarios.
+Nothing is open.
 
