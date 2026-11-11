@@ -43,7 +43,7 @@ const planRefusal = (argv: ReadonlyArray<string>) => {
 
 describe("parseLoopArgs", () => {
   it("reads N, every --only in order and the confirmation", () => {
-    expect(parsed(["3", "--only", "S5", "--only=perf-x", "--quiet-confirmed"])).toEqual({
+    expect(parsed(["--", "3", "--only", "S5", "--only=perf-x", "--quiet-confirmed"])).toEqual({
       runs: 3,
       only: ["S5", "perf-x"],
       quietConfirmed: true,

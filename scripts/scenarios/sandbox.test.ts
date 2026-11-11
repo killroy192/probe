@@ -53,7 +53,7 @@ describe("sandbox rules", () => {
   });
 
   it("parses the sandbox's options and names one it does not take", () => {
-    assert.deepStrictEqual(parseSandboxArgs(["--fixture", "shells", "--keep-home"]), {
+    assert.deepStrictEqual(parseSandboxArgs(["--", "--fixture", "shells", "--keep-home"]), {
       fixture: "shells",
       keepHome: true,
       rebuild: false,

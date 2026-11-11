@@ -115,6 +115,7 @@ describe("parseLaunchArgs", () => {
   it("collects every --only in order and reads switches and values", () => {
     expect(
       options([
+        "--",
         "--only",
         "S1",
         "--only=S7.restart",

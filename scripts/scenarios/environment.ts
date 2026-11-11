@@ -29,7 +29,8 @@ export function parseSandboxArgs(argv: ReadonlyArray<string>): SandboxOptions {
   const values = new Map<string, string>();
   for (let index = 0; index < argv.length; index++) {
     const arg = argv[index]!;
-    if (SANDBOX_SWITCHES.includes(arg)) continue;
+    // `vp run <script> -- <args>` passes its separator through.
+    if (arg === "--" || SANDBOX_SWITCHES.includes(arg)) continue;
     if (!SANDBOX_VALUE_FLAGS.includes(arg)) {
       throw new Error(
         `${arg} is not a sandbox option; it takes ${[...SANDBOX_VALUE_FLAGS.map((flag) => `${flag} <value>`), ...SANDBOX_SWITCHES].join(", ")}.`,

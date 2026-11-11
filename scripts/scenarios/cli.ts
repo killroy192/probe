@@ -156,6 +156,8 @@ export function parseLaunchArgs(
   const switches = new Set<string>();
   for (let index = 0; index < argv.length; index++) {
     const arg = argv[index]!;
+    // `vp run <script> -- <args>` passes its separator through.
+    if (arg === "--") continue;
     const equals = arg.startsWith("--") ? arg.indexOf("=") : -1;
     const flag = equals === -1 ? arg : arg.slice(0, equals);
     if (REPEAT_FLAGS.includes(flag)) return { refusal: repeatRefusal(flag) };

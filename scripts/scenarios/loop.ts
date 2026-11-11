@@ -34,6 +34,8 @@ export function parseLoopArgs(
   let runs: number | undefined;
   for (let index = 0; index < argv.length; index++) {
     const arg = argv[index]!;
+    // `vp run <script> -- <args>` passes its separator through.
+    if (arg === "--") continue;
     if (arg === "--quiet-confirmed") {
       quietConfirmed = true;
       continue;
