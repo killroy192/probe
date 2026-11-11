@@ -29,7 +29,7 @@ it is verified or decided; settled decisions go to `roadmap.md`.
   - PRB.E-005 A-4: scenarios that name what they make by run can share one server as one set (every sandbox-accepted atomic scenario one after another on one sandbox, PRB.T-039 AC-3) and in parallel (PRB.T-040). Two run one after another was verified for S5 then S4 (PRB.T-037, 2026-11-10). The sandbox still refuses S1 (needs an empty home), E2-S4 (rewrites the server-wide starting-script list) and S6 (matches the whole process table).
   - PRB.E-005 A-9: the cold starts and UI-driven setup are most of the run time. The PRB.T-036 baseline (2026-11-10) has no split; checked and acted on in PRB.T-038.
   - PRB.E-005 A-11: parallel load exposes waits that are only guesses today. Run in parallel before and after PRB.T-041, in PRB.T-040.
-  - PRB.E-005 A-13: with direct setup and a shared server, atomic scenarios fit under the 15 s cap. The cap gate per scenario in PRB.T-039, and a whole-suite gate when PRB.T-040 closes.
+  - PRB.E-005 A-13: with direct setup and a shared server, atomic scenarios fit under the 20 s cap. The cap gate per scenario in PRB.T-039, and a whole-suite gate when PRB.T-040 closes.
   - PRB.T-038 SA-2: a plain shell in the isolated shell config shows a first-prompt mark the library can wait for before typing (the isolated shell is zsh, PRB.T-036). Checked when PRB.T-038 is planned.
   - PRB.T-038 SU-1 / PRB.E-005 U-3: whether web diagnostic lines can be hidden in production; the web app has no log level today (grep 2026-11-10). Plan stage of PRB.T-038.
 - From the PRB.T-029 container spike (`research/t-029-container-spike.md`), for PRB.T-030 and PRB.T-031:

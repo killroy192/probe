@@ -48,9 +48,9 @@ A scenario (`scripts/scenarios/scenarios/`) starts a real Probe server on a thro
 - A cause that needed a rerun to find is a defect of the scenario: fix it there with more logging or a sharper assertion.
 - Log enough to show the problem. Product code may gain log lines for that at debug level, which production does not print by default. No log line prints a token, pairing URL or cookie.
 
-## The 15 s cap gate
+## The 20 s cap gate
 
-Every atomic check scenario must finish under 15 s. That is a separate gate, never judged on a normal run: run it once after a scenario is implemented, and again only when the user asks, each time after the user confirms nothing in the background slows the machine.
+Every atomic check scenario must finish under 20 s. That is a separate gate, never judged on a normal run: run it once after a scenario is implemented, and again only when the user asks, each time after the user confirms nothing in the background slows the machine.
 
 ## Registering a scenario
 

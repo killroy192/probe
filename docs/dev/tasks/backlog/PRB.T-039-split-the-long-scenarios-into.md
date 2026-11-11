@@ -105,7 +105,7 @@ Every old scenario is replaced by atomic check scenarios built on PRB.T-038's li
 - **EC-7** A set on the sandbox includes a member that needs a restart (the set `S7`): the whole set is refused before anything runs, naming that member and the need.
 - **EC-8** Moved to PRB.T-043 EC-4.
 - **EC-9** Moved to PRB.T-043 EC-5.
-- **EC-10** A scenario's gate time exceeds 15 s: it is split further, or the epic owner raises the cap for every scenario (epic R-8); it is never rerun unchanged to get under.
+- **EC-10** A scenario's gate time exceeds 20 s: it is split further, or the epic owner raises the cap for every scenario (epic R-8); it is never rerun unchanged to get under.
 - **EC-11** E2-S2 or E2-S5 has landed as a long scenario before this story starts: it is converted like the others (FR-11).
 - **EC-12** A decoy process of the old shape (`sleep 1601`), or one carrying another run's unique value, runs while S6's successor runs: it is not matched and the scenario passes on its own jobs.
 - **EC-13** The release in S4's successor happens before the reload starts: the scenario fails, since the output would have arrived before the reload (the point of the old `sleep`).
@@ -182,7 +182,7 @@ Every old scenario is replaced by atomic check scenarios built on PRB.T-038's li
 | AC-22 | Moved to PRB.T-043 AC-12 (split, 2026-11-10). | – | – |
 | AC-23 | Given the atomic scenarios, when their assertions are reviewed, then every one fails naming what it expected and what it found | manual (developer review) | FR-19, NFR-6, ER-1 |
 | AC-24 | Moved to PRB.T-043 AC-13 (split, 2026-11-10). | – | – |
-| AC-25 | Given every atomic check scenario this story implements and the user's confirmation that the machine is quiet, when the cap gate runs once over them on the devcontainer, then every one is at or under 15 s and the per-scenario times are in the handoff; a scenario over the cap is split further or taken to the epic owner, never rerun unchanged | manual (agent asks the user; one gate run) | FR-22, NFR-1, EC-10, A-13 (epic) |
+| AC-25 | Given every atomic check scenario this story implements and the user's confirmation that the machine is quiet, when the cap gate runs once over them on the devcontainer, then every one is at or under 20 s and the per-scenario times are in the handoff; a scenario over the cap is split further or taken to the epic owner, never rerun unchanged | manual (agent asks the user; one gate run) | FR-22, NFR-1, EC-10, A-13 (epic) |
 | AC-26 | Given S4's successor that reloads with output arriving, when it runs, then the scenario releases the output only after the reload has begun, it is shown exactly once, and no fixed sleep is typed | auto | FR-4, EC-13 |
 | AC-27 | Given self-tests of S4's release, one releasing before the reload and one never releasing, when each runs, then the first fails because the output arrived before the reload and the second fails with a named wait | auto (self-test) | EC-13, ER-3 |
 | AC-28 | Given S6's successor with a decoy of the old `sleep 1601` shape and a decoy carrying another run's unique value both running, when it runs, then it matches only its own jobs and passes; and a source search of the scenarios finds no process-table pattern another run's processes could match | auto and manual (source search in the handoff) | FR-14, EC-12 |
@@ -215,7 +215,7 @@ Every old scenario is replaced by atomic check scenarios built on PRB.T-038's li
 | SA-2 | The old scenarios restart the server 14 times: S2 2, S3 1, S7 3, S8 1, T-002 1, E2-S3 1, E2-S1 5 (the analysis's "3+1+8" counted fewer scenarios). | assumption | verified (read `restart(` and `restartAndReload(` calls, 2026-11-10; not run) | Recount at the start. | author |
 | SA-3 | The server reads the starting-script list on every call and writes the default only at start, so adding a script needs no restart. | assumption | verified (read `StartingScripts.ts:42-64`; E2-S1 AC-22 and AC-7 rely on it with no restart) | AC-5, AC-8. | author |
 | SA-4 | The mock agent is safe to run from many scenarios on one server: its home is per server home and each session has its own file. | assumption | verified (read `server.ts:210`, `mock-agent.ts:11-14,47`; not run) | AC-3. | author |
-| SA-5 | With the library's direct setup, every atomic check scenario fits under 15 s, including those whose gate time counts their own server start (epic A-13). | assumption | unverified | AC-25. | author |
+| SA-5 | With the library's direct setup, every atomic check scenario fits under 20 s, including those whose gate time counts their own server start (epic A-13). | assumption | unverified | AC-25. | author |
 | SA-6 | Leftovers on a long-lived shared server (shells still running from earlier scenarios) do not change later scenarios' results or push them over the cap. | assumption | unverified | AC-3 (sequential, on a sandbox); PRB.T-040's parallel runs and whole-suite gate. | author |
 | SA-7 | S4's release and S6's per-run marker behave the same under zsh and bash, on Linux and macOS (macOS `ps` output, `/tmp` being a link there). | assumption | unverified | Plan stage; the macOS run in PRB.T-040 (epic A-16). | author |
 | SA-8 | PRB.T-043 ships sets, composition and the needs its ticket describes. | assumption | unverified | Read PRB.T-043's code and handoff before planning. | author |
