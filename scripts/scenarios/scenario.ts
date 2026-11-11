@@ -1,6 +1,11 @@
+// @effect-diagnostics nodeBuiltinImport:off - Turns a definer's `import.meta.url` into its file path.
+
+import * as NodeURL from "node:url";
+
 import type { PointerPage } from "./browser.ts";
+import type { ShellResult, WorkspaceResult, WorldResult } from "./lib/setup.ts";
 import type { Trail } from "./lib/trail.ts";
-import type { ServerHandle } from "./server.ts";
+import type { ServerEnv, ServerHandle } from "./server.ts";
 
 export interface ScenarioContext {
   readonly server: ServerHandle;
@@ -40,8 +45,119 @@ export interface ScenarioNeeds {
   readonly pristineHome?: true;
   /** Why it is not yet safe on a server other runs share, until PRB.T-039 converts it. */
   readonly unshared?: string;
+  /** Why it changes or depends on state every scenario on its server sees. */
+  readonly serverWide?: string;
+  /** Its server starts under this condition, so it gets one of its own. */
+  readonly condition?: ServerCondition;
 }
 
+export interface ServerCondition {
+  readonly why: string;
+  /** Variables on top of the harness's for a server on `home`; `undefined` removes one. */
+  readonly env: (home: string) => ServerEnv | Promise<ServerEnv>;
+}
+
+/** What a check step can hand the next one, by its `kind`; PRB.T-039 adds kinds here. */
+export interface ResultKinds {
+  readonly workspace: WorkspaceResult;
+  readonly shell: ShellResult;
+  readonly world: WorldResult;
+}
+
+export type ResultKind = keyof ResultKinds;
+export type StepValue = ResultKinds[ResultKind];
+
+/** Undefined when the check runs alone; it then builds its own with `given()`. */
+type Given<T extends ResultKind> = [T] extends [never] ? undefined : ResultKinds[T] | undefined;
+type Returned<R extends ResultKind> = [R] extends [never] ? void : ResultKinds[R];
+
+export interface CheckScenario {
+  readonly kind: "check";
+  /** The file that defines it. */
+  readonly file: string;
+  readonly id: string;
+  readonly title: string;
+  /** `{}` when it needs nothing and is safe on a shared server: its names and folders use `runId`. */
+  readonly needs: ScenarioNeeds;
+  /** The criteria it proves, as `"S7 AC-6"`. */
+  readonly covers?: ReadonlyArray<string>;
+  readonly takes?: ResultKind;
+  readonly returns?: ResultKind;
+  run(context: ScenarioContext, given: StepValue | undefined): Promise<StepValue | void>;
+}
+
+export interface PerfMeasure {
+  readonly name: string;
+  readonly limitMs: number;
+  /** The criterion that sets the limit, as `"PRB.T-004 AC-3"`. */
+  readonly limitFrom: string;
+}
+
+export interface PerfScenario {
+  readonly kind: "perf";
+  readonly file: string;
+  readonly id: string;
+  readonly title: string;
+  readonly needs: ScenarioNeeds;
+  readonly measure: PerfMeasure;
+  /** Resolves with the measured milliseconds; the harness judges them against the limit. */
+  readonly run: (context: ScenarioContext) => Promise<number>;
+}
+
+export interface ComposedStep {
+  readonly scenario: CheckScenario;
+  /** The 1-based number of the earlier step whose returned value this step takes. */
+  readonly given?: { readonly from: number };
+}
+
+/** Atomic checks run in order on one server, each step handing a value to a later one. */
+export interface ComposedScenario {
+  readonly kind: "composed";
+  readonly file: string;
+  readonly id: string;
+  readonly title: string;
+  readonly steps: ReadonlyArray<ComposedStep>;
+}
+
+/** Check or composed ids that run together under one name; ids and set names share one namespace. */
+export interface ScenarioSet {
+  readonly name: string;
+  readonly members: ReadonlyArray<string>;
+}
+
+export type AnyScenario = CheckScenario | PerfScenario | ComposedScenario;
+
+const fileOf = (url: string) => NodeURL.fileURLToPath(url);
+
+/** Defines a check scenario in the file whose `import.meta.url` is `url`. */
+export function defineCheck<const T extends ResultKind = never, const R extends ResultKind = never>(
+  url: string,
+  spec: {
+    readonly id: string;
+    readonly title: string;
+    readonly needs: ScenarioNeeds;
+    readonly covers?: ReadonlyArray<string>;
+    readonly takes?: T;
+    readonly returns?: R;
+    readonly run: (context: ScenarioContext, given: Given<T>) => Promise<Returned<R>>;
+  },
+): CheckScenario {
+  return { kind: "check", file: fileOf(url), ...spec };
+}
+
+/** Defines a perf scenario; its file must end in `.perf.ts`. */
+export function definePerf(url: string, spec: Omit<PerfScenario, "kind" | "file">): PerfScenario {
+  return { kind: "perf", file: fileOf(url), ...spec };
+}
+
+export function defineComposed(
+  url: string,
+  spec: Omit<ComposedScenario, "kind" | "file">,
+): ComposedScenario {
+  return { kind: "composed", file: fileOf(url), ...spec };
+}
+
+/** The shape before `defineCheck`, kept until every scenario is registered through it. */
 export interface Scenario {
   readonly id: string;
   readonly title: string;
