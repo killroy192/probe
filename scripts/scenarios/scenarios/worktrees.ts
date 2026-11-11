@@ -1,22 +1,31 @@
-// @effect-diagnostics nodeBuiltinImport:off - Makes git fixtures in the throwaway home and ends shells' processes.
+// @effect-diagnostics nodeBuiltinImport:off - Makes git fixtures in the throwaway home.
 
 import * as NodeFSP from "node:fs/promises";
 import * as NodePath from "node:path";
 
 import type { ShellSummary } from "@t3tools/contracts";
+import * as Effect from "effect/Effect";
 
 import type { PointerPage } from "../browser.ts";
+import { expected } from "../lib/expect.ts";
 import { addStartingScript, gitOk } from "../lib/files.ts";
-import { restartAndReload, showWorkspace } from "../lib/navigate.ts";
+import { showWorkspace } from "../lib/navigate.ts";
 import { pageFrames } from "../lib/network.ts";
+import { shellsOf, worktreeNodes } from "../lib/scoped.ts";
 import { expectLogged } from "../lib/serverLog.ts";
-import { setupOn, type ProjectResult } from "../lib/setup.ts";
+import {
+  projectPaths,
+  setupOn,
+  type ProjectResult,
+  type Setup,
+  type ShellResult,
+  type WorkspaceResult,
+} from "../lib/setup.ts";
 import { MOCK_AGENT_LINES, runningIn } from "../lib/shells.ts";
 import { addProject } from "../lib/ui/addProject.ts";
 import { dialog } from "../lib/ui/dialog.ts";
 import {
   cancelModal,
-  createShellButton,
   dropdownItems,
   mode,
   modeButton,
@@ -27,84 +36,84 @@ import {
   startButton,
   startFromModal,
 } from "../lib/ui/plusModal.ts";
-import { tabs } from "../lib/ui/tabs.ts";
+import { shellTab, tabs } from "../lib/ui/tabs.ts";
 import { typeLine } from "../lib/ui/terminal.ts";
 import { shellRow } from "../lib/ui/tree.ts";
-import { check, waitFor } from "../lib/waits.ts";
-import { defineCheck } from "../scenario.ts";
+import { waitFor } from "../lib/waits.ts";
+import { defineCheck, type ScenarioContext } from "../scenario.ts";
 
 const NAME = /^probe-worktree-[0-9a-f]{6}$/;
+const NAME_FORM = "probe-worktree-<6 hex digits>";
 
 const worktreeNode = (page: PointerPage, path: string) => page.locator(`[data-worktree="${path}"]`);
 const worktreeNodeLabel = (page: PointerPage, path: string) =>
   worktreeNode(page, path).getByRole("treeitem", { level: 3 });
 
+/** The one entry of `found`, which a library wait already counted. */
+function sole<T>(found: ReadonlyArray<T>, what: string): T {
+  expected({ what, expected: 1, found: found.length });
+  return found[0] as T;
+}
+
 /** The generated name the modal shows for a fork. */
 async function proposedName(page: PointerPage) {
   const line = dialog(page).locator("p", { hasText: "New worktree and branch:" });
+  await waitFor(line, "the modal's new worktree name");
   const name = ((await line.textContent()) ?? "").replace("New worktree and branch:", "").trim();
-  check(NAME.test(name), `The modal shows no worktree name: ${name}.`);
+  expected({
+    what: "the worktree name the modal shows",
+    expected: NAME_FORM,
+    found: NAME.test(name) ? NAME_FORM : name,
+  });
   return name;
 }
 
-export const worktrees = defineCheck(import.meta.url, {
-  id: "S3",
-  title: "start shells in existing and forked worktrees",
-  needs: { restart: true },
-  covers: [
-    "S3 AC-1",
-    "S3 AC-2",
-    "S3 AC-3",
-    "S3 AC-4",
-    "S3 AC-5",
-    "S3 AC-6",
-    "S3 AC-7",
-    "S3 AC-8",
-    "S3 AC-9",
-    "S3 AC-10",
-    "S3 AC-11",
-    "S3 AC-12",
-    "S3 AC-13",
-    "S3 AC-14",
-    "S3 AC-15",
-    "S3 AC-16",
-    "S3 AC-17",
-    "S3 AC-18",
-    "S3 AC-19",
-    "S3 AC-22",
-    "S3 AC-23",
-    "S3 AC-24",
-    "S3 AC-25",
-    "S3 AC-26",
-    "S3 AC-27",
-    "S3 AC-28",
-    "S3 AC-29",
-    "S3 AC-30",
-  ],
-  run: async (ctx) => {
-    const { server, openPage, trail } = ctx;
-    const stage = trail.stage;
-    const folders = NodePath.join(server.home, "folders");
-    const repo = NodePath.join(folders, "repo");
-    const repo2 = NodePath.join(folders, "second");
-    const empty = NodePath.join(folders, "empty");
-    const plain = NodePath.join(folders, "plain");
-    const linked = NodePath.join(folders, "linked");
-    const detached = NodePath.join(folders, "detached");
-    const wkt = NodePath.join(folders, "wkt");
-    const repoWorktrees = NodePath.join(server.home, "worktrees", "repo");
-    const hold = NodePath.join(server.home, "hold-fork");
-    const release = NodePath.join(server.home, "release-fork");
-    for (const dir of [repo, repo2, empty, plain]) await NodeFSP.mkdir(dir, { recursive: true });
+async function expectStarted(page: PointerPage, what: string) {
+  expected({ what: `the refusal of ${what}`, expected: null, found: await startFromModal(page) });
+}
 
-    await gitOk(repo, "init", "-q", "-b", "main");
-    await gitOk(repo, "commit", "-q", "--allow-empty", "-m", "one");
-    for (const branch of ["other", "doomed", "doomed2", "wkt"]) await gitOk(repo, "branch", branch);
-    await gitOk(repo, "commit", "-q", "--allow-empty", "-m", "two");
-    await gitOk(repo, "worktree", "add", "-q", "-b", "linked", linked, "other");
-    await gitOk(repo, "worktree", "add", "-q", "--detach", detached, "other");
-    // A worktree whose folder name is also a branch it does not have checked out (AC-4).
-    await gitOk(repo, "worktree", "add", "-q", "-b", "wkt-new", wkt, "other");
+/** `true` when `refusal` names `name`, else the refusal itself, for an expected/found message. */
+const names = (refusal: string | null, name: string) =>
+  refusal?.includes(name) === true ? true : refusal;
+
+interface GitFixture {
+  readonly repo: string;
+  readonly linked: string;
+  readonly detached: string;
+  readonly wkt: string;
+  readonly otherHead: string;
+  /** Where the server puts this repository's forks; other runs' forks of a `repo` share it. */
+  readonly forks: string;
+  readonly hold: string;
+  readonly release: string;
+}
+
+/**
+ * A repository `repo` in a folder of this run, with the branches other, doomed, doomed2 and wkt at
+ * its first commit, main one commit later, and linked, detached and wkt worktrees at other.
+ */
+async function gitFixture(
+  ctx: ScenarioContext,
+  setup: Setup,
+  { holdForks = false }: { readonly holdForks?: boolean } = {},
+): Promise<GitFixture> {
+  const base = (await setup.folder("git")).path;
+  const repo = NodePath.join(base, "repo");
+  const linked = NodePath.join(base, "linked");
+  const detached = NodePath.join(base, "detached");
+  const wkt = NodePath.join(base, "wkt");
+  const hold = NodePath.join(base, "hold-fork");
+  const release = NodePath.join(base, "release-fork");
+  await NodeFSP.mkdir(repo, { recursive: true });
+  await gitOk(repo, "init", "-q", "-b", "main");
+  await gitOk(repo, "commit", "-q", "--allow-empty", "-m", "one");
+  for (const branch of ["other", "doomed", "doomed2", "wkt"]) await gitOk(repo, "branch", branch);
+  await gitOk(repo, "commit", "-q", "--allow-empty", "-m", "two");
+  await gitOk(repo, "worktree", "add", "-q", "-b", "linked", linked, "other");
+  await gitOk(repo, "worktree", "add", "-q", "--detach", detached, "other");
+  // A worktree whose folder name is also a branch it does not have checked out (AC-4).
+  await gitOk(repo, "worktree", "add", "-q", "-b", "wkt-new", wkt, "other");
+  if (holdForks) {
     // Holds a fork open while the hold file exists, so a second click lands mid-start (AC-23).
     const hooks = NodePath.join(repo, ".git", "hooks");
     await NodeFSP.writeFile(
@@ -113,442 +122,830 @@ export const worktrees = defineCheck(import.meta.url, {
       { mode: 0o755 },
     );
     await gitOk(repo, "config", "core.hooksPath", hooks);
-    await gitOk(repo2, "init", "-q", "-b", "main");
-    await gitOk(repo2, "commit", "-q", "--allow-empty", "-m", "one");
-    await gitOk(empty, "init", "-q", "-b", "main");
-    const otherHead = await gitOk(repo, "rev-parse", "other");
-    const gitState = async () => ({
-      branches: await gitOk(repo, "branch", "--format=%(refname:short)"),
-      worktrees: await gitOk(repo, "worktree", "list", "--porcelain"),
-      folders: (await NodeFSP.readdir(repoWorktrees).catch(() => [])).toSorted().join(","),
-    });
+  }
+  return {
+    repo,
+    linked,
+    detached,
+    wkt,
+    otherHead: await gitOk(repo, "rev-parse", "other"),
+    forks: NodePath.join(ctx.server.home, "worktrees", "repo"),
+    hold,
+    release,
+  };
+}
 
-    const page = await openPage();
-    const frames = pageFrames(page);
-    let setup = await setupOn(ctx, { as: page });
-    const ws = await setup.workspace("worktrees");
-    await showWorkspace(page, ws);
-    let repoProject: ProjectResult | undefined;
-    const killShell = async (shell: ShellSummary) => {
-      check(repoProject !== undefined, "The repository was never added.");
-      const latest = setup.shells.current().find((entry) => entry.shellId === shell.shellId);
-      const pid = latest?.pid ?? null;
-      check(pid !== null, `The shell has no pid: ${JSON.stringify(latest)}.`);
-      await setup.killShell({
-        kind: "shell",
-        shellId: shell.shellId,
-        pid,
-        cwd: shell.cwd,
-        workspace: ws.name,
-        project: repoProject.path,
+/** The repository's branches and registered worktrees, which a fork changes. */
+const gitState = async (git: GitFixture) => ({
+  branches: await gitOk(git.repo, "branch", "--format=%(refname:short)"),
+  worktrees: await gitOk(git.repo, "worktree", "list", "--porcelain"),
+});
+
+const exists = (path: string) =>
+  NodeFSP.stat(path).then(
+    () => true,
+    () => false,
+  );
+
+type Extra = "second" | "empty" | "plain";
+
+interface S3Page {
+  readonly page: PointerPage;
+  readonly frames: ReturnType<typeof pageFrames>;
+  readonly setup: Setup;
+  readonly ws: WorkspaceResult;
+  readonly git: GitFixture;
+  readonly extras: Readonly<Record<Extra, ProjectResult | undefined>>;
+}
+
+interface S3World extends S3Page {
+  readonly project: ProjectResult;
+}
+
+/**
+ * A page showing a workspace of this run with the extra projects asked for: `second` a git
+ * repository with a commit, `empty` one with none, `plain` no repository.
+ */
+async function s3Page(
+  ctx: ScenarioContext,
+  {
+    extras = [],
+    holdForks = false,
+    before = async () => {},
+  }: {
+    readonly extras?: ReadonlyArray<Extra>;
+    readonly holdForks?: boolean;
+    readonly before?: (setup: Setup, ws: WorkspaceResult, git: GitFixture) => Promise<void>;
+  } = {},
+): Promise<S3Page> {
+  const page = await ctx.openPage();
+  const frames = pageFrames(page);
+  const setup = await setupOn(ctx, { as: page });
+  const ws = await setup.workspace("worktrees");
+  const git = await gitFixture(ctx, setup, { holdForks });
+  await before(setup, ws, git);
+  const made: Record<Extra, ProjectResult | undefined> = {
+    second: undefined,
+    empty: undefined,
+    plain: undefined,
+  };
+  for (const extra of extras) {
+    if (extra === "second") {
+      made.second = await setup.project(ws, await setup.repo({ label: "second" }));
+    } else {
+      const folder = await setup.folder(extra);
+      if (extra === "empty") await gitOk(folder.path, "init", "-q", "-b", "main");
+      made[extra] = await setup.project(ws, folder);
+    }
+  }
+  await showWorkspace(page, ws);
+  return { page, frames, setup, ws, git, extras: made };
+}
+
+/** `s3Page` with the git fixture added as a project over the API. */
+async function repoWorld(
+  ctx: ScenarioContext,
+  options: { readonly extras?: ReadonlyArray<Extra>; readonly holdForks?: boolean } = {},
+): Promise<S3World> {
+  let project: ProjectResult | undefined;
+  const made = await s3Page(ctx, {
+    ...options,
+    before: async (setup, ws, git) => {
+      project = await setup.project(ws, { kind: "folder", path: git.repo });
+    },
+  });
+  if (project === undefined) throw new Error("The repository was not added.");
+  return { ...made, project };
+}
+
+function extra(world: S3Page, which: Extra): ProjectResult {
+  const project = world.extras[which];
+  if (project === undefined) throw new Error(`The world has no ${which} project.`);
+  return project;
+}
+
+/** Starts a shell from the "+" modal in an existing worktree; returns the running ones there. */
+async function startExisting(
+  world: S3World,
+  path: string,
+  count: number,
+  script: string | null = "mock agent",
+) {
+  const { page, setup, git } = world;
+  await openModal(page, git.repo, { script });
+  if ((await mode(page)) !== "Existing") await modeButton(page, "Existing").click();
+  await pickItem(page, "Start in", path);
+  await expectStarted(page, `the start in ${path}`);
+  return runningIn(setup.shells.lists, path, count);
+}
+
+/** Forks from `origin` in the "+" modal and returns the fork's name, folder and shell. */
+async function forkFromModal(world: S3World, origin: string) {
+  const { page, setup, git } = world;
+  await openModal(page, git.repo);
+  if ((await mode(page)) !== "Fork") await modeButton(page, "Fork").click();
+  await pickItem(page, "Fork from", origin);
+  const name = await proposedName(page);
+  await expectStarted(page, `the fork from ${origin}`);
+  const path = NodePath.join(git.forks, name);
+  const shell = sole(await runningIn(setup.shells.lists, path, 1), `running shells in ${path}`);
+  return { name, path, shell };
+}
+
+const asShell = (world: S3World, shell: ShellSummary): ShellResult => ({
+  kind: "shell",
+  shellId: shell.shellId,
+  pid: shell.pid,
+  cwd: shell.cwd,
+  workspace: world.ws.name,
+  project: world.project.path,
+});
+
+async function expectNoAlert(page: PointerPage, when: string) {
+  expected({
+    what: `alerts in "Create shell" ${when}`,
+    expected: 0,
+    found: await dialog(page).getByRole("alert").count(),
+  });
+}
+
+export const importLinked = defineCheck(import.meta.url, {
+  id: "S3.import-linked",
+  title: "importing a linked worktree adds its repository once and shows no worktree under it",
+  needs: {},
+  covers: ["S3 AC-29"],
+  run: async (ctx) => {
+    const { page, setup, ws, git } = await s3Page(ctx);
+    await ctx.trail.stage("AC-29", async () => {
+      expected({
+        what: "the refusal of importing the linked worktree",
+        expected: null,
+        found: await addProject(page, { import: git.linked }),
       });
-      // A Probe kill removes the shell; one a signal ended would stay listed (PRB.T-007).
-      await setup.shells.lists.until(
-        "the killed shell to leave the list",
-        (list) => list.every((entry) => entry.shellId !== shell.shellId),
-        Math.max(0, setup.shells.lists.mark() - 1),
-      );
-    };
+      await waitFor(page.getByText("Added the project of this worktree"), "the import notice");
+      await waitFor(page.locator(`[data-project="${git.repo}"]`), "the repository's project row");
+      expected({
+        what: "project rows of the linked worktree, and worktree nodes in the repository",
+        expected: { linked: 0, worktrees: 0 },
+        found: {
+          linked: await page.locator(`[data-project="${git.linked}"]`).count(),
+          worktrees: await worktreeNodes(page, git.repo).count(),
+        },
+      });
+    });
+    await ctx.trail.stage("AC-29 duplicate add", async () => {
+      await setup.project(ws, { kind: "folder", path: git.repo });
+      expected({
+        what: "the workspace's projects after adding the repository again over the API",
+        expected: [git.repo],
+        found: await Effect.runPromise(projectPaths(setup.client, ws.name)),
+      });
+      expected({
+        what: "project rows of the repository",
+        expected: 1,
+        found: await page.locator(`[data-project="${git.repo}"]`).count(),
+      });
+    });
+  },
+});
 
-    // AC-29: importing a linked worktree adds its repository and shows nothing under it.
-
-    await stage("AC-29", async () => {
-      check(
-        (await addProject(page, { import: linked })) === null,
-        "Importing the worktree failed.",
+export const existingPrimary = defineCheck(import.meta.url, {
+  id: "S3.existing-primary",
+  title: "Existing in the primary worktree is the default, and is remembered for the next shell",
+  needs: {},
+  // One start in the primary checks its default, the list and its label; the repeat, that it stays.
+  covers: ["S3 AC-11", "S3 AC-1", "S3 AC-25", "S3 AC-3", "S3 AC-10"],
+  run: async (ctx) => {
+    const { page, setup, git } = await repoWorld(ctx);
+    await ctx.trail.stage("AC-11, AC-1, AC-25", async () => {
+      await openModal(page, git.repo, { script: "Plain shell" });
+      expected({
+        what: "the preselected worktree choice",
+        expected: { mode: "Existing", startIn: git.repo },
+        found: { mode: await mode(page), startIn: await selectedKey(page, "Start in") },
+      });
+      expected({
+        what: '"Start in" items',
+        expected: [
+          [git.repo, "branch", "main", ""],
+          [git.detached, "worktree", git.otherHead.slice(0, 7), "detached worktree"],
+          [git.linked, "worktree", "linked", "linked worktree"],
+          [git.wkt, "worktree", "wkt-new", "wkt worktree"],
+        ],
+        found: await dropdownItems(page, "Start in"),
+      });
+      await expectStarted(page, "the primary start");
+      const started = sole(
+        await runningIn(setup.shells.lists, git.repo, 1),
+        `running shells in ${git.repo}`,
       );
-      await page.getByText("Added the project of this worktree").waitFor();
-      await page.locator(`[data-project="${repo}"]`).waitFor();
-      check(
-        (await page.locator(`[data-project="${linked}"]`).count()) === 0 &&
-          (await page.locator("[data-worktree]").count()) === 0,
-        "The worktree was added as its own project, or worktrees show without shells (AC-29).",
+      await waitFor(
+        worktreeNodeLabel(page, git.repo).filter({ hasText: /^primary · main$/ }),
+        "the primary node labelled primary · main",
       );
-      for (const path of [repo, repo2, empty, plain]) {
-        const added = await setup.project(ws, { kind: "folder", path });
-        if (path === repo) repoProject = added;
-        await waitFor(page.locator(`[data-project="${added.path}"]`), `the project ${path}`);
-      }
-      check(
-        (await page.locator(`[data-project="${repo}"]`).count()) === 1,
-        "The repository was added twice.",
+      await waitFor(
+        worktreeNode(page, git.repo).locator(`[data-shell-id="${started.shellId}"]`),
+        "the shell under the primary node",
       );
     });
-
-    // AC-11, AC-1, AC-25: Existing in the primary worktree is the default.
-
-    const shellA = await stage("AC-11, AC-1", async () => {
-      // A plain shell, so the lines typed in AC-26 reach the shell, not an agent.
-      await openModal(page, repo, { script: "Plain shell" });
-      check((await mode(page)) === "Existing", "Existing is not preselected (AC-11).");
-      check((await selectedKey(page, "Start in")) === repo, "The primary is not preselected.");
-      const existing = await dropdownItems(page, "Start in");
-      const expectedExisting = [
-        [repo, "branch", "main", ""],
-        [detached, "worktree", otherHead.slice(0, 7), "detached worktree"],
-        [linked, "worktree", "linked", "linked worktree"],
-        [wkt, "worktree", "wkt-new", "wkt worktree"],
-      ];
-      check(
-        JSON.stringify(existing) === JSON.stringify(expectedExisting),
-        `Start in lists ${JSON.stringify(existing)} (AC-1).`,
-      );
-      check((await startFromModal(page)) === null, "The primary start failed (AC-11).");
-      const [started] = await runningIn(setup.shells.lists, repo, 1);
-      check(started !== undefined, "The primary shell is not listed (AC-11).");
-      await worktreeNodeLabel(page, repo)
-        .filter({ hasText: /^primary · main$/ })
-        .waitFor();
-      await worktreeNode(page, repo).locator(`[data-shell-id="${started.shellId}"]`).waitFor();
-      return started;
+    await ctx.trail.stage("AC-3, AC-10", async () => {
+      await openModal(page, git.repo);
+      expected({
+        what: '"Start in" after a start in the primary',
+        expected: git.repo,
+        found: await selectedKey(page, "Start in"),
+      });
+      await expectStarted(page, "the second primary start");
+      await runningIn(setup.shells.lists, git.repo, 2);
     });
+  },
+});
 
-    // AC-3, AC-10: the primary is remembered and takes a second shell.
-
-    await stage("AC-3", async () => {
-      await openModal(page, repo);
-      check((await selectedKey(page, "Start in")) === repo, "The last choice is not preselected.");
-      check((await startFromModal(page)) === null, "The second primary start failed (AC-3).");
-      await runningIn(setup.shells.lists, repo, 2);
-    });
-
-    // AC-26, AC-27: a branch switch relabels the node; leaving the worktree marks the shell.
-
-    await stage("AC-26, AC-27", async () => {
+export const branchRelabel = defineCheck(import.meta.url, {
+  id: "S3.branch-relabel",
+  title: "a branch switch in a shell relabels its worktree node and keeps its shells under it",
+  needs: {},
+  covers: ["S3 AC-26"],
+  run: async (ctx) => {
+    const world = await repoWorld(ctx);
+    const { page, git } = world;
+    const shellA = sole(
+      await startExisting(world, git.repo, 1, "Plain shell"),
+      `running shells in ${git.repo}`,
+    );
+    const shellB = sole(
+      (await startExisting(world, git.repo, 2, "Plain shell")).filter(
+        (shell) => shell.shellId !== shellA.shellId,
+      ),
+      `the second shell in ${git.repo}`,
+    );
+    await ctx.trail.stage("AC-26", async () => {
       await shellRow(page, shellA.shellId).click();
-      await tabs(page)
-        .filter({ hasText: /^Shell 1 · repo$/ })
-        .waitFor();
+      await waitFor(tabs(page).filter({ hasText: /^Shell 1 · repo$/ }), "the tab Shell 1 · repo");
       await typeLine(page, "git switch -q other");
-      await worktreeNodeLabel(page, repo)
-        .filter({ hasText: /^primary · other$/ })
-        .waitFor();
-      check(
-        (await worktreeNode(page, repo).locator("[data-shell-id]").count()) === 2,
-        "The worktree's shells did not both stay under its node (AC-26).",
+      await waitFor(
+        worktreeNodeLabel(page, git.repo).filter({ hasText: /^primary · other$/ }),
+        "the primary node relabelled primary · other",
       );
-      await typeLine(page, "cd /tmp");
-      await shellRow(page, shellA.shellId).locator('[data-elsewhere="/tmp"]').waitFor();
-      check(
-        (await worktreeNode(page, repo).locator(`[data-shell-id="${shellA.shellId}"]`).count()) ===
-          1,
-        "A shell that left its worktree moved in the tree (AC-27).",
-      );
-      await typeLine(page, `cd ${repo} && git switch -q main`);
-      await shellRow(page, shellA.shellId)
-        .locator("[data-elsewhere]")
-        .waitFor({ state: "detached" });
-      await worktreeNodeLabel(page, repo)
-        .filter({ hasText: /^primary · main$/ })
-        .waitFor();
+      for (const shell of [shellA, shellB]) {
+        await waitFor(
+          worktreeNode(page, git.repo).locator(`[data-shell-id="${shell.shellId}"]`),
+          `shell ${shell.shellId} under the primary node`,
+        );
+      }
+      expected({
+        what: "shells under the primary node after the switch",
+        expected: 2,
+        found: await worktreeNode(page, git.repo).locator("[data-shell-id]").count(),
+      });
     });
+  },
+});
 
-    // AC-15, AC-16: a plain project has no worktree choice; one with no commit cannot fork.
-
-    await stage("AC-15, AC-16", async () => {
-      await openModal(page, plain);
-      check((await modeSwitch(page).count()) === 0, "A plain project offers worktrees (AC-15).");
-      check((await startFromModal(page)) === null, "The plain start failed (AC-15).");
-      await runningIn(setup.shells.lists, plain, 1);
-      check(
-        (await page.locator(`[data-project="${plain}"] [data-worktree]`).count()) === 0,
-        "A plain project's shell sits under a worktree node.",
+export const leaveWorktree = defineCheck(import.meta.url, {
+  id: "S3.leave-worktree",
+  title: "a shell that leaves its worktree is marked and stays under its node, and unmarked back",
+  needs: {},
+  // One cd out of the worktree, into a folder the scenario owns.
+  covers: ["S3 AC-27", "S3 AC-30"],
+  run: async (ctx) => {
+    const world = await repoWorld(ctx);
+    const { page, setup, git } = world;
+    const shell = sole(
+      await startExisting(world, git.repo, 1, "Plain shell"),
+      `running shells in ${git.repo}`,
+    );
+    const elsewhere = await setup.folder("elsewhere");
+    await ctx.trail.stage("AC-27, AC-30", async () => {
+      await waitFor(shellTab(page, shell.shellId), "the shell's tab");
+      await typeLine(page, `cd ${elsewhere.path}`);
+      await waitFor(
+        shellRow(page, shell.shellId).locator(`[data-elsewhere="${elsewhere.path}"]`),
+        "the shell row marked as elsewhere",
       );
-      await openModal(page, empty);
-      check(await modeButton(page, "Fork").isDisabled(), "Fork is enabled with no commit (AC-16).");
-      check((await startFromModal(page)) === null, "The start with no commit failed (AC-16).");
-      await runningIn(setup.shells.lists, empty, 1);
-    });
-
-    // AC-2, AC-3, AC-10: a linked worktree starts shells and is remembered.
-
-    await stage("AC-2", async () => {
-      await openModal(page, repo);
-      await pickItem(page, "Start in", linked);
-      check((await startFromModal(page)) === null, "The linked worktree start failed (AC-2).");
-      await runningIn(setup.shells.lists, linked, 1);
-      await worktreeNodeLabel(page, linked)
-        .filter({ hasText: /^linked$/ })
-        .waitFor();
-    });
-    const linkedShells = await stage("AC-10, AC-3", async () => {
-      await openModal(page, repo);
-      check(
-        (await selectedKey(page, "Start in")) === linked,
-        "The worktree is not preselected (AC-10).",
+      expected({
+        what: "the shell's rows under the primary node after it left",
+        expected: 1,
+        found: await worktreeNode(page, git.repo)
+          .locator(`[data-shell-id="${shell.shellId}"]`)
+          .count(),
+      });
+      await typeLine(page, `cd ${git.repo}`);
+      await waitFor(
+        shellRow(page, shell.shellId).locator("[data-elsewhere]"),
+        "the elsewhere mark to go once the shell is back",
+        { state: "detached" },
       );
-      check((await startFromModal(page)) === null, "The second linked start failed (AC-3).");
-      const started = await runningIn(setup.shells.lists, linked, 2);
-      check(
-        (await worktreeNode(page, linked).locator("[data-shell-id]").count()) === 2,
-        "A worktree's second shell is not under the same node (AC-3).",
-      );
-      return started;
     });
+  },
+});
 
-    // AC-4, AC-5, AC-8: fork from a branch, named as the modal showed.
+export const noWorktreeChoice = defineCheck(import.meta.url, {
+  id: "S3.no-worktree-choice",
+  title: "a plain project has no worktree choice, and a repository with no commit cannot fork",
+  needs: {},
+  // Two projects without a forkable checkout, each opened and started once.
+  covers: ["S3 AC-15", "S3 AC-16"],
+  run: async (ctx) => {
+    const world = await repoWorld(ctx, { extras: ["plain", "empty"] });
+    const { page, setup } = world;
+    const plain = extra(world, "plain");
+    const empty = extra(world, "empty");
+    await ctx.trail.stage("AC-15", async () => {
+      await openModal(page, plain.path);
+      expected({
+        what: "worktree switches for a plain project",
+        expected: 0,
+        found: await modeSwitch(page).count(),
+      });
+      await expectStarted(page, "the plain start");
+      const started = sole(
+        await runningIn(setup.shells.lists, plain.path, 1),
+        `running shells in ${plain.path}`,
+      );
+      await waitFor(
+        page.locator(`[data-project="${plain.path}"] [data-shell-id="${started.shellId}"]`),
+        "the plain project's shell row",
+      );
+      expected({
+        what: "worktree nodes in the plain project",
+        expected: 0,
+        found: await worktreeNodes(page, plain.path).count(),
+      });
+    });
+    await ctx.trail.stage("AC-16", async () => {
+      await openModal(page, empty.path);
+      expected({
+        what: "whether Fork is disabled with no commit",
+        expected: true,
+        found: await modeButton(page, "Fork").isDisabled(),
+      });
+      await expectStarted(page, "the start with no commit");
+      await runningIn(setup.shells.lists, empty.path, 1);
+    });
+  },
+});
 
-    const tabsBefore = await stage("AC-4", async () => {
+export const existingLinked = defineCheck(import.meta.url, {
+  id: "S3.existing-linked",
+  title: "a linked worktree starts shells under its node and is remembered",
+  needs: {},
+  // A start in the linked worktree, then the repeat its remembered choice preselects.
+  covers: ["S3 AC-2", "S3 AC-3", "S3 AC-10"],
+  run: async (ctx) => {
+    const world = await repoWorld(ctx);
+    const { page, setup, git } = world;
+    await ctx.trail.stage("AC-2", async () => {
+      await startExisting(world, git.linked, 1);
+      await waitFor(
+        worktreeNodeLabel(page, git.linked).filter({ hasText: /^linked$/ }),
+        "the linked node labelled linked",
+      );
+    });
+    await ctx.trail.stage("AC-10, AC-3", async () => {
+      await openModal(page, git.repo);
+      expected({
+        what: '"Start in" after a start in the linked worktree',
+        expected: git.linked,
+        found: await selectedKey(page, "Start in"),
+      });
+      await expectStarted(page, "the second linked start");
+      const started = await runningIn(setup.shells.lists, git.linked, 2);
+      for (const shell of started) {
+        await waitFor(
+          worktreeNode(page, git.linked).locator(`[data-shell-id="${shell.shellId}"]`),
+          `shell ${shell.shellId} under the linked node`,
+        );
+      }
+      expected({
+        what: "shells under the linked node",
+        expected: 2,
+        found: await worktreeNode(page, git.linked).locator("[data-shell-id]").count(),
+      });
+    });
+  },
+});
+
+export const forkBranch = defineCheck(import.meta.url, {
+  id: "S3.fork-branch",
+  title: "a fork from a branch is named as the modal showed, opens a tab and is logged",
+  needs: {},
+  // The origins list, then the one fork it starts and that fork's log line.
+  covers: ["S3 AC-4", "S3 AC-5", "S3 AC-8"],
+  run: async (ctx) => {
+    const { page, frames, setup, git } = await repoWorld(ctx);
+    const tabsBefore = await ctx.trail.stage("AC-4", async () => {
       // The open modal hides the page behind it, so tabs are counted before it opens.
       const counted = await tabs(page).count();
-      await openModal(page, repo);
+      await openModal(page, git.repo);
       await modeButton(page, "Fork").click();
-      check((await selectedKey(page, "Fork from")) === "branch:main", "main is not the default.");
-      const origins = await dropdownItems(page, "Fork from");
-      const expectedOrigins = [
-        [`worktree:${detached}`, "worktree", otherHead.slice(0, 7), "detached worktree"],
-        [`worktree:${linked}`, "worktree", "linked", "linked worktree"],
-        [`worktree:${wkt}`, "worktree", "wkt-new", "wkt worktree"],
-        ["branch:wkt", "worktree", "wkt", "wkt worktree"],
-        ["branch:main", "branch", "main (current)", ""],
-        ["branch:doomed", "branch", "doomed", ""],
-        ["branch:doomed2", "branch", "doomed2", ""],
-        ["branch:other", "branch", "other", ""],
-      ];
-      check(
-        JSON.stringify(origins) === JSON.stringify(expectedOrigins),
-        `Fork from lists ${JSON.stringify(origins)} (AC-4).`,
-      );
+      expected({
+        what: 'the default "Fork from"',
+        expected: "branch:main",
+        found: await selectedKey(page, "Fork from"),
+      });
+      expected({
+        what: '"Fork from" items',
+        expected: [
+          [`worktree:${git.detached}`, "worktree", git.otherHead.slice(0, 7), "detached worktree"],
+          [`worktree:${git.linked}`, "worktree", "linked", "linked worktree"],
+          [`worktree:${git.wkt}`, "worktree", "wkt-new", "wkt worktree"],
+          ["branch:wkt", "worktree", "wkt", "wkt worktree"],
+          ["branch:main", "branch", "main (current)", ""],
+          ["branch:doomed", "branch", "doomed", ""],
+          ["branch:doomed2", "branch", "doomed2", ""],
+          ["branch:other", "branch", "other", ""],
+        ],
+        found: await dropdownItems(page, "Fork from"),
+      });
       return counted;
     });
-    const name1 = await stage("AC-5, AC-8", async () => {
+    await ctx.trail.stage("AC-5, AC-8", async () => {
       await pickItem(page, "Fork from", "branch:other");
       const name = await proposedName(page);
       const framesBefore = frames.mark();
-      check((await startFromModal(page)) === null, "The fork failed (AC-5).");
-      const path1 = NodePath.join(repoWorktrees, name);
-      const [shell1] = await runningIn(setup.shells.lists, path1, 1);
-      check(shell1 !== undefined, "The fork's shell is not listed (AC-5).");
+      await expectStarted(page, "the fork");
+      const path = NodePath.join(git.forks, name);
+      const shell = sole(await runningIn(setup.shells.lists, path, 1), `running shells in ${path}`);
       await frames.until(
         "the mock CLI banner",
         (frame) => frame.includes(MOCK_AGENT_LINES.banner),
         framesBefore,
       );
-      check(
-        (await gitOk(path1, "branch", "--show-current")) === name,
-        "The branch is not named as shown.",
+      expected({
+        what: "the fork's branch and commit",
+        expected: { branch: name, head: git.otherHead },
+        found: {
+          branch: await gitOk(path, "branch", "--show-current"),
+          head: await gitOk(git.repo, "rev-parse", name),
+        },
+      });
+      await waitFor(shellTab(page, shell.shellId), "the fork's tab");
+      expected({
+        what: "tabs after the fork",
+        expected: tabsBefore + 1,
+        found: await tabs(page).count(),
+      });
+      await waitFor(
+        worktreeNodeLabel(page, path).filter({ hasText: name }),
+        "the fork's node label",
       );
-      check(
-        (await gitOk(repo, "rev-parse", name)) === otherHead,
-        "The fork is not at other (AC-5).",
-      );
-      check((await tabs(page).count()) === tabsBefore + 1, "No tab opened for the fork (AC-5).");
-      await worktreeNodeLabel(page, path1).filter({ hasText: name }).waitFor();
       await expectLogged(
-        server,
+        ctx.server,
         "The log has no start line with the worktree and branch (AC-8).",
         (line) =>
           line.includes("shell started") &&
-          line.includes(shell1.shellId) &&
-          line.includes(path1) &&
+          line.includes(shell.shellId) &&
+          line.includes(path) &&
           // Once in the worktree path and once as the branch.
           line.split(name).length >= 3,
-      );
-      return name;
-    });
-
-    // AC-9, AC-7: the fork is remembered and one click makes another, differently named one.
-
-    await stage("AC-9, AC-7", async () => {
-      await openModal(page, repo);
-      check((await mode(page)) === "Fork", "Fork is not preselected (AC-9).");
-      check((await selectedKey(page, "Fork from")) === "branch:other", "The origin is not kept.");
-      const name2 = await proposedName(page);
-      check(name2 !== name1, "The second fork got the first one's name (AC-7).");
-      check((await startFromModal(page)) === null, "The repeated fork failed (AC-9).");
-      await runningIn(setup.shells.lists, NodePath.join(repoWorktrees, name2), 1);
-    });
-
-    // AC-24: closing the modal after choosing changes nothing and keeps the remembered choice.
-
-    await stage("AC-24", async () => {
-      const beforeClose = await gitState();
-      await openModal(page, repo);
-      await modeButton(page, "Existing").click();
-      await cancelModal(page);
-      check(
-        JSON.stringify(await gitState()) === JSON.stringify(beforeClose),
-        "Closing created a worktree (AC-24).",
-      );
-      await openModal(page, repo);
-      check((await mode(page)) === "Fork", "Closing changed the remembered choice (AC-24).");
-      await cancelModal(page);
-    });
-
-    // AC-14: another git project does not get this project's choice.
-
-    await stage("AC-14", async () => {
-      await openModal(page, repo2);
-      check((await mode(page)) === "Existing", "The other project preselected Fork (AC-14).");
-      check(
-        (await selectedKey(page, "Start in")) === repo2,
-        "The other project's primary is not selected.",
-      );
-      await cancelModal(page);
-    });
-
-    // AC-6: a fork from a detached worktree starts at its commit.
-
-    await stage("AC-6", async () => {
-      await openModal(page, repo);
-      await pickItem(page, "Fork from", `worktree:${detached}`);
-      const name3 = await proposedName(page);
-      check((await startFromModal(page)) === null, "The fork from a worktree failed (AC-6).");
-      await runningIn(setup.shells.lists, NodePath.join(repoWorktrees, name3), 1);
-      check(
-        (await gitOk(repo, "rev-parse", name3)) === otherHead,
-        "The fork is not at the detached commit (AC-6).",
-      );
-    });
-
-    // AC-13: a remembered origin that is gone falls back to the current branch.
-
-    await stage("AC-13", async () => {
-      await gitOk(repo, "worktree", "remove", "--force", detached);
-      await openModal(page, repo);
-      check((await mode(page)) === "Fork", "Fork is not preselected (AC-13).");
-      check(
-        (await selectedKey(page, "Fork from")) === "branch:main",
-        "main is not the fallback (AC-13).",
-      );
-      check(
-        (await dialog(page).getByRole("alert").count()) === 0,
-        "The modal shows an error (AC-13).",
-      );
-    });
-
-    // AC-17, AC-18, AC-19: an origin deleted before the click fails cleanly.
-
-    await stage("AC-17, AC-18", async () => {
-      await pickItem(page, "Fork from", "branch:doomed");
-      await gitOk(repo, "branch", "-D", "doomed");
-      const beforeFail = await gitState();
-      const shellCount = setup.shells.current().length;
-      const failed = await startFromModal(page);
-      check(failed?.includes("doomed") === true, `Failed fork: ${failed} (AC-17).`);
-      check(
-        JSON.stringify(await gitState()) === JSON.stringify(beforeFail),
-        "The failed fork left something (AC-18).",
-      );
-      await cancelModal(page);
-      check(setup.shells.current().length === shellCount, "A failed fork started a shell (AC-17).");
-    });
-    await stage("AC-19", async () => {
-      await openModal(page, repo);
-      check((await mode(page)) === "Fork", "A failed fork changed the choice (AC-19).");
-      check(
-        (await selectedKey(page, "Fork from")) === "branch:main",
-        "A failed fork was remembered.",
-      );
-      await pickItem(page, "Fork from", "branch:doomed2");
-      await gitOk(repo, "branch", "-D", "doomed2");
-      check(
-        (await startFromModal(page))?.includes("doomed2") === true,
-        "The second fork did not fail.",
-      );
-      await pickItem(page, "Fork from", "branch:main");
-      const name4 = await proposedName(page);
-      check((await startFromModal(page)) === null, "The retry after a failed fork failed (AC-19).");
-      await runningIn(setup.shells.lists, NodePath.join(repoWorktrees, name4), 1);
-    });
-
-    // AC-28, AC-12: an ended worktree leaves the tree; a removed one is not preselected.
-
-    const linkedAgain = await stage("AC-28", async () => {
-      for (const shell of linkedShells) await killShell(shell);
-      await worktreeNode(page, linked).waitFor({ state: "detached" });
-      await openModal(page, repo);
-      await modeButton(page, "Existing").click();
-      check(
-        (await dropdownItems(page, "Start in")).some(([key]) => key === linked),
-        "A worktree without shells is not offered (AC-28).",
-      );
-      await pickItem(page, "Start in", linked);
-      check((await startFromModal(page)) === null, "The start in the freed worktree failed.");
-      const [started] = await runningIn(setup.shells.lists, linked, 1);
-      check(started !== undefined, "The shell in the freed worktree is not listed.");
-      return started;
-    });
-    await stage("AC-12", async () => {
-      await killShell(linkedAgain);
-      await gitOk(repo, "worktree", "remove", "--force", linked);
-      await openModal(page, repo);
-      check((await mode(page)) === "Existing", "Existing is not preselected (AC-12).");
-      check(
-        (await selectedKey(page, "Start in")) === repo,
-        "A removed worktree is preselected (AC-12).",
-      );
-      check(
-        (await dialog(page).getByRole("alert").count()) === 0,
-        "The modal shows an error (AC-12).",
-      );
-    });
-
-    // AC-23: a second click while the fork runs is ignored; the modal says what it creates.
-
-    await stage("AC-23", async () => {
-      await modeButton(page, "Fork").click();
-      await pickItem(page, "Fork from", "branch:main");
-      const held = await proposedName(page);
-      const heldBefore = (await gitState()).folders.split(",").length;
-      await NodeFSP.writeFile(hold, "");
-      await startButton(page).dblclick();
-      await dialog(page).getByText(`Creating ${held}…`).waitFor();
-      check(await startButton(page).isDisabled(), "The up-arrow is enabled while forking (AC-23).");
-      await NodeFSP.writeFile(release, "");
-      await dialog(page).waitFor({ state: "detached" });
-      await NodeFSP.rm(hold);
-      await NodeFSP.rm(release);
-      await runningIn(setup.shells.lists, NodePath.join(repoWorktrees, held), 1);
-      const heldAfter = (await gitState()).folders.split(",").length;
-      check(
-        heldAfter === heldBefore + 1,
-        `A double click made ${heldAfter - heldBefore} worktrees (AC-23).`,
-      );
-    });
-
-    // AC-22: the worktree is made but its shell cannot start; it is kept and offered again.
-
-    await stage("AC-22", async () => {
-      await addStartingScript(server.home, {
-        id: "unstartable",
-        name: "unstartable",
-        command: "no-such-agent-cli --start",
-      });
-      setup = await restartAndReload(ctx, page, ws, setup);
-      check((await createShellButton(page, repo).count()) === 1, "The project has no +.");
-      await openModal(page, repo, { script: "unstartable" });
-      check((await mode(page)) === "Fork", "The last choice is not preselected.");
-      const kept = await proposedName(page);
-      const unstartable = await startFromModal(page);
-      check(
-        unstartable?.includes("no-such-agent-cli") === true,
-        `Unstartable shell: ${unstartable} (AC-22).`,
-      );
-      check(
-        (await gitOk(repo, "rev-parse", "--verify", kept)).length > 0,
-        "The kept branch is gone (AC-22).",
-      );
-      check(
-        (await NodeFSP.stat(NodePath.join(repoWorktrees, kept)).catch(() => null)) !== null,
-        "The created worktree was removed (AC-22).",
-      );
-      await cancelModal(page);
-      await openModal(page, repo);
-      check((await mode(page)) === "Fork", "A failed start changed the choice (AC-22).");
-      await modeButton(page, "Existing").click();
-      check(
-        (await dropdownItems(page, "Start in")).some(
-          ([key]) => key === NodePath.join(repoWorktrees, kept),
-        ),
-        "The kept worktree is not offered (AC-22).",
-      );
-      await cancelModal(page);
-      // Shells from before the restart run on (PRB.T-007); none may be in the kept worktree.
-      check(
-        setup.shells.current().every((shell) => shell.cwd !== NodePath.join(repoWorktrees, kept)),
-        "An unstartable shell was left on the server (AC-22).",
       );
     });
   },
 });
+
+export const forkRemembered = defineCheck(import.meta.url, {
+  id: "S3.fork-remembered",
+  title: "a fork is remembered, and one click makes another, differently named one",
+  needs: {},
+  // The repeat the remembered fork preselects is the one-click fork.
+  covers: ["S3 AC-9", "S3 AC-7"],
+  run: async (ctx) => {
+    const world = await repoWorld(ctx);
+    const { page, setup, git } = world;
+    const first = await forkFromModal(world, "branch:other");
+    await ctx.trail.stage("AC-9, AC-7", async () => {
+      await openModal(page, git.repo);
+      expected({
+        what: "the preselected choice after a fork from other",
+        expected: { mode: "Fork", from: "branch:other" },
+        found: { mode: await mode(page), from: await selectedKey(page, "Fork from") },
+      });
+      const name = await proposedName(page);
+      expected({
+        what: "the second fork's name next to the first",
+        expected: "a different name",
+        found: name !== first.name ? "a different name" : name,
+      });
+      await expectStarted(page, "the repeated fork");
+      await runningIn(setup.shells.lists, NodePath.join(git.forks, name), 1);
+    });
+  },
+});
+
+export const cancelKeepsChoice = defineCheck(import.meta.url, {
+  id: "S3.cancel-keeps-choice",
+  title: "closing the modal after choosing changes nothing and keeps the remembered choice",
+  needs: {},
+  covers: ["S3 AC-24"],
+  run: async (ctx) => {
+    const world = await repoWorld(ctx);
+    const { page, git } = world;
+    await forkFromModal(world, "branch:main");
+    await ctx.trail.stage("AC-24", async () => {
+      const before = await gitState(git);
+      await openModal(page, git.repo);
+      const offered = await proposedName(page);
+      await modeButton(page, "Existing").click();
+      await cancelModal(page);
+      expected({
+        what: "the repository after closing the modal",
+        expected: { ...before, offeredFolder: false },
+        found: {
+          ...(await gitState(git)),
+          offeredFolder: await exists(NodePath.join(git.forks, offered)),
+        },
+      });
+      await openModal(page, git.repo);
+      expected({
+        what: "the remembered mode after closing",
+        expected: "Fork",
+        found: await mode(page),
+      });
+      await cancelModal(page);
+    });
+  },
+});
+
+export const choicePerProject = defineCheck(import.meta.url, {
+  id: "S3.choice-per-project",
+  title: "another git project does not get this project's remembered choice",
+  needs: {},
+  covers: ["S3 AC-14"],
+  run: async (ctx) => {
+    const world = await repoWorld(ctx, { extras: ["second"] });
+    const { page } = world;
+    const second = extra(world, "second");
+    await forkFromModal(world, "branch:main");
+    await ctx.trail.stage("AC-14", async () => {
+      await openModal(page, second.path);
+      expected({
+        what: "the other project's preselected choice",
+        expected: { mode: "Existing", startIn: second.path },
+        found: { mode: await mode(page), startIn: await selectedKey(page, "Start in") },
+      });
+      await cancelModal(page);
+    });
+  },
+});
+
+export const forkDetached = defineCheck(import.meta.url, {
+  id: "S3.fork-detached",
+  title: "a fork from a detached worktree starts at its commit",
+  needs: {},
+  covers: ["S3 AC-6"],
+  run: async (ctx) => {
+    const world = await repoWorld(ctx);
+    const { git } = world;
+    await ctx.trail.stage("AC-6", async () => {
+      const fork = await forkFromModal(world, `worktree:${git.detached}`);
+      expected({
+        what: "the commit of the fork from the detached worktree",
+        expected: git.otherHead,
+        found: await gitOk(git.repo, "rev-parse", fork.name),
+      });
+    });
+  },
+});
+
+export const originGoneFallback = defineCheck(import.meta.url, {
+  id: "S3.origin-gone-fallback",
+  title: "a remembered origin that is gone falls back to the current branch",
+  needs: {},
+  covers: ["S3 AC-13"],
+  run: async (ctx) => {
+    const world = await repoWorld(ctx);
+    const { page, git } = world;
+    await forkFromModal(world, `worktree:${git.detached}`);
+    await ctx.trail.stage("AC-13", async () => {
+      await gitOk(git.repo, "worktree", "remove", "--force", git.detached);
+      await openModal(page, git.repo);
+      expected({
+        what: "the preselected choice once the remembered origin is gone",
+        expected: { mode: "Fork", from: "branch:main" },
+        found: { mode: await mode(page), from: await selectedKey(page, "Fork from") },
+      });
+      await expectNoAlert(page, "with the origin gone");
+    });
+  },
+});
+
+export const originDeleted = defineCheck(import.meta.url, {
+  id: "S3.origin-deleted",
+  title: "an origin deleted before the click fails cleanly, is not remembered, and a retry works",
+  needs: {},
+  // One refused fork: what it leaves, what it starts and what it remembers.
+  covers: ["S3 AC-17", "S3 AC-18", "S3 AC-19"],
+  run: async (ctx) => {
+    const world = await repoWorld(ctx);
+    const { page, setup, git, project } = world;
+    await forkFromModal(world, "branch:main");
+    await ctx.trail.stage("AC-17, AC-18", async () => {
+      await openModal(page, git.repo);
+      await pickItem(page, "Fork from", "branch:doomed");
+      const offered = await proposedName(page);
+      await gitOk(git.repo, "branch", "-D", "doomed");
+      const before = await gitState(git);
+      const projectShells = () =>
+        shellsOf(setup.shells.current(), [project]).map(({ shellId }) => shellId);
+      const shellIds = projectShells();
+      expected({
+        what: "whether the refusal names the deleted origin",
+        expected: true,
+        found: names(await startFromModal(page), "doomed"),
+      });
+      expected({
+        what: "the repository after the refused fork",
+        expected: { ...before, offeredFolder: false },
+        found: {
+          ...(await gitState(git)),
+          offeredFolder: await exists(NodePath.join(git.forks, offered)),
+        },
+      });
+      await cancelModal(page);
+      expected({
+        what: "the project's shells after the refused fork",
+        expected: shellIds,
+        found: projectShells(),
+      });
+    });
+    await ctx.trail.stage("AC-19", async () => {
+      await openModal(page, git.repo);
+      expected({
+        what: "the preselected choice after a refused fork",
+        expected: { mode: "Fork", from: "branch:main" },
+        found: { mode: await mode(page), from: await selectedKey(page, "Fork from") },
+      });
+      await pickItem(page, "Fork from", "branch:doomed2");
+      await gitOk(git.repo, "branch", "-D", "doomed2");
+      expected({
+        what: "whether the second refusal names its deleted origin",
+        expected: true,
+        found: names(await startFromModal(page), "doomed2"),
+      });
+      await pickItem(page, "Fork from", "branch:main");
+      const name = await proposedName(page);
+      await expectStarted(page, "the retry after a refused fork");
+      await runningIn(setup.shells.lists, NodePath.join(git.forks, name), 1);
+    });
+  },
+});
+
+export const endedWorktree = defineCheck(import.meta.url, {
+  id: "S3.ended-worktree",
+  title: "a worktree whose shells ended leaves the tree, and a removed one is not preselected",
+  needs: {},
+  // The linked worktree's shells end, then the worktree itself goes.
+  covers: ["S3 AC-28", "S3 AC-12"],
+  run: async (ctx) => {
+    const world = await repoWorld(ctx);
+    const { page, setup, git } = world;
+    await startExisting(world, git.linked, 1);
+    const linkedShells = await startExisting(world, git.linked, 2);
+    const again = await ctx.trail.stage("AC-28", async () => {
+      for (const shell of linkedShells) await setup.killShell(asShell(world, shell));
+      await waitFor(worktreeNode(page, git.linked), "the linked node to leave the tree", {
+        state: "detached",
+      });
+      await openModal(page, git.repo);
+      await modeButton(page, "Existing").click();
+      expected({
+        what: "whether a worktree without shells is offered",
+        expected: true,
+        found: (await dropdownItems(page, "Start in")).some(([key]) => key === git.linked),
+      });
+      await pickItem(page, "Start in", git.linked);
+      await expectStarted(page, "the start in the freed worktree");
+      return sole(
+        await runningIn(setup.shells.lists, git.linked, 1),
+        `running shells in ${git.linked}`,
+      );
+    });
+    await ctx.trail.stage("AC-12", async () => {
+      await setup.killShell(asShell(world, again));
+      await gitOk(git.repo, "worktree", "remove", "--force", git.linked);
+      await openModal(page, git.repo);
+      expected({
+        what: "the preselected choice once the remembered worktree is removed",
+        expected: { mode: "Existing", startIn: git.repo },
+        found: { mode: await mode(page), startIn: await selectedKey(page, "Start in") },
+      });
+      await expectNoAlert(page, "with the remembered worktree removed");
+    });
+  },
+});
+
+export const forkDoubleClick = defineCheck(import.meta.url, {
+  id: "S3.fork-double-click",
+  title: "a second click while a fork runs is ignored, and the modal says what it creates",
+  needs: {},
+  covers: ["S3 AC-23"],
+  run: async (ctx) => {
+    const { page, setup, git } = await repoWorld(ctx, { holdForks: true });
+    await ctx.trail.stage("AC-23", async () => {
+      const worktreeCount = async () =>
+        (await gitOk(git.repo, "worktree", "list")).split("\n").length;
+      await openModal(page, git.repo);
+      await modeButton(page, "Fork").click();
+      await pickItem(page, "Fork from", "branch:main");
+      const held = await proposedName(page);
+      const before = await worktreeCount();
+      await NodeFSP.writeFile(git.hold, "");
+      await startButton(page).dblclick();
+      await waitFor(dialog(page).getByText(`Creating ${held}…`), "the modal's creating line");
+      expected({
+        what: "whether the up-arrow is disabled while forking",
+        expected: true,
+        found: await startButton(page).isDisabled(),
+      });
+      await NodeFSP.writeFile(git.release, "");
+      await waitFor(dialog(page), '"Create shell" to close after the fork', { state: "detached" });
+      await runningIn(setup.shells.lists, NodePath.join(git.forks, held), 1);
+      expected({
+        what: "worktrees the double click added",
+        expected: 1,
+        found: (await worktreeCount()) - before,
+      });
+    });
+  },
+});
+
+export const unstartableInWorktree = defineCheck(import.meta.url, {
+  id: "S3.unstartable-in-worktree",
+  title: "a fork whose shell cannot start keeps its worktree, which is offered again",
+  needs: { serverWide: "adds a starting script" },
+  covers: ["S3 AC-22"],
+  run: async (ctx) => {
+    await addStartingScript(ctx.server.home, {
+      id: "unstartable",
+      name: "unstartable",
+      command: "no-such-agent-cli --start",
+    });
+    const world = await repoWorld(ctx);
+    const { page, setup, git } = world;
+    await forkFromModal(world, "branch:main");
+    await ctx.trail.stage("AC-22", async () => {
+      await openModal(page, git.repo, { script: "unstartable" });
+      expected({ what: "the preselected mode", expected: "Fork", found: await mode(page) });
+      const kept = await proposedName(page);
+      const keptPath = NodePath.join(git.forks, kept);
+      expected({
+        what: "whether the refusal names the missing program",
+        expected: true,
+        found: names(await startFromModal(page), "no-such-agent-cli"),
+      });
+      expected({
+        what: "the made branch and folder after the refused start",
+        expected: { branch: true, folder: true },
+        found: {
+          branch: (await gitOk(git.repo, "branch", "--list", kept)).length > 0,
+          folder: await exists(keptPath),
+        },
+      });
+      await cancelModal(page);
+      await openModal(page, git.repo);
+      expected({
+        what: "the mode after a refused start",
+        expected: "Fork",
+        found: await mode(page),
+      });
+      await modeButton(page, "Existing").click();
+      expected({
+        what: "whether the kept worktree is offered",
+        expected: true,
+        found: (await dropdownItems(page, "Start in")).some(([key]) => key === keptPath),
+      });
+      await cancelModal(page);
+      expected({
+        what: "shells in the kept worktree",
+        expected: [],
+        found: setup.shells
+          .current()
+          .filter((shell) => shell.cwd === keptPath)
+          .map(({ shellId }) => shellId),
+      });
+    });
+  },
+});
+
+export const successors = [
+  importLinked,
+  existingPrimary,
+  branchRelabel,
+  leaveWorktree,
+  noWorktreeChoice,
+  existingLinked,
+  forkBranch,
+  forkRemembered,
+  cancelKeepsChoice,
+  choicePerProject,
+  forkDetached,
+  originGoneFallback,
+  originDeleted,
+  endedWorktree,
+  forkDoubleClick,
+  unstartableInWorktree,
+];
+
+// temporary: PRB.T-039 10A removes this alias.
+export const worktrees = importLinked;
