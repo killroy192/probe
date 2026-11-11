@@ -1,11 +1,11 @@
-import type { Scenario } from "../scenario.ts";
-import { pageFrames } from "../support.ts";
+import { defineCheck } from "../scenario.ts";
+import { pageFrames } from "../lib/network.ts";
 
 /**
  * Fails on purpose in a named stage, with what it expected and found, once a page is open, so the
  * run saves a screenshot, log tail and recorded values.
  */
-export const deliberateFailure: Scenario = {
+export const deliberateFailure = defineCheck(import.meta.url, {
   id: "T2",
   title: "deliberate failure",
   needs: {},
@@ -17,4 +17,4 @@ export const deliberateFailure: Scenario = {
       `deliberate failure to prove failures are reported, at stage "read the page title": expected "a title no page has", found ${JSON.stringify(found)}`,
     );
   },
-};
+});

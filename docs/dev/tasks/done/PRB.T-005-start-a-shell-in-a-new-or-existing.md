@@ -27,6 +27,7 @@ Satisfied epic requirements: FR-3, FR-4, FR-5, FR-13, FR-21, FR-22 (part), FR-6 
 - 2026-11-05: the default fork origin is the primary worktree's current branch.
 - 2026-11-02, user: a detached-HEAD worktree is labelled by its short commit id.
 - 2026-11-05 to 2026-11-06, user, manual pass: a workspace holds projects; the only start control is the per-project "+"; any worktree takes any number of shells; the repository's own checkout is called "primary". Per-worktree buttons, hiding and worktree management in the tree were tried and dropped.
+- 2026-11-11, user: the branch-label limit (AC-26) is raised from 2 s to 3 s. The server re-reads HEAD on a 2 s poll, so a switch can wait a full interval plus the read; `perf-branch-label` missed 2 s in 2 of 3 loop runs (PRB.E-005 V7).
 - Worktree-start time limit: measured (about 411-422 ms click to banner for a tiny repository), reported, not enforced.
 
 ## Docs
@@ -38,4 +39,4 @@ Satisfied epic requirements: FR-3, FR-4, FR-5, FR-13, FR-21, FR-22 (part), FR-6 
 ## Follow-ups
 
 - Rename "folder" to "project" in code and saved data: PRB.T-009.
-- Branch-label timing (AC-26, 2 s) becomes a perf scenario limit: PRB.T-043.
+- Branch-label timing (AC-26, 3 s) is the `perf-branch-label` limit.

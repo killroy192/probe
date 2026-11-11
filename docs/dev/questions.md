@@ -30,8 +30,7 @@ it is verified or decided; settled decisions go to `roadmap.md`.
   - PRB.E-005 A-9: the cold starts and UI-driven setup are most of the run time. The PRB.T-036 baseline (2026-11-10) has no split; checked and acted on in PRB.T-038.
   - PRB.E-005 A-11: parallel load exposes waits that are only guesses. PRB.T-041's signals landed first (2026-11-11), so only the "after" run is possible; PRB.T-040 runs it (its AC-16, EC-12).
   - PRB.E-005 A-13: with direct setup and a shared server, atomic scenarios fit under the 20 s cap. The cap gate per scenario in PRB.T-039, and a whole-suite gate when PRB.T-040 closes.
-  - PRB.T-038 SA-2: a plain shell in the isolated shell config shows a first-prompt mark the library can wait for before typing (the isolated shell is zsh, PRB.T-036). Checked when PRB.T-038 is planned.
-  - PRB.T-038 SU-1 / PRB.E-005 U-3: whether web diagnostic lines can be hidden in production; the web app has no log level today (grep 2026-11-10). Plan stage of PRB.T-038.
+  - PRB.E-005 U-3: whether web diagnostic lines can be hidden in production; the web app has no log level today (grep 2026-11-10). PRB.T-038 adds none and captures the browser console in failure artifacts instead (its SU-1, plan D4); open until a story needs a web line.
 - From the PRB.T-029 container spike (`research/t-029-container-spike.md`), for PRB.T-030 and PRB.T-031:
   - Whether a new install should offer a ready-made starting script. Today a state folder with no `starting-scripts.json` offers Plain shell only; the mock agent is seeded only with `PROBE_SEED_MOCK_AGENT`.
   - What the startup banner and `pair` should print when the server is bound to `0.0.0.0` in a container: today they print the bridge IP, which the host cannot reach. The startup token also lands in the server log.

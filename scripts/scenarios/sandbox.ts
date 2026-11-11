@@ -22,7 +22,8 @@ import {
   removeThrowawayHome,
   type SandboxOptions,
 } from "./environment.ts";
-import { sandboxFixtures, selftestFixtures } from "./fixtures.ts";
+import { sandboxFixtures, selftestFixtures } from "./lib/setup.ts";
+import { releaseDeadLeases } from "./ports.ts";
 import { REPO_ROOT, shellHostPidIn, startServer, type ServerHandle } from "./server.ts";
 
 /**
@@ -44,6 +45,7 @@ let stopping: Promise<void> | undefined;
 /** Ends the server, its shell host and shells by recorded pid, and removes the home unless kept. */
 function stop(): Promise<void> {
   stopping ??= (async () => {
+    manifest?.markSandboxStopping();
     await server?.kill().catch(() => undefined);
     const keepHome = options?.keepHome ?? false;
     if (entry !== undefined) killServerTree(entry, { keepHome });
@@ -83,6 +85,7 @@ async function main(): Promise<number> {
   }
 
   cleanLeftovers(note);
+  releaseDeadLeases();
   manifest = openManifest();
   const bundle = await ensureWebBundle(REPO_ROOT, parsed.rebuild, note);
 

@@ -5,7 +5,7 @@ parent: PRB.E-005
 phase: 1
 labels: [testing, plan]
 created: 2026-11-09
-updated: 2026-11-09
+updated: 2026-11-11
 ---
 
 # Shared e2e library: direct setup over the API, one real UI path per action, waits and debug logging
@@ -178,7 +178,7 @@ Setup that is not the subject goes over the API; the subject still happens by th
 | AC-18 | Given a failure after more log output than the artifact keeps, when the artifacts are read, then they still hold the server lines from the failing stage's start to the failure | auto (harness self-test) | FR-20, EC-8 |
 | AC-19 | Given a server started with no log flag and no `T3CODE_LOG_LEVEL`, when it runs the code paths of every debug line this story adds, then it prints none of them; and no added line prints a token, pairing URL or cookie | auto (test) and manual (review of each added line) | FR-20, NFR-3 |
 | AC-20 | Given the console or the debug log cannot be saved (a closed page, an unwritable folder), when a scenario fails, then its original error is reported with a note naming the missing piece | auto (harness self-test) | ER-4 |
-| AC-21 | Given a deliberate failure after setup, when the artifacts are read, then they list what each setup call asked for and got back, and contain no token, pairing URL or cookie | auto (harness self-test) and manual (review) | FR-21, NFR-3 |
+| AC-21 | Given a deliberate failure after setup, when the artifacts are read, then they list what each setup call asked for and got back, and contain no token, pairing URL or cookie, except the Playwright traces, which are kept unmasked as the main debug aid and documented as never to be shared | auto (harness self-test) and manual (review) | FR-21, NFR-3 |
 | AC-22 | Given the setup round trips counted at this story's start and the epic owner's threshold (set 2026-11-11, see Handoff), when the change is in, then a table in the handoff gives per scenario the round trips and times before and after, each time from one run with its method and machine, and the after counts meet the threshold; nothing fails on a time | manual (author, in the handoff; threshold by the epic owner) | FR-10, A-7 (epic) |
 | AC-23 | Given whether PRB.T-041 has landed when this story lands, when the library is reviewed, then its typing, reload and process-end waits use the signals if it had, and otherwise the handoff names the story that switches them | manual (review) | EC-12, FR-12 (touched) |
 | AC-24 | Given the rules file after this story, when read, then it says where the library is and what it offers (including the composition interface), gives the coverage map and the direct-setup rule, the waiting rule as implemented and the debug log and console in artifacts; the interim instructions for FR-10, FR-20 and FR-21 are gone; no other doc restates them | manual (docs review) | FR-15 (epic, kept current), NFR-7 |
@@ -200,17 +200,17 @@ Setup that is not the subject goes over the API; the subject still happens by th
 | ID   | Statement | Kind (assumption / unknown) | Status (unverified / verified / false) | How and when to verify | Owner |
 | ---- | --------- | --------------------------- | -------------------------------------- | ---------------------- | ----- |
 | SA-1 | `workspace.startShell` with no script starts a plain shell into which the server types nothing. | assumption | verified (read `SavedWorkspaces.ts:839-885`; not run) | AC-3 at runtime. | author |
-| SA-2 | A plain shell in the isolated shell config shows a first-prompt mark the library can wait for before typing. | assumption | unverified | Read which shell PRB.T-036's isolation selects (its SU-3) when planning; AC-3. | author |
+| SA-2 | A plain shell in the isolated shell config shows a first-prompt mark the library can wait for before typing. | assumption | verified (answered by PRB.T-041: `promptReady` in the shell list for every wrapped shell, plain ones included; read, not run) | AC-3 at runtime. | author |
 | SA-3 | A shell started over the API shows a tree row in a page already showing the workspace (the tree follows the server's shell list). | assumption | unverified | AC-5 at the start of implementation. | author |
 | SA-4 | The scenarios outside the coverage map do not assert dialog behavior in their setup, so converting it removes no check. | assumption | unverified (stage lists read, not every assertion) | Read each converted scenario's assertions against the map when planning. | author |
 | SA-5 | The coverage map is complete, including Restore (S8), the menu's open and remove (S7), the start screen's create (S1), project removal (S6), close tab (S5) and E2-S4's dropdown starts. | assumption | verified (confirmed by the user, 2026-11-10) | – | epic owner |
 | SA-6 | Debug-level server output stays small enough that the harness keeps the failing stage's lines and the run time does not rise noticeably. | assumption | unverified | Measure one scenario's debug volume when planning; AC-18 and the after times of AC-22. | author |
 | SA-7 | API setup removes most per-shell round trips and a large part of the run time (epic A-7). | assumption | unverified | AC-22. | author |
 | SA-8 | A page already open on the start screen, or showing another workspace, can reach a workspace created over the API after it loaded (the Workspaces menu or start screen lists it). | assumption | unverified | AC-7 at the start of implementation. | author |
-| SU-1 | Whether the web app can hide diagnostic lines in production (it has no log level today), or web diagnostics stay out until a decision (epic U-3). | unknown | unverified | Plan stage; if a scenario needs a web line and nothing hides it by default, raise it with the epic owner. | TBD (author, plan stage) |
+| SU-1 | Whether the web app can hide diagnostic lines in production (it has no log level today), or web diagnostics stay out until a decision (epic U-3). | unknown | verified (plan D4: no web diagnostic lines; the browser console is captured instead; epic U-3 stays open for a later story) | – | author |
 | SU-2 | What counts as one setup round trip, and the FR-10 threshold (epic U-2). The epic disagrees with itself on when: its FR-10 Verification row says from this story's own "before" count, its U-2 row says by the end of PRB.T-036; this story follows the FR-10 row. | unknown | verified (decided by the user, 2026-11-11) | Decided: one round trip is one awaited harness operation that crosses a process boundary (pointer action, page wait or read, RPC/HTTP call, CLI process, terminal typing or wait); restarts are counted separately. Threshold: suite-wide setup after ≤ 50 % of before (≤ 561 RT), and every scenario with CONVERT ≥ 19 except S2 cuts its own setup by ≥ 40 %. Unit, before count and threshold: Handoff. | epic owner (user) |
-| SU-3 | Whether the "before" times come from PRB.T-036's baseline or from this story's own single run at its start. | unknown | unverified | At the start. The baseline exists (PRB.T-036 Delivered, 2026-11-10: serial, one run, rebuilt bundle), but it predates PRB.T-037's per-run names in S4 and S5. | TBD (author, at the start of this story) |
-| SU-4 | PRB.T-037 plans two named fixtures (`workspace`: one git project; `shells`: the same with two running plain shells, its AC-5) in the shared fixtures module this story grows into the library, and per-run names for scenarios accepted on the sandbox. Unknown: what it actually ships, and whether its per-run names cover the library's no-collision rule or need extending. | unknown | unverified | Read PRB.T-037's code and handoff when it lands. | TBD (author, when PRB.T-037 lands) |
+| SU-3 | Whether the "before" times come from PRB.T-036's baseline or from this story's own single run at its start. | unknown | verified (user, 2026-11-11: one serial run at `ebb9d3287` in the final verification) | At the start. The baseline exists (PRB.T-036 Delivered, 2026-11-10: serial, one run, rebuilt bundle), but it predates PRB.T-037's per-run names in S4 and S5. | TBD (author, at the start of this story) |
+| SU-4 | PRB.T-037 plans two named fixtures (`workspace`: one git project; `shells`: the same with two running plain shells, its AC-5) in the shared fixtures module this story grows into the library, and per-run names for scenarios accepted on the sandbox. Unknown: what it actually ships, and whether its per-run names cover the library's no-collision rule or need extending. | unknown | verified (plan D7: PRB.T-037's `workspace` and `shells` fixtures are rebuilt on the library's setup; a per-trail counter extends the per-run names) | – | author |
 
 ## Handoff
 
@@ -242,3 +242,110 @@ Setup that is not the subject goes over the API; the subject still happens by th
 - S3's `leaveAgent` becomes a "Plain shell" pick in the modal (S3 keeps every start a modal start).
 - Judgment calls in the count: S8's tree kills (15 RT, counted SUBJECT; CONVERT if "kill from the tree: S6" is read strictly) and S2's first sparta create (4 RT, counted KEEP per EC-4).
 - SUBJECT dominates S1, S2 and S3, so their 20 s cap depends on PRB.T-039's split, not on this story.
+
+**Interface as built (`e005`, step 7).** One library folder, `scripts/scenarios/lib/`, no barrel; it imports nothing from `scenarios/`, `selftest/`, `run.ts` or `registry.ts`. `support.ts`, `fixtures.ts`, `rpc.ts` and `scenarios/workspaceUi.ts` are gone; the second-server seam moved to `lib/seam.ts` and takes its token from `serverToken`.
+
+| Module | Holds |
+| --- | --- |
+| `lib/deadlines.ts` | The only deadline source: `WAIT_MS`, `ACTION_MS`, `START_MS`, `PROCESS_END_MS`/`PROCESS_END_STEP_MS` (the server's SIGKILL wait and processes it does not own), `SELFTEST_SHORT_MS`; type `Deadline`; `seconds()` for messages |
+| `lib/waits.ts` | `check`, `recorder` (`mark`/`until`/`nothingSince`), `recorderTails`/`resetRecorders`, `waitFor(locator, what, opts?)`, `follow`, `alive`, `gone` |
+| `lib/trail.ts` | `Trail` (`stage`, `within`, `current`, `note`, `notes`, `addServer`, `addPage`, `logSizes`, `save`), `createTrail`, `StageFailure {stage, cause}` with message `at stage "<s>": <cause>` |
+| `lib/api.ts` | `connectApi(server, auth)`, `withClient`, `environmentId`, `issueBearerToken`, `serverToken(server)` (memoized per `ServerHandle`), `call(trail, method, input, run)`, `SetupError` |
+| `lib/setup.ts` | `setupOn(ctx, {as?})` -> `Setup` (`client`, `shells`, `folder`, `repo`, `workspace`, `project`, `shell`, `killShell`, `removeProject`, `removeWorkspace`, `close`); `world(ctx, spec)`; `given(kind, value, build)`; result types tagged `folder`, `repo`, `workspace`, `project`, `shell`, `world`, `page` (`SetupResults`); `workspaceNames`, `projectPaths`, `mockAgent`; `sandboxFixtures`, `selftestFixtures`; `setUp` (the UI-built world the signal-wait self-tests keep) |
+| `lib/navigate.ts` | `showWorkspace(page, ws)`, `openTab(page, shell)`, `reloadShowing`, `restartAndReload(ctx, page, ws, previous, env?)` (returns a new `Setup`), `layoutSaved`, `layoutState(s)`, `recordLayoutStates` |
+| `lib/shells.ts` | `followShells`, `followOutput`, `history`, `shellsIn`, `runningIn`, `listedShell`, `running`/`isRunning`, `openShell`, `lastStartOf`, `pidsRunning`, `writeLine` (over the API, after the first prompt), `survivors`, `shellEnded`, `signalShells`, `agentReady`, `agentTypedOnceAfterPrompt`, `PROMPT_MARK`, `stripOsc`, `MOCK_AGENT_LINES` (V6 removed the unused `leaveAgent`) |
+| `lib/ui/*.ts` | `workspacesMenu`, `addProject`, `plusModal`, `tree`, `tabs`, `terminal` (`shellReady`, `typeLine`), `dialog` (alerts and dialogs) |
+| `lib/network.ts` | `pageFrames` |
+| `lib/serverLog.ts` | `expectLogged`, `logEntries`, `serverPromptMs` |
+| `lib/files.ts` | `git`, `gitOk`, the starting-scripts file helpers, `runtimePid` |
+| `lib/report.ts` | `unlessRoot`, `redact`, `metric` (PRB.T-043 removes it) |
+| `lib/seam.ts` | `saveServerInBrowser` |
+
+`ScenarioContext` gained `scenarioId`, `trail` and `onStepEnd(what, undo)` (master plan M2: one hook, not `defer`; undos run in reverse when the scenario ends, pass or fail). Pages open at 1200×800 with their console on the trail; `startSecondServer` adds `second-server`. Servers start at `--log-level debug` (`logLevel: null` starts one without the flag) and append to `<home>/harness/server.log`; `ServerHandle` has `logMark()`/`logSince(mark)`. `addServer` records the mark at registration, so `<label>.log` is the scenario's own time on that server. Artifacts: `error.txt`, `page-<n>-<label>.png` and `.console.txt`, `<label>.stage.log`, `<label>.log`, `setup.json`, `recorders.json`, each saved on its own and redacted. The runner prints `scenarios: <id> <label> log=<KiB>KiB` per server. Self-tests T10 to T15 are registered (T10, T11 in `--selftest`; T12 to T15 picked).
+
+**Signals (AC-23).** PRB.T-041 landed first (merged before this story's work began, `4eaf87ecb`), so the switch rule put the signals in this story: the typing wait reads the tab's ready and attached states, `writeLine` and `setup.shell` wait for `promptReady` in the shell list, reloads and restarts wait for the layout saved, and shell ends wait for the end event before one pid check. Nothing is left for PRB.T-039 to switch.
+
+**Verification is deferred to the final phase (PRB.E-005 master plan §4).** Nothing in steps 1 to 7 ran a scenario, the runner or the harness tests. AC-22's times ("before" at `ebb9d3287`, "after" at tag `e005-t038`, one serial run each, after the user confirms a quiet machine; the after run is at debug log level) and AC-25 are measured at tag `e005-t038`, because PRB.T-039 later replaces these scenarios and PRB.T-040 retires `run.ts`. The self-tests T10 to T15 are judged again in the tip's `--selftest` run. A defect found at the tag is fixed at the tip with a test when its code survives there (`lib/`, `server.ts`); otherwise it is recorded as tag-only.
+
+**Steps and commits (branch `e005`).**
+
+| Step | Commit | What |
+| --- | --- | --- |
+| 1 move to `lib/` | `a12ae7f61` | Five old modules split into `lib/`; `Trail` minimal; `scenarioId`, `trail`, `onStepEnd` on the context |
+| 2 waits | `f44357365` | `waitFor`, named failures, `SELFTEST_SHORT_MS`, T14 |
+| 3 logs and artifacts | `a2d317f65` (merge `049f657ab`) | Debug level, log file and marks, console capture, viewport, labelled artifacts, `redact`, T15 |
+| 4 setup API | `394feb897` (merge `cf76205cf`) | `lib/api.ts`, `lib/setup.ts`, `showWorkspace`/`openTab`, fixtures on setup, T10 to T13 |
+| 5 one home per step | `ddfc0e2cb` | `lib/ui/*`, `lib/shells.ts`; `writeLine` waits for the first prompt (AC-3) |
+| 3B harness cases | `cf8b86d88` (merge `97555bbfa`) | AC-15 to AC-21 and T12/T13 cases in `harness.test.ts` |
+| 6 conversions | `8b62b6b3c`, `2303e95cc`, `e3fecb0bf`, `6a0e931d2` (merges `7d4eec242`, `c31e9cf15`, `431389426`); fold `417136249` | S4, S5, S8, T-002, R1; S6, S7; S3, E2; S1, S2, signals, self-tests |
+| 7 rules, count, handoff | this commit | Rules file (AC-24), after count, this handoff |
+
+**Deviations from the plan.**
+- One cleanup hook, `onStepEnd(what, undo)`, instead of `defer` (master plan M2).
+- `StageFailure` is `{stage, cause}` with message `at stage "<s>": <cause>`, not `<id> failed at <stage>` (M4); the runner prints the id.
+- `addServer` records the log mark at registration, so `<label>.log` is the scenario's own time on a server, not the whole log (M7).
+- `lib/seam.ts` stays (moved, not deleted), `lib/ui/dialog.ts` was added, and `server.ts`'s own deadlines (the 5 s SIGKILL wait and its loop step) moved into `lib/deadlines.ts`.
+- 2B broke `harness.test.ts`'s T2/T3 and artifact-name assertions; 3B fixed them. 2C left the `writeLine` prompt wait to step 5 and the T12/T13 harness cases to 3B.
+- 4c deleted the unused `projects()` fixture; the fold made `restartAndReload` take the workspace and return a new `Setup`, moved the starting-script lookup into `lib/setup.ts` (`mockAgent`) and deleted `seedWorkspace`.
+- The tag is `e005-t038`, not `e005-t038-done`. The after count is written here directly, not through `tm` (which does not write ticket bodies).
+
+**Open for the final phase and for PRB.T-039.**
+- S7 AC-6: the kept modal start is now S7's fork (its comment says stages AC-31 and AC-23 read it); the shell `inMoved` became an API start. Whether "the last start before the restart" is that fork is for the V6 review.
+- SA-3 risk: S8 starts API shells after the page shows the workspace, and waits for the tree row.
+- Left for PRB.T-039: S7's and S8's shell-host stops and the duplicate "left the list" wait in S6 and S3.
+- 3C: the `EADDRINUSE` detection is a substring match on the server's start error, not yet seen against a real taken port.
+
+**After count (desk count, 2026-11-11, `e005` at `be06655c0`, read from the code, not run).** Same unit, conventions and buckets as the before count. Restarts stay out of the buckets; the runner's own server start is not counted. The viewport `setViewportSize` P1 left every preamble (the runner sets the viewport when it makes the context).
+
+| Scenario | CONVERT | KEEP | SUBJECT | Setup after (before) | Setup after ≤ | |
+| -------- | ------- | ---- | ------- | -------------------- | ------------- | - |
+| S1 | 0 | 5 | 283 | 5 (5) | – | |
+| S2 | 19 | 45 | 263 | 64 (55) | – (excepted) | |
+| S3 | 15 | 26 | 309 | 41 (79) | 47 | pass |
+| S4 | 36 | 25 | 99 | 61 (176) | 105 | pass |
+| S5 | 16 | 15 | 26 | 31 (64) | 38 | pass |
+| S6 | 34 | 16 | 89 | 50 (199) | 119 | pass |
+| S7 | 54 | 37 | 174 | 91 (298) | 178 | pass |
+| S8 | 22 | 19 | 70 | 41 (125) | 75 | pass |
+| T-002 | 0 | 9 | 26 | 9 (10) | – | |
+| R1 | 0 | 18 | 17 | 18 (16) | – | |
+| E2-S3 | 8 | 16 | 39 | 24 (32) | 19 | **fail** |
+| E2-S1 | 9 | 6 | 162 | 15 (38) | 22 | pass |
+| E2-S4 | 8 | 6 | 46 | 14 (26) | 15 | pass |
+| Sum | 221 | 243 | 1603 | **464 (1123)** | 561 (suite) | pass |
+
+- **Suite:** setup 464 RT, 41 % of 1123, under the ≤ 561 threshold.
+- **E2-S3 misses its own threshold** (24 against ≤ 19). Its CONVERT fell from 19 to 8; KEEP rose from 13 to 16 because its one restart's reload and reconnect cost 10 RT, not 6: `restartAndReload` waits for the layout saved before the stop and again inside the reload (W2 each), and the new setup connection adds a shell follower (R1). Without the second layout wait it would be 22, still over. This is for the epic owner: accept, or slim the restart path in `lib/navigate.ts` (the layout wait inside the reload is redundant right after one before the stop).
+- **E2-S3 recount at the tip (V6, 2026-11-11, `e005` after the V6 fixes, read from the code, not run).** The 24 above stands for AC-22, which is judged at tag `e005-t038` (E2-S3 is unchanged from `be06655c0` to the tag). PRB.T-039 then split E2-S3 into three checks and dropped its restart: `E2-S3.agent-command-ignored` gets a server started with `PROBE_AGENT_COMMAND`, the runner's own start, which is not counted. Same unit, with the preamble read off the 24 (16 KEEP = 10 for the restart path + 6 for the signed-in page and its setup connection) and `showWorkspace` now 7 RT (the Workspaces menu waits for its late "Create workspace", `b8534ee1b`). `E2-S3.plain-preselected`: CONVERT 10 (workspace R1, two projects R2, `showWorkspace` 7), KEEP 6, setup 16 (14 where its shared server's session is reused: the page then loads the origin instead of pairing). `E2-S3.fresh-list`: CONVERT 10, KEEP 6, setup 16. `E2-S3.agent-command-ignored`: CONVERT 9 (one project), KEEP 6, setup 15. Together 47 (45), against 32 before and ≤ 19: the restart's 10 RT are gone, but each successor builds and shows its own world, and the old per-scenario threshold has no successor to apply to. The epic owner's E2-S3 decision is unchanged by this recount; V6 also dropped `restartAndReload`'s second layout wait, 2 RT off each restart left in E2-S1, S7, S8 and the restore checks at the tip.
+- **S2's CONVERT is not converted**: stage AC-25 still creates athens by the menu and imports its repo by the dialog (19 RT, `plus-modal.ts` ~485-493). S2 is excepted, and its world stays UI-built by EC-4, but those 19 RT could go over the API. Its KEEP rose 36 → 45 from the heavier restart path and the start-screen create.
+- **Why KEEP and SUBJECT rose:** PRB.T-041's signals made the helpers wait for more page state. The typing wait is 7 RT, not 4 (tab attribute plus the ready check), `writeLine` waits for the first prompt, a shell end waits for its end event (about 20 new sites), and each reload or restart waits for the layout saved. `startFromModal` now reads the alert and result, which adds 2 to 3 RT where the E2 and S2 stages had a bare click before. The scenarios check no more than before.
+- **Judgment calls:** `showWorkspace` counted CONVERT, on its start-screen branch (6 RT), since an API-made workspace is never remembered on a fresh page; tree-opened tabs that replace modal-made ones are CONVERT; every `leaveAgent` is gone (CONVERT 0); S7's kept modal fork stays in its old CONVERT stage at 11 RT (with "mock agent" preselected; 14 if not); S8's API kills count SUBJECT as before (CONVERT 28, setup 47 when read strictly); S6's background-job and neighbour typing count SUBJECT (setup 66 if counted as KEEP). Every reading passes except E2-S3.
+
+**Review of AC-1, AC-10, AC-11, AC-13 (read-only, 2026-11-11, `be06655c0`).** For the developer's sign-off at V6.
+- **AC-1 met.** S3's only dialog add is AC-29 and every S3 start is a modal start. S7's one modal start is its fork. Its menu open and remove steps are S7's own. S6's tree kills and its project and workspace removals are S6's. The E2 scenarios start only through the dropdown. S8 kills over the API (D6). Nit: S7 AC-20's `killFromTree` is cleanup only, and could go over the API.
+- **AC-10 mostly met.** The remove steps exist over the API. Module state is keyed per server (tokens) or per trail (the counter). Gaps:
+  - `setUp` (UI-built, default name `sparta`, returns nothing) is still in `lib/setup.ts` for the signal-wait self-tests.
+  - `ShownPage` has no frame follower, although the plan's §1 lists one; scenarios call `pageFrames` themselves.
+  - The recorder registry in `lib/waits.ts` is module-level, which matters for PRB.T-040's parallel workers.
+  - There is no `lib/ui` step for S6's project removal.
+- **AC-11 partial.** Every duplicate listed in Current Behavior has one home in `lib/`. No `let stage` remains. The library imports no scenario. R1 mints each server's token once. Helpers still written out in scenario files:
+  - the "shell leaves the list" wait, in six files;
+  - S7's local `restart()`, which differs from `restartAndReload` only by stopping the shell host;
+  - the `[data-missing]` row locator (S7, S8);
+  - the prompt mark as frame text (E2, besides `lib/shells.ts`);
+  - "the shell's latest list entry" (S3, S7, S8) and "SIGKILL, then wait for the end" (S4, S6, S7, S8).
+  - Nits: the start-screen "Open workspace" locator is inline in six places; S2 and R1 use fixed names; S3 uses fixed folder paths.
+  - PRB.T-039's split is the natural place to fold all of these.
+- **AC-13 met.** Every library wait races an event against a `lib/deadlines.ts` deadline and names both. The one check loop is the class (c) process-end loop. No fixed sleep. No scenario passes a deadline number. Nits:
+  - `run.ts` polls the sandbox at a literal 250 ms.
+  - S1, S2, S3, E2 and signals still call Playwright's own `waitFor` about 50 times. Those inherit `ACTION_MS`, but their failures name a locator, not the milestone.
+
+**Before and after runs (V7, 2026-11-11).** One serial `vp run test:scenarios` each on the devcontainer, after the user confirmed the machine was quiet. Before: `ebb9d3287`, info level, 350.8 s, 13/16 passed. After: tag `e005-t038`, debug level, 284.4 s, 14/16 passed. Times in seconds; a failed scenario's time runs to its failure (marked ✗).
+
+| Run | S1 | S2 | S3 | S4 | S5 | S6 | S7 | S8 | T-002 | R1 | E2-S3 | E2-S1 | E2-S4 | T-041a | T-041b | T-041c |
+| --- | -- | -- | -- | -- | -- | -- | -- | -- | ----- | -- | ----- | ----- | ----- | ------ | ------ | ------ |
+| Before | 19.3 | 37.6 | 35.7 | 18.5 | 9.9 | 25.5 ✗ | 28.1 ✗ | 28.2 ✗ | 12.1 | 17.9 | 14.5 | 35.2 | 11.4 | 16.1 | 12.5 | 11.0 |
+| After | 18.5 | 38.1 | 18.9 ✗ | 8.4 ✗ | 8.9 | 16.6 | 30.9 | 16.0 | 11.4 | 16.1 | 13.3 | 33.6 | 10.0 | 13.1 | 10.4 | 9.2 |
+
+- Before failures, in the pre-epic code (artifacts `/tmp/probe-scenario-artifacts/2026-11-11T08-46-16-686Z/`): S6 is the typed-chunk defect (PRB.T-041 Follow-ups; the typed line arrived as `PROBE_SHttp://…`); S7 timed out waiting for the killed and exited shells to leave the list; S8 timed out after 10 s at "no restore for exit or kill".
+- After failures, both in code that exists only at the tag (U8: AC-25 for the user to judge; artifacts `/tmp/probe-scenario-artifacts/2026-11-11T08-52-08-475Z/`): S4's API fork name was refused by `workspace.startShell` schema validation, which is fixed at the tip in `1dad979eb`; S3 AC-29 timed out after 10 s waiting for a project added over the API to show. `worktrees.ts` is gone at the tip, and the tip's S3 set passed 16/16.

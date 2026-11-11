@@ -1,267 +1,321 @@
-// @effect-diagnostics nodeBuiltinImport:off - Makes git fixtures in the throwaway home.
+// @effect-diagnostics nodeBuiltinImport:off - Ends a shell's process from outside.
 
-import * as NodeFSP from "node:fs/promises";
 import * as NodePath from "node:path";
 import * as NodeProcess from "node:process";
 
-import * as Effect from "effect/Effect";
+import { expected } from "../lib/expect.ts";
+import { layoutSaved, openTab, showWorkspace } from "../lib/navigate.ts";
+import { timesSeen } from "../lib/network.ts";
+import { outputDuringReload } from "../lib/reloadRelease.ts";
+import { framedPage, plainTabs } from "../lib/setup.ts";
+import { history, printedAfter, running, shellEnded, writeLine } from "../lib/shells.ts";
+import { closeTab, selectedShellTab, selectedTab, shellTab, tabIds } from "../lib/ui/tabs.ts";
+import { typeLine } from "../lib/ui/terminal.ts";
+import { endedRow, openFromTree, shellRow, workspaceShown } from "../lib/ui/tree.ts";
+import { alive, waitFor } from "../lib/waits.ts";
+import { type CheckScenario, defineCheck } from "../scenario.ts";
 
-import { connectRpc } from "../rpc.ts";
-import type { Scenario } from "../scenario.ts";
-import { alive, check, pageFrames } from "../support.ts";
-import {
-  addProject,
-  closeTab,
-  createWorkspace,
-  gitOk,
-  history,
-  killFromTree,
-  layoutSaved,
-  leaveAgent,
-  openFromTree,
-  shellEnded,
-  shellList,
-  shellRow,
-  shellTab,
-  startShell,
-  typeLine,
-} from "./workspaceUi.ts";
-
-export const manyShells: Scenario = {
-  id: "S4",
-  title: "run many shells, each with its own output",
+export const manyShellsCheck = defineCheck(import.meta.url, {
+  id: "S4.many-shells",
+  title: "shells in projects, worktrees and a fork each keep their own output",
   needs: {},
-  run: async ({ server, openPage, runId }) => {
-    const name = `sparta-${runId}`;
-    const folders = NodePath.join(server.home, "folders", runId);
-    const repo = NodePath.join(folders, "repo");
-    const second = NodePath.join(folders, "second");
-    const plain = NodePath.join(folders, "plain");
-    const linked = NodePath.join(folders, "linked");
-    for (const dir of [repo, second, plain]) await NodeFSP.mkdir(dir, { recursive: true });
-    for (const dir of [repo, second]) {
-      await gitOk(dir, "init", "-q", "-b", "main");
-      await gitOk(dir, "commit", "-q", "--allow-empty", "-m", "one");
-    }
-    await gitOk(repo, "worktree", "add", "-q", "-b", "linked", linked);
+  covers: ["S4 AC-1"],
+  run: async (ctx) => {
+    const { server, trail } = ctx;
+    const { page, frames, setup } = await framedPage(ctx);
 
-    const page = await openPage();
-    await page.setViewportSize({ width: 1200, height: 800 });
-    const frames = pageFrames(page);
-    const rpc = await connectRpc(server.origin, page);
-    const shells = shellList(rpc.client);
-    let stage = "setup";
-
-    try {
-      await createWorkspace(page, name);
-      for (const folder of [repo, second, plain]) {
-        check((await addProject(page, { import: folder })) === null, `Adding ${folder} failed.`);
-      }
-
-      // AC-1: two git projects, one plain project, an existing and a forked worktree of one
-      // project, and a second shell in one worktree.
-
-      stage = "AC-1";
+    // Two git projects, one plain project, an existing and a forked worktree of one project,
+    // and a second shell in one worktree.
+    const { inRepo, started } = await trail.stage("setup", async () => {
+      const ws = await setup.workspace("s4");
+      const repo = await setup.repo({ label: "repo", linkedWorktree: true });
+      const linked = repo.linked[0]!.path;
+      const inRepo = await setup.project(ws, repo);
+      const inSecond = await setup.project(ws, await setup.repo({ label: "second" }));
+      const inPlain = await setup.project(ws, await setup.folder("plain"));
+      const fork = { from: { kind: "branch", name: "main" } } as const;
       const started = [
-        await startShell(page, shells, repo),
-        await startShell(page, shells, second),
-        await startShell(page, shells, plain),
-        await startShell(page, shells, repo, { existing: linked }),
-        await startShell(page, shells, repo, { fork: true }),
-        await startShell(page, shells, repo, { existing: linked }),
+        await setup.shell(inRepo),
+        await setup.shell(inSecond),
+        await setup.shell(inPlain),
+        await setup.shell(inRepo, { worktree: { existing: linked } }),
+        await setup.shell(inRepo, { worktree: { fork } }),
+        await setup.shell(inRepo, { worktree: { existing: linked } }),
       ];
-      const forked = started[4]!.cwd;
-      check(
-        forked.startsWith(NodePath.join(server.home, "worktrees", "repo")),
-        `The fork started in ${forked}, not in a new worktree.`,
-      );
-      check(
-        (await page.getByRole("tablist", { name: "Shells" }).getByRole("tab").count()) === 6,
-        "Not every shell has a tab.",
-      );
+      await showWorkspace(page, ws);
+      for (const shell of started) await openTab(page, shell);
+      return { inRepo, started };
+    });
 
+    await trail.stage("AC-1", async () => {
+      expected({
+        what: "the folder the fork started in",
+        expected: NodePath.join(server.home, "worktrees", NodePath.basename(inRepo.path)),
+        found: NodePath.dirname(started[4]!.cwd),
+      });
+      expected({
+        what: "the shells with an open tab",
+        expected: started.map((shell) => shell.shellId).toSorted(),
+        found: (await tabIds(page)).toSorted(),
+      });
       // Each line goes to the shell whose tab is shown, so every marker lands in one shell only.
       for (const [index, shell] of started.entries()) {
         await openFromTree(page, shell.shellId);
         const typed = frames.mark();
-        await typeLine(page, `marker-${index}-s4`);
+        await typeLine(page, `echo marker-$((${index}))-s4`);
         await frames.until(
           `shell ${index} to echo its marker`,
-          (frame) => frame.includes(`echo: marker-${index}-s4`),
+          (frame) => frame.includes(`marker-${index}-s4`),
           typed,
         );
       }
+      const markers = started.map((_, index) => `marker-${index}-s4`);
       for (const [index, shell] of started.entries()) {
-        const text = await history(rpc.client, shell.shellId);
-        check(
-          text.includes(`echo: marker-${index}-s4`),
-          `Shell ${index} lost its own line (AC-1).`,
-        );
-        const foreign = started
-          .map((_, other) => `marker-${other}-s4`)
-          .filter((marker, other) => other !== index && text.includes(marker));
-        check(foreign.length === 0, `Shell ${index} shows other shells' lines: ${foreign} (AC-1).`);
+        const text = await history(setup.client, shell.shellId);
+        expected({
+          what: `the markers in the history of shell ${index}`,
+          expected: [markers[index]],
+          found: markers.filter((marker) => text.includes(marker)),
+        });
       }
+    });
+  },
+});
 
-      // AC-2: clicking another tab shows that shell; the one left keeps running.
+export const switchTabs = defineCheck(import.meta.url, {
+  id: "S4.switch-tabs",
+  title: "clicking another tab shows that shell and the one left keeps running",
+  needs: {},
+  covers: ["S4 AC-2"],
+  run: async (ctx) => {
+    const { page, shells, setup } = await ctx.trail.stage("setup", () => plainTabs(ctx, 2));
+    const [left, shown] = shells as [(typeof shells)[number], (typeof shells)[number]];
 
-      stage = "AC-2";
-      await shellTab(page, started[0]!.shellId).click();
-      await page.getByRole("tabpanel", { name: /./ }).filter({ visible: true }).waitFor();
-      check(
-        (await shellTab(page, started[0]!.shellId).getAttribute("aria-selected")) === "true",
-        "The clicked tab is not shown (AC-2).",
-      );
-      await shellTab(page, started[1]!.shellId).click();
-      check(
-        (await shellTab(page, started[1]!.shellId).getAttribute("aria-selected")) === "true",
-        "The second clicked tab is not shown (AC-2).",
-      );
+    await ctx.trail.stage("AC-2", async () => {
+      await shellTab(page, left.shellId).click();
+      await waitFor(selectedShellTab(page, left.shellId), `the clicked tab of ${left.shellId}`);
+      await shellTab(page, shown.shellId).click();
+      await waitFor(selectedShellTab(page, shown.shellId), `the clicked tab of ${shown.shellId}`);
       // Switching tabs puts the keyboard in the shown shell, not on the tab.
-      await page.locator('[role="tabpanel"]:not([hidden]) :focus').waitFor();
-      check(
-        shells.current().find((shell) => shell.shellId === started[0]!.shellId)?.status ===
-          "running",
-        "The shell whose tab was left stopped running (AC-2).",
+      await waitFor(
+        page.locator(`[role="tabpanel"][data-shell-id="${shown.shellId}"]:not([hidden]) :focus`),
+        "the keyboard in the shown shell",
       );
+      expected({
+        what: `shell ${left.shellId}, whose tab was left, running`,
+        expected: true,
+        found: running(setup.shells, left.shellId),
+      });
+    });
+  },
+});
 
-      // PRB.T-007: set up a closed tab, a killed shell, a shell a signal ends, a shell that exits
-      // after a failed command, and output that arrives while the page reloads.
+export const reloadLayout = defineCheck(import.meta.url, {
+  id: "S4.reload-layout",
+  title: "a reload shows the same workspace, tree, tabs and selected tab",
+  needs: {},
+  // One reload proves them: the workspace, its rows, the open tabs, the selection, the closed tab.
+  covers: ["S4 AC-32", "S4 AC-1", "S4 AC-31", "S4 AC-5"],
+  run: async (ctx) => {
+    const { trail } = ctx;
+    const { page, workspace, shells, setup } = await trail.stage("setup", () => plainTabs(ctx, 3));
+    const [first, selected, closed] = shells as [
+      (typeof shells)[number],
+      (typeof shells)[number],
+      (typeof shells)[number],
+    ];
 
-      stage = "PRB.T-007 setup";
-      const [first, plainShell, inPlain, signalled, killed, closed] = started as [
-        (typeof started)[number],
-        (typeof started)[number],
-        (typeof started)[number],
-        (typeof started)[number],
-        (typeof started)[number],
-        (typeof started)[number],
-      ];
+    await trail.stage("AC-32", async () => {
       await closeTab(page, closed.shellId);
-      await killFromTree(page, killed.shellId);
-      await openFromTree(page, inPlain.shellId);
-      await leaveAgent(page, rpc.client, inPlain.shellId);
-      // Lists from before the shell started also lack it; only later ones count.
-      const exitedFrom = shells.lists.mark();
-      await typeLine(page, "false; exit");
-      await shells.lists.until(
-        "the exited shell to leave the list",
-        (list) => list.every((shell) => shell.shellId !== inPlain.shellId),
+      await openFromTree(page, selected.shellId);
+      await layoutSaved(page, workspace.name);
+      await page.reload();
+      await workspaceShown(page, workspace.name, " after the reload");
+    });
+
+    await trail.stage("AC-1", async () => {
+      for (const shell of shells) {
+        await waitFor(shellRow(page, shell.shellId), `the tree row of shell ${shell.shellId}`);
+      }
+      for (const shell of [first, selected]) {
+        await waitFor(shellTab(page, shell.shellId), `the tab of shell ${shell.shellId}`);
+      }
+      expected({
+        what: "the open tabs after the reload",
+        expected: [first.shellId, selected.shellId],
+        found: await tabIds(page),
+      });
+    });
+
+    await trail.stage("AC-31", async () => {
+      expected({
+        what: "the selected tab after the reload",
+        expected: selected.shellId,
+        found: await selectedTab(page),
+      });
+    });
+
+    await trail.stage("AC-5", async () => {
+      expected({
+        what: "tabs of the shell whose tab was closed before the reload",
+        expected: 0,
+        found: await shellTab(page, closed.shellId).count(),
+      });
+      expected({
+        what: `shell ${closed.shellId}, whose tab was closed, running`,
+        expected: true,
+        found: closed.pid !== null && alive(closed.pid) && running(setup.shells, closed.shellId),
+      });
+    });
+  },
+});
+
+export const outputDuringReloadCheck = outputDuringReload(import.meta.url, {
+  id: "S4.output-during-reload",
+  title: "output a plain shell makes during a reload shows once after it",
+  // One held output proves them: shown once (AC-4), held with no sleep (AC-26), a plain shell (EC-3).
+  covers: ["S4 AC-4", "S4 AC-26", "S4 EC-3"],
+  release: "after-reload",
+});
+
+export const reopenAfterReload = defineCheck(import.meta.url, {
+  id: "S4.reopen-after-reload",
+  title: "after a reload a reopened tab shows its earlier output once and takes input",
+  needs: {},
+  // One reload proves them: the reopened tab (AC-2) and the open one (AC-3) show earlier output once.
+  covers: ["S4 AC-2", "S4 AC-3"],
+  run: async (ctx) => {
+    const { trail } = ctx;
+    const { page, frames, workspace, shells, setup } = await trail.stage("setup", async () => {
+      const made = await plainTabs(ctx, 2);
+      for (const [index, shell] of made.shells.entries()) {
+        const line = `echo early-$((${index}))-s4`;
+        await printedAfter(made.setup, shell.shellId, line, `early-${index}-s4`);
+      }
+      return made;
+    });
+    const [open, reopened] = shells as [(typeof shells)[number], (typeof shells)[number]];
+
+    const reloadedFrom = await trail.stage("reload with one tab closed", async () => {
+      await closeTab(page, reopened.shellId);
+      await layoutSaved(page, workspace.name);
+      const reloadedFrom = frames.mark();
+      await page.reload();
+      await workspaceShown(page, workspace.name, " after the reload");
+      await frames.until(
+        "the open tab's earlier output after the reload",
+        (frame) => frame.includes("early-0-s4"),
+        reloadedFrom,
+      );
+      return reloadedFrom;
+    });
+
+    await trail.stage("AC-2", async () => {
+      const reopenedFrom = frames.mark();
+      await openFromTree(page, reopened.shellId);
+      await frames.until(
+        "the reopened tab's earlier output",
+        (frame) => frame.includes("early-1-s4"),
+        reopenedFrom,
+      );
+      const typed = frames.mark();
+      await typeLine(page, "echo after-reload-$((0+1))-s4");
+      await frames.until(
+        "input to the reopened tab after the reload",
+        (frame) => frame.includes("after-reload-1-s4"),
+        typed,
+      );
+      expected({
+        what: "times the reopened tab's earlier output arrived after the reload",
+        expected: 1,
+        found: timesSeen(frames, "early-1-s4", reloadedFrom),
+      });
+      expected({
+        what: `shell ${reopened.shellId} running after the reopen`,
+        expected: true,
+        found: running(setup.shells, reopened.shellId),
+      });
+    });
+
+    await trail.stage("AC-3", async () => {
+      expected({
+        what: `times the earlier output of shell ${open.shellId} arrived after the reload`,
+        expected: 1,
+        found: timesSeen(frames, "early-0-s4", reloadedFrom),
+      });
+    });
+  },
+});
+
+export const endedAfterReload = defineCheck(import.meta.url, {
+  id: "S4.ended-after-reload",
+  title: "after a reload killed and exited shells stay gone and a signalled one shows as ended",
+  needs: {},
+  // One reload proves them: killed and exited shells stay gone, the signalled one shows ended.
+  covers: ["S4 AC-11", "S4 AC-28", "S4 AC-15"],
+  run: async (ctx) => {
+    const { trail } = ctx;
+    const { page, workspace, shells, setup } = await trail.stage("setup", () => plainTabs(ctx, 4));
+    const [kept, killed, exited, signalled] = shells as [
+      (typeof shells)[number],
+      (typeof shells)[number],
+      (typeof shells)[number],
+      (typeof shells)[number],
+    ];
+
+    await trail.stage("end three shells and reload", async () => {
+      await setup.killShell(killed);
+      const exitedFrom = setup.shells.lists.mark();
+      await writeLine(setup.client, setup.shells, exited.shellId, "false; exit");
+      await setup.shells.lists.until(
+        `shell ${exited.shellId} to leave the list after it exited`,
+        (list) => list.every((shell) => shell.shellId !== exited.shellId),
         exitedFrom,
       );
-      const signalledFrom = shells.lists.mark();
+      const signalledFrom = setup.shells.lists.mark();
       NodeProcess.kill(signalled.pid!, "SIGKILL");
-      await shells.lists.until(
-        "the signalled shell to be listed as ended",
+      await setup.shells.lists.until(
+        `shell ${signalled.shellId} to be listed as ended by a signal`,
         (list) =>
           list.some((shell) => shell.shellId === signalled.shellId && shell.ended === "signal"),
         signalledFrom,
       );
-      await shellEnded(shells, signalled);
-      // A shell with no agent left in it (EC-3) shows output that arrives during the reload.
-      await openFromTree(page, plainShell.shellId);
-      await leaveAgent(page, rpc.client, plainShell.shellId);
-      await Effect.runPromise(
-        rpc.client["shell.write"]({
-          shellId: plainShell.shellId,
-          data: "sleep 2; echo during-$((1+1))-s4\r",
-        }),
-      );
-
-      // AC-32, AC-1, AC-31, AC-5: a reload shows the same workspace, tree, tabs and selection.
-
-      stage = "AC-32";
-      const reloadedFrom = frames.mark();
-      // The tab changes above are saved before the reload, so the strip comes back as they left it.
-      await layoutSaved(page, "sparta");
+      await shellEnded(setup.shells, signalled);
+      await layoutSaved(page, workspace.name);
       await page.reload();
-      await page.getByRole("tree").getByRole("treeitem", { level: 1, name }).waitFor();
+      await workspaceShown(page, workspace.name, " after the reload");
+      await waitFor(shellRow(page, kept.shellId), `the tree row of shell ${kept.shellId}`);
+    });
 
-      stage = "AC-1";
-      for (const shell of [first, plainShell, closed])
-        await shellRow(page, shell.shellId).waitFor();
-      const tabIds = await page
-        .getByRole("tablist", { name: "Shells" })
-        .getByRole("tab")
-        .evaluateAll((nodes) => nodes.map((node) => node.getAttribute("data-shell-id")));
-      check(
-        JSON.stringify(tabIds) === JSON.stringify([first.shellId, plainShell.shellId]),
-        `The open tabs after the reload are ${JSON.stringify(tabIds)} (AC-1).`,
-      );
-
-      stage = "AC-31";
-      check(
-        (await shellTab(page, plainShell.shellId).getAttribute("aria-selected")) === "true",
-        "The selected tab changed with the reload (AC-31).",
-      );
-
-      stage = "AC-4";
-      await frames.until(
-        "output made during the reload",
-        (frame) => frame.includes("during-2-s4"),
-        reloadedFrom,
-      );
-      const duringCount = frames.seen
-        .slice(reloadedFrom)
-        .reduce((sum, frame) => sum + frame.split("during-2-s4").length - 1, 0);
-      check(
-        duringCount === 1,
-        `Output made during the reload arrived ${duringCount} times (AC-4).`,
-      );
-
-      stage = "AC-5";
-      check(
-        (await shellTab(page, closed.shellId).count()) === 0,
-        "A tab closed before the reload is open again (AC-5).",
-      );
-      check(alive(closed.pid!), "The shell with a closed tab is not running (AC-5).");
-
-      // AC-2, AC-3: a reopened tab shows the earlier output once, and input still reaches it.
-
-      stage = "AC-2";
-      const reopenedFrom = frames.mark();
-      await openFromTree(page, closed.shellId);
-      await frames.until(
-        "the closed shell's earlier output",
-        (frame) => frame.includes("echo: marker-5-s4"),
-        reopenedFrom,
-      );
-      const typedAfter = frames.mark();
-      await typeLine(page, "after-reload-s4");
-      await frames.until(
-        "input after the reload",
-        (frame) => frame.includes("echo: after-reload-s4"),
-        typedAfter,
-      );
-
-      stage = "AC-3";
-      const markerCount = frames.seen
-        .slice(reloadedFrom)
-        .reduce((sum, frame) => sum + frame.split("echo: marker-0-s4").length - 1, 0);
-      check(markerCount === 1, `Shell 0's earlier line arrived ${markerCount} times (AC-3).`);
-
-      // AC-11, AC-28, AC-15: the killed and the exited shell stay gone; the signalled one is
-      // listed as ended.
-
-      stage = "AC-11";
-      for (const shell of [killed, inPlain]) {
-        check(
-          (await shellRow(page, shell.shellId).count()) === 0,
-          `Shell ${shell.shellId} is back in the tree after the reload (AC-11, AC-28).`,
-        );
+    await trail.stage("AC-11", async () => {
+      for (const shell of [killed, exited]) {
+        expected({
+          what: `tree rows of shell ${shell.shellId} after the reload`,
+          expected: 0,
+          found: await shellRow(page, shell.shellId).count(),
+        });
       }
-      stage = "AC-15";
-      await page.locator(`[data-shell-id="${signalled.shellId}"][data-ended="signal"]`).waitFor();
-      check(
-        (await shellTab(page, signalled.shellId).count()) === 0,
-        "An ended shell still has a tab (AC-15).",
+    });
+
+    await trail.stage("AC-15", async () => {
+      await waitFor(
+        endedRow(page, signalled.shellId, "signal"),
+        `the row of shell ${signalled.shellId} ended by a signal`,
       );
-    } catch (error) {
-      throw new Error(`S4 failed at ${stage}: ${error instanceof Error ? error.message : error}`, {
-        cause: error,
+      expected({
+        what: `tabs of the ended shell ${signalled.shellId}`,
+        expected: 0,
+        found: await shellTab(page, signalled.shellId).count(),
       });
-    } finally {
-      await rpc.close();
-    }
+    });
   },
-};
+});
+
+export const successors: ReadonlyArray<CheckScenario> = [
+  manyShellsCheck,
+  switchTabs,
+  reloadLayout,
+  outputDuringReloadCheck,
+  reopenAfterReload,
+  endedAfterReload,
+];

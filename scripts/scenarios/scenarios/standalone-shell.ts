@@ -1,114 +1,129 @@
-// @effect-diagnostics nodeBuiltinImport:off globalTimers:off globalDate:off - Checks the shell's pid and makes a workspace in the throwaway home.
-
-import * as NodeFSP from "node:fs/promises";
-import * as NodePath from "node:path";
-
-import type { ShellSummary, TerminalAttachStreamEvent } from "@t3tools/contracts";
+import type { TerminalAttachStreamEvent } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
-import * as Stream from "effect/Stream";
 
-import { connectRpc, environmentId, type WsClient } from "../rpc.ts";
-import type { Scenario } from "../scenario.ts";
-import { alive, follow, pageFrames, recorder } from "../support.ts";
+import type { PointerPage } from "../browser.ts";
+import { environmentId } from "../lib/api.ts";
+import { expected } from "../lib/expect.ts";
+import { framedPage, setupOn, type Setup } from "../lib/setup.ts";
+import { openShell, writeLine } from "../lib/shells.ts";
+import { alive, follow, recorder, waitFor } from "../lib/waits.ts";
+import { defineCheck, type ScenarioContext } from "../scenario.ts";
 
-async function openShell(client: WsClient, cwd: string): Promise<ShellSummary> {
-  return Effect.runPromise(client["shell.open"]({ cwd, cols: 80, rows: 24 }));
+/** A standalone shell, outside any workspace, in a folder of this run, once it is listed running. */
+async function opened(setup: Setup) {
+  const cwd = (await setup.folder("standalone")).path;
+  const shell = await openShell(setup.client, cwd);
+  expected({
+    what: "the opened shell",
+    expected: { status: "running", hasPid: true },
+    found: { status: shell.status, hasPid: shell.pid !== null },
+  });
+  // No earlier list can hold this new shell, so any list counts.
+  await setup.shells.lists.until(
+    `shell ${shell.shellId} in the list as running in ${cwd}`,
+    (list) =>
+      list.some(
+        (listed) =>
+          listed.shellId === shell.shellId && listed.cwd === cwd && listed.status === "running",
+      ),
+    0,
+  );
+  return { ...shell, pid: shell.pid!, cwd };
 }
 
-export const standaloneShell: Scenario = {
-  id: "T-002",
-  title: "standalone shell without a chat thread",
-  needs: { restart: true },
-  run: async ({ server, openPage }) => {
-    const workspace = NodePath.join(server.home, "workspace");
-    await NodeFSP.mkdir(workspace);
-    const page = await openPage();
-    await page.setViewportSize({ width: 1200, height: 800 });
-    const frames = pageFrames(page);
-    const environment = await environmentId(server.origin);
-    const rpc = await connectRpc(server.origin, page);
-    const { client } = rpc;
+/** The shell's attach events, and a wait on all its text so far for a marker written once. */
+function attached(setup: Setup, shellId: string) {
+  const output = recorder<TerminalAttachStreamEvent>("attach events");
+  const text = () =>
+    output.seen
+      .flatMap((event) =>
+        event.type === "output"
+          ? [event.data]
+          : event.type === "snapshot"
+            ? [event.snapshot.history]
+            : [],
+      )
+      .join("");
+  follow(setup.client["shell.attach"]({ shellId }), output.push);
+  const waitForText = (what: string, match: RegExp) =>
+    output.until(what, () => match.test(text()), 0);
+  return { output, text, waitForText };
+}
 
-    try {
-      const shells = recorder<ReadonlyArray<ShellSummary>>();
-      let list: ReadonlyArray<ShellSummary> = [];
-      follow(client.subscribeShells({}), (event) => {
-        if (event.type === "snapshot") list = event.shells;
-        else if (event.type === "remove")
-          list = list.filter((shell) => shell.shellId !== event.shellId);
-        else list = [...list.filter((shell) => shell.shellId !== event.shell.shellId), event.shell];
-        shells.push(list);
-      });
+const shellView = (page: PointerPage) => page.getByTestId("shell-view").locator("canvas");
 
-      // AC-1, AC-3: a shell with no chat thread, listed with its id, folder and status.
-      const shell = await openShell(client, workspace);
-      if (shell.status !== "running" || shell.pid === null) {
-        throw new Error(`The shell did not start: ${JSON.stringify(shell)}`);
-      }
-      // No earlier list can hold this new shell, so any list counts.
-      await shells.until(
-        "the shell in the list",
-        (current) =>
-          current.some(
-            (listed) =>
-              listed.shellId === shell.shellId &&
-              listed.cwd === workspace &&
-              listed.status === "running",
-          ),
-        0,
-      );
+/**
+ * Writes a line before any page shows the shell, then opens the shell view by its identity and
+ * waits until the page shows that earlier output.
+ */
+async function viewed(ctx: ScenarioContext) {
+  const { page, frames, setup } = await framedPage(ctx);
+  const shell = await opened(setup);
+  const attach = attached(setup, shell.shellId);
+  const marker = `before-${ctx.runId}`;
+  await writeLine(setup.client, setup.shells, shell.shellId, `echo ${marker}-$((40+2))`);
+  await attach.waitForText("output written before the page opened", new RegExp(`${marker}-42`));
+  const openedFrom = frames.mark();
+  const gridFrom = attach.output.mark();
+  await page.goto(
+    `${ctx.server.origin}/shell/${await environmentId(ctx.server.origin)}/${shell.shellId}`,
+  );
+  await waitFor(shellView(page), "the shell view's terminal");
+  await frames.until(
+    "earlier output in the page",
+    (frame) => frame.includes(`${marker}-42`),
+    openedFrom,
+  );
+  return { page, frames, setup, shell, attach, gridFrom, earlier: `${marker}-42` };
+}
 
-      const output = recorder<TerminalAttachStreamEvent>("attach events");
-      const text = () =>
-        output.seen
-          .flatMap((event) =>
-            event.type === "output"
-              ? [event.data]
-              : event.type === "snapshot"
-                ? [event.snapshot.history]
-                : [],
-          )
-          .join("");
-      follow(client["shell.attach"]({ shellId: shell.shellId }), output.push);
-      // Judges all the text so far, so each wait looks for a marker that is written only once.
-      const waitForText = (what: string, match: RegExp) =>
-        output.until(what, () => match.test(text()), 0);
+export const listed = defineCheck(import.meta.url, {
+  id: "T-002.listed",
+  title: "a shell opens with no chat thread and is listed with its id, folder and status",
+  needs: {},
+  // One open proves both: the shell starts outside any thread (AC-1) and is listed (AC-3).
+  covers: ["T-002 AC-1", "T-002 AC-3"],
+  run: async (ctx) => {
+    const setup = await setupOn(ctx);
+    await ctx.trail.stage("AC-1", () => opened(setup));
+  },
+});
 
-      await Effect.runPromise(
-        client["shell.write"]({ shellId: shell.shellId, data: "echo before-$((40+2))\r" }),
-      );
-      await waitForText("output written before the page opened", /before-42/);
+export const view = defineCheck(import.meta.url, {
+  id: "T-002.view",
+  title: "the shell view opens a shell by its identity and sizes it to its pane",
+  needs: {},
+  // The view that shows the shell (AC-15) is the one whose pane sets its size (AC-16).
+  covers: ["T-002 AC-15", "T-002 AC-16"],
+  run: async (ctx) => {
+    const { page, setup, shell, attach, gridFrom } = await ctx.trail.stage("AC-15", () =>
+      viewed(ctx),
+    );
 
-      // AC-15 (automated part): the shell opens in the terminal view by its identity.
-      const openedFrom = frames.mark();
-      const gridFrom = output.mark();
-      await page.goto(`${server.origin}/shell/${environment}/${shell.shellId}`);
-      await page.getByTestId("shell-view").locator("canvas").waitFor();
-      await frames.until(
-        "earlier output in the page",
-        (frame) => frame.includes("before-42"),
-        openedFrom,
-      );
-
-      // AC-16: the shell's size follows the pane. The page reports its grid once it has attached.
+    await ctx.trail.stage("AC-16", async () => {
+      const { output, text, waitForText } = attach;
       await output.until(
         "the page's grid",
         (event) => event.type === "activity" && event.cols !== undefined && event.cols !== 80,
         gridFrom,
       );
-      const sizeAfter = async (marker: string) => {
-        await Effect.runPromise(
-          client["shell.write"]({ shellId: shell.shellId, data: `echo ${marker}:$(stty size)\r` }),
-        );
+      const sizeAfter = async (label: string) => {
+        const marker = `${label}-${ctx.runId}`;
+        await writeLine(setup.client, setup.shells, shell.shellId, `echo ${marker}:$(stty size)`);
         const match = new RegExp(`${marker}:(\\d+) (\\d+)`);
         await waitForText(`${marker} size`, match);
         const [, rows, cols] = match.exec(text())!;
         return { rows: Number(rows), cols: Number(cols) };
       };
       const wide = await sizeAfter("wide");
-      if (wide.cols === 80 && wide.rows === 24) {
-        throw new Error("The page did not resize the shell to its pane.");
-      }
+      expected({
+        what: "the shell's size once the page shows it",
+        expected: "other than 24 rows by 80 columns",
+        found:
+          wide.rows === 24 && wide.cols === 80
+            ? "24 rows by 80 columns"
+            : "other than 24 rows by 80 columns",
+      });
       const resizedFrom = output.mark();
       await page.setViewportSize({ width: 700, height: 500 });
       await output.until(
@@ -117,55 +132,101 @@ export const standaloneShell: Scenario = {
         resizedFrom,
       );
       const narrow = await sizeAfter("narrow");
-      if (narrow.cols >= wide.cols || narrow.rows >= wide.rows) {
-        throw new Error(`The shell kept ${JSON.stringify(wide)} after the pane shrank.`);
-      }
+      expected({
+        what: `the shell's size after the pane shrank from ${JSON.stringify(wide)}`,
+        expected: { fewerRows: true, fewerCols: true },
+        found: { fewerRows: narrow.rows < wide.rows, fewerCols: narrow.cols < wide.cols },
+      });
+    });
+  },
+});
 
-      // AC-5: a reload reattaches and shows the earlier output again.
+export const reload = defineCheck(import.meta.url, {
+  id: "T-002.reload",
+  title: "a reload of the shell view reattaches and shows the earlier output again",
+  needs: {},
+  covers: ["T-002 AC-5"],
+  run: async (ctx) => {
+    const { page, frames, shell, earlier } = await ctx.trail.stage("setup", () => viewed(ctx));
+
+    await ctx.trail.stage("AC-5", async () => {
       const reloadedFrom = frames.mark();
       await page.reload();
-      await page.getByTestId("shell-view").locator("canvas").waitFor();
+      await waitFor(shellView(page), "the shell view's terminal after the reload");
       await frames.until(
-        "earlier output after reload",
-        (frame) => frame.includes("before-42"),
+        "earlier output after the reload",
+        (frame) => frame.includes(earlier),
         reloadedFrom,
       );
-      if (!alive(shell.pid)) throw new Error("The shell ended when the page reloaded.");
+      expected({
+        what: `shell process ${shell.pid} after the reload`,
+        expected: "running",
+        found: alive(shell.pid) ? "running" : "ended",
+      });
+    });
+  },
+});
 
-      // AC-7: ending a shell removes it and its process.
-      const killedFrom = shells.mark();
-      await Effect.runPromise(client["shell.kill"]({ shellId: shell.shellId }));
-      await shells.until(
-        "the closed shell to leave the list",
-        (current) => current.every((listed) => listed.shellId !== shell.shellId),
+export const end = defineCheck(import.meta.url, {
+  id: "T-002.end",
+  title: "ending a standalone shell removes it and its process",
+  needs: {},
+  covers: ["T-002 AC-7"],
+  run: async (ctx) => {
+    const setup = await setupOn(ctx);
+    const shell = await opened(setup);
+
+    await ctx.trail.stage("AC-7", async () => {
+      const killedFrom = setup.shells.lists.mark();
+      await Effect.runPromise(setup.client["shell.kill"]({ shellId: shell.shellId }));
+      await setup.shells.lists.until(
+        `shell ${shell.shellId} to leave the list`,
+        (current) => current.every((entry) => entry.shellId !== shell.shellId),
         killedFrom,
       );
       // The server removes a killed shell only once its process ended, so one check is enough.
-      if (alive(shell.pid))
-        throw new Error(`Shell process ${shell.pid} still runs after its removal.`);
-
-      // A-14 (PRB.T-007): a server restart leaves a running shell running, and lists it again.
-      const survivor = await openShell(client, workspace);
-      await rpc.close();
-      await server.restart();
-      if (survivor.pid === null || !alive(survivor.pid)) {
-        throw new Error("A running shell ended with the server restart.");
-      }
-      const after = await connectRpc(server.origin, page);
-      try {
-        const first = await Effect.runPromise(
-          after.client.subscribeShells({}).pipe(Stream.take(1), Stream.runCollect),
-        );
-        const listed = first.flatMap((event) => (event.type === "snapshot" ? event.shells : []));
-        const back = listed.find((entry) => entry.shellId === survivor.shellId);
-        if (back?.status !== "running" || back.pid !== survivor.pid) {
-          throw new Error(`The shell is not back as the same process: ${JSON.stringify(back)}.`);
-        }
-      } finally {
-        await after.close();
-      }
-    } finally {
-      await rpc.close();
-    }
+      expected({
+        what: `shell process ${shell.pid} after its removal`,
+        expected: "ended",
+        found: alive(shell.pid) ? "running" : "ended",
+      });
+    });
   },
-};
+});
+
+export const restart = defineCheck(import.meta.url, {
+  id: "T-002.restart",
+  title: "a server restart leaves a running standalone shell running and lists it again",
+  needs: { restart: true },
+  covers: ["T-002 A-14"],
+  run: async (ctx) => {
+    const page = await ctx.openPage();
+    const setup = await setupOn(ctx, { as: page });
+    const survivor = await opened(setup);
+
+    await ctx.trail.stage("A-14", async () => {
+      await setup.close();
+      await ctx.server.restart();
+      expected({
+        what: `shell process ${survivor.pid} after the restart`,
+        expected: "running",
+        found: alive(survivor.pid) ? "running" : "ended",
+      });
+      const after = await setupOn(ctx, { as: page });
+      // A fresh subscription: its first list is the server's state after the restart.
+      const list = await after.shells.lists.until(
+        "the shell list after the restart",
+        () => true,
+        0,
+      );
+      const back = list.find((entry) => entry.shellId === survivor.shellId);
+      expected({
+        what: `shell ${survivor.shellId} in the list after the restart`,
+        expected: { status: "running", pid: survivor.pid },
+        found: { status: back?.status ?? "absent", pid: back?.pid ?? null },
+      });
+    });
+  },
+});
+
+export const successors = [listed, view, reload, end, restart];

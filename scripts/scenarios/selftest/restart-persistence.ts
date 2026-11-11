@@ -1,16 +1,16 @@
 import * as Effect from "effect/Effect";
 
-import { connectRpc } from "../rpc.ts";
-import type { Scenario } from "../scenario.ts";
+import { connectApi } from "../lib/api.ts";
+import { defineCheck } from "../scenario.ts";
 
 const NAME = "persisted-workspace";
 
-export const restartPersistence: Scenario = {
+export const restartPersistence = defineCheck(import.meta.url, {
   id: "T1",
   title: "restart keeps data",
   needs: { restart: true },
   run: async ({ server, openPage }) => {
-    const rpc = await connectRpc(server.origin, await openPage());
+    const rpc = await connectApi(server, await openPage());
     try {
       await Effect.runPromise(rpc.client["workspace.create"]({ name: NAME }));
     } finally {
@@ -23,4 +23,4 @@ export const restartPersistence: Scenario = {
     await page.getByRole("button", { name: "Open workspace" }).click();
     await page.getByRole("menuitem", { name: NAME }).waitFor();
   },
-};
+});

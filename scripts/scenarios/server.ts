@@ -2,13 +2,14 @@
 
 import * as NodeChildProcess from "node:child_process";
 import * as NodeFS from "node:fs";
-import * as NodeNet from "node:net";
 import * as NodePath from "node:path";
 import * as NodeProcess from "node:process";
 import * as NodeURL from "node:url";
 
 import { isolatedShellEnv, SCENARIO_GITCONFIG } from "./isolation.ts";
-import { alive } from "./support.ts";
+import { PROCESS_END_MS, seconds, START_MS, WAIT_MS } from "./lib/deadlines.ts";
+import { alive, gone } from "./lib/waits.ts";
+import { leasePort, type PortLease, startOnLeasedPort } from "./ports.ts";
 
 export const REPO_ROOT = NodePath.resolve(NodeURL.fileURLToPath(import.meta.url), "../../..");
 const DEFAULT_SERVER_BIN = NodePath.join(REPO_ROOT, "apps/server/src/bin.ts");
@@ -16,10 +17,6 @@ const DEFAULT_SERVER_BIN = NodePath.join(REPO_ROOT, "apps/server/src/bin.ts");
 export const MOCK_AGENT_COMMAND = `node ${NodePath.join(REPO_ROOT, "scripts/mock-agent/mock-agent.ts")}`;
 const LOG_LIMIT = 4 * 1024 * 1024;
 const LOG_TAIL_CHARS = 4_000;
-// A ceiling for a start that never answers, not a measure of a healthy one (about 2 s here).
-const START_TIMEOUT_MS = 60_000;
-// Matches the page action timeout in run.ts.
-const LOG_WAIT_MS = 10_000;
 
 /** Variables for the server process; `undefined` removes one the harness would set. */
 export type ServerEnv = Readonly<Record<string, string | undefined>>;
@@ -33,12 +30,28 @@ export interface ServerHandle {
   readonly stop: () => Promise<void>;
   /** Ends the server at once; throwaway servers have nothing worth flushing. */
   readonly kill: () => Promise<void>;
-  /** Stops the server and starts it again on the same home and port, with `env` on top of the defaults. */
+  /**
+   * Stops the server and starts it again on the same home and port. `env` replaces the start's
+   * `env` for this start only; without it the start's `env` applies again.
+   */
   readonly restart: (options?: { readonly env?: ServerEnv }) => Promise<void>;
-  /** Everything the server has printed so far, across restarts (info level). */
+  /**
+   * Resolves when the running server process ends without `stop`, `kill` or `restart` asking it
+   * to, whichever process a restart made current; never for an exit the harness made.
+   */
+  readonly unexpectedExit: () => Promise<UnexpectedExit>;
+  /** The last few MiB the server has printed, across restarts. */
   readonly logs: () => string;
-  /** Resolves with the first log entry that `match` accepts, from the start of the logs on. */
-  readonly logged: (what: string, match: (entry: string) => boolean) => Promise<string>;
+  /** How many bytes of log the server has printed so far, across restarts; only ever grows. */
+  readonly logMark: () => number;
+  /** Everything the server printed after `mark`, read from its log file, so nothing is cut. */
+  readonly logSince: (mark: number) => string;
+  /** Resolves with the first log entry from `from` (a `logMark`, default the start) on that `match` accepts. */
+  readonly logged: (
+    what: string,
+    match: (entry: string) => boolean,
+    options?: { readonly from?: number },
+  ) => Promise<string>;
   /** Mints a one-time pairing URL that signs a browser in without a human. */
   readonly pairingUrl: () => Promise<string>;
   /** How many pairing URLs were minted, each one a CLI process start. */
@@ -54,6 +67,42 @@ export interface ServerHandle {
    * whenever a page attached. The server saves a chunk before it sends it to any client.
    */
   readonly rawOutput: (shellId: string) => string;
+}
+
+export interface UnexpectedExit {
+  readonly code: number | null;
+  readonly signal: NodeJS.Signals | null;
+  /** The last few thousand characters that process printed. */
+  readonly tail: string;
+}
+
+interface Exiting {
+  once(
+    event: "close",
+    listener: (code: number | null, signal: NodeJS.Signals | null) => void,
+  ): unknown;
+}
+
+/**
+ * Tells server processes the harness ended from ones that ended by themselves. Only a process
+ * marked `ready` counts: one that ends while starting fails its start instead.
+ */
+export function exitWatch() {
+  let report: (exit: UnexpectedExit) => void = () => {};
+  const unexpected = new Promise<UnexpectedExit>((resolve) => {
+    report = resolve;
+  });
+  const ready = new WeakSet<Exiting>();
+  const expected = new WeakSet<Exiting>();
+  return {
+    unexpectedExit: () => unexpected,
+    watch: (child: Exiting, tail: () => string) =>
+      child.once("close", (code, signal) => {
+        if (ready.has(child) && !expected.has(child)) report({ code, signal, tail: tail() });
+      }),
+    ready: (child: Exiting) => void ready.add(child),
+    expect: (child: Exiting) => void expected.add(child),
+  };
 }
 
 const RESERVED_PREFIXES = ["T3CODE_", "VITE_", "PROBE_"];
@@ -75,27 +124,15 @@ export const childEnv = (
   for (const key of Object.keys(env)) {
     if (RESERVED_PREFIXES.some((prefix) => key.startsWith(prefix))) delete env[key];
   }
+  // Playwright's workers set FORCE_COLOR, which outranks NO_COLOR and colours the numbers log
+  // matchers read.
+  delete env.FORCE_COLOR;
   for (const [key, value] of Object.entries(overrides)) {
     if (value === undefined) delete env[key];
     else env[key] = value;
   }
   return env;
 };
-
-const reservePort = () =>
-  new Promise<number>((resolve, reject) => {
-    const server = NodeNet.createServer();
-    server.once("error", reject);
-    server.listen(0, HOST, () => {
-      const address = server.address();
-      if (!address || typeof address === "string") {
-        server.close();
-        reject(new Error("Could not reserve a local port."));
-        return;
-      }
-      server.close((error) => (error ? reject(error) : resolve(address.port)));
-    });
-  });
 
 const exited = (child: NodeChildProcess.ChildProcess) =>
   child.exitCode !== null || child.signalCode !== null;
@@ -108,7 +145,7 @@ async function stopChild(
   const done = new Promise<void>((resolve) => child.once("exit", () => resolve()));
   child.kill(signal);
   const escalate =
-    signal === "SIGKILL" ? undefined : setTimeout(() => child.kill("SIGKILL"), 5_000);
+    signal === "SIGKILL" ? undefined : setTimeout(() => child.kill("SIGKILL"), PROCESS_END_MS);
   await done;
   clearTimeout(escalate);
 }
@@ -122,7 +159,7 @@ export const waitUntilServing = (
   child: NodeChildProcess.ChildProcess,
   origin: string,
   onOutput: (chunk: string) => void,
-  timeoutMs = START_TIMEOUT_MS,
+  timeoutMs = START_MS,
 ) =>
   new Promise<void>((resolve, reject) => {
     let tail = "";
@@ -160,21 +197,43 @@ export const waitUntilServing = (
     child.once("exit", (code, signal) => fail(`exited with ${signal ?? `code ${String(code)}`}`));
     // oxlint-disable-next-line t3code/no-real-time-wait-in-tests -- permanent (b): deadline raced against output, exit and the HTTP answer, named in the failure
     const timer = setTimeout(
-      () => fail(`no answer over HTTP within ${timeoutMs / 1000} s`),
+      () => fail(`no answer over HTTP within ${seconds(timeoutMs)}`),
       timeoutMs,
     );
   });
 
-const runCli = (serverBin: string, args: ReadonlyArray<string>, env: NodeJS.ProcessEnv) =>
-  new Promise<string>((resolve, reject) => {
-    NodeChildProcess.execFile(
-      "node",
-      [serverBin, ...args],
-      { cwd: REPO_ROOT, env, encoding: "utf8", maxBuffer: 10 * 1024 * 1024 },
-      (error, stdout, stderr) =>
-        error ? reject(new Error(`${error.message}\n${stderr}`)) : resolve(stdout),
-    );
-  });
+/**
+ * Runs the server CLI on `home`. The CLI makes a missing home, so a call on a home removed before
+ * or during it (a stopped sandbox, a swept server) would leave a new one in `<tmp>`: refused
+ * before, and one made during the call is removed. The home's `harness` folder, which the CLI
+ * never makes, tells the harness's home from a new one (a new folder may reuse the inode).
+ */
+export async function runCliOn(
+  serverBin: string,
+  home: string,
+  args: ReadonlyArray<string>,
+  env: NodeJS.ProcessEnv,
+): Promise<string> {
+  const harnessMade = () => NodeFS.existsSync(NodePath.dirname(harnessLogFileIn(home)));
+  if (!harnessMade()) throw new Error(`The server's home ${home} is gone; the CLI is not run.`);
+  const outcome = await new Promise<{ readonly stdout: string } | { readonly error: Error }>(
+    (resolve) => {
+      NodeChildProcess.execFile(
+        "node",
+        [serverBin, ...args, "--base-dir", home],
+        { cwd: REPO_ROOT, env, encoding: "utf8", maxBuffer: 10 * 1024 * 1024 },
+        (error, stdout, stderr) =>
+          resolve(error ? { error: new Error(`${error.message}\n${stderr}`) } : { stdout }),
+      );
+    },
+  );
+  if (!harnessMade()) {
+    NodeFS.rmSync(home, { recursive: true, force: true });
+    throw new Error(`The server's home ${home} was removed while the CLI ran on it.`);
+  }
+  if ("error" in outcome) throw outcome.error;
+  return outcome.stdout;
+}
 
 export function parsePairingCredentialOutput(output: string): string {
   const start = output.indexOf("{");
@@ -190,15 +249,53 @@ export function parsePairingCredentialOutput(output: string): string {
 /** The log entries in `logs`; an entry starts with its time and continues on indented lines. */
 const entriesOf = (logs: string) => logs.split(/\n(?=\S)/);
 
-/** Entries of `read()` that `match` accepts, checked again each time `subscribe` wakes it. */
+/** The bytes of `file` from `from` to its end; empty when the file is missing. */
+function bytesFrom(file: string, from: number): Buffer {
+  let fd: number;
+  try {
+    fd = NodeFS.openSync(file, "r");
+  } catch {
+    return Buffer.alloc(0);
+  }
+  try {
+    const size = NodeFS.fstatSync(fd).size;
+    if (size <= from) return Buffer.alloc(0);
+    const buffer = Buffer.alloc(size - from);
+    const read = NodeFS.readSync(fd, buffer, 0, buffer.length, from);
+    return buffer.subarray(0, read);
+  } finally {
+    NodeFS.closeSync(fd);
+  }
+}
+
+function fileSize(file: string): number {
+  try {
+    return NodeFS.statSync(file).size;
+  } catch {
+    return 0;
+  }
+}
+
+/**
+ * Log entries of `file` from a byte offset on that `match` accepts, checked again each time
+ * `subscribe` wakes it. Each check reads only what follows the last entry that may still grow.
+ */
 const waitForLog =
-  (read: () => string, subscribe: (wake: () => void) => () => void) =>
-  (what: string, match: (entry: string) => boolean) =>
+  (file: string, subscribe: (wake: () => void) => () => void) =>
+  (what: string, match: (entry: string) => boolean, options?: { readonly from?: number }) =>
     new Promise<string>((resolve, reject) => {
       let unsubscribe = () => {};
+      let position = options?.from ?? 0;
       const check = () => {
-        const found = entriesOf(read()).find(match);
-        if (found === undefined) return;
+        const text = bytesFrom(file, position).toString("utf8");
+        if (text === "") return;
+        const entries = entriesOf(text);
+        const found = entries.find(match);
+        if (found === undefined) {
+          const growing = entries.at(-1) ?? "";
+          position += Buffer.byteLength(text.slice(0, text.length - growing.length));
+          return;
+        }
         clearTimeout(timer);
         unsubscribe();
         resolve(found);
@@ -206,8 +303,10 @@ const waitForLog =
       // oxlint-disable-next-line t3code/no-real-time-wait-in-tests -- permanent (b): deadline raced against the log line, named in the failure
       const timer = setTimeout(() => {
         unsubscribe();
-        reject(new Error(`Timed out waiting for the server to log ${what}.`));
-      }, LOG_WAIT_MS);
+        reject(
+          new Error(`Timed out after ${seconds(WAIT_MS)} waiting for the server to log ${what}.`),
+        );
+      }, WAIT_MS);
       unsubscribe = subscribe(check);
       check();
     });
@@ -227,16 +326,8 @@ async function stopShellHostIn(home: string, signal: NodeJS.Signals = "SIGTERM")
   const pid = shellHostPidIn(home);
   if (pid === null) return;
   NodeProcess.kill(pid, signal);
-  // Up to 5 s for the host to end its shells, then it is killed outright.
-  // oxlint-disable-next-line t3code/no-polling-loop-in-tests -- permanent (c): no exit event, the detached host is not our child and drops its pid file before it exits
-  for (let attempt = 0; alive(pid); attempt++) {
-    if (attempt === 100) {
-      NodeProcess.kill(pid, "SIGKILL");
-      break;
-    }
-    // oxlint-disable-next-line t3code/no-real-time-wait-in-tests -- permanent (c): no exit event, the detached host is not our child
-    await new Promise((resolve) => setTimeout(resolve, 50));
-  }
+  // The host gets PROCESS_END_MS to end its shells, then it is killed outright.
+  if (!(await gone(pid))) NodeProcess.kill(pid, "SIGKILL");
 }
 
 export async function startServer(options: {
@@ -246,19 +337,32 @@ export async function startServer(options: {
   readonly isolateShell?: boolean;
   /** The environment the server would otherwise inherit; tests pass a fake one. */
   readonly ambient?: NodeJS.ProcessEnv;
+  /**
+   * Variables on top of the defaults for every start; `restart({env})` replaces them for that
+   * restart only.
+   */
+  readonly env?: ServerEnv;
   /** Called once the server process exists, before it is ready, so a killed run can stop it. */
   readonly onSpawn?: (pid: number) => void;
   /** Called with each chunk the server prints, across restarts. */
   readonly onOutput?: (chunk: string) => void;
   /** Called whenever a server process ends, including the stops and restarts the harness makes. */
   readonly onExit?: (how: string) => void;
+  /** The server's `--log-level`, debug unless given; null starts it without the flag. */
+  readonly logLevel?: string | null;
+  /** Where a move to another port is printed; stdout unless given. */
+  readonly note?: (line: string) => void;
 }): Promise<ServerHandle> {
   const serverBin = options.serverBin ?? DEFAULT_SERVER_BIN;
-  const port = await reservePort();
-  const origin = `http://${HOST}:${port}`;
+  let port = 0;
+  let origin = "";
   let child: NodeChildProcess.ChildProcess | undefined;
   let logs = "";
+  const logFile = harnessLogFileIn(options.home);
+  NodeFS.mkdirSync(NodePath.dirname(logFile), { recursive: true });
+  let logBytes = fileSize(logFile);
   const logWaiters = new Set<() => void>();
+  const logLevel = options.logLevel === undefined ? "debug" : options.logLevel;
   let pairings = 0;
   const defaults: ServerEnv = {
     // Without a UTF-8 locale zsh counts a prompt's "➜" as three columns and redraws over the
@@ -269,9 +373,16 @@ export async function startServer(options: {
     PROBE_RAW_OUTPUT_DIR: rawOutputDirIn(options.home),
     ...(options.isolateShell === false ? {} : await isolatedShellEnv(options.home)),
   };
-  const envFor = (env: ServerEnv = {}) => childEnv({ ...defaults, ...env }, options.ambient);
+  const startEnv = options.env ?? {};
+  const envFor = (env: ServerEnv) => childEnv({ ...defaults, ...env }, options.ambient);
+  const exits = exitWatch();
+  const end = async (signal?: NodeJS.Signals) => {
+    if (!child) return;
+    exits.expect(child);
+    await stopChild(child, signal);
+  };
 
-  const start = async (env: ServerEnv = {}) => {
+  const start = async (env: ServerEnv) => {
     const spawned = NodeChildProcess.spawn(
       "node",
       [
@@ -284,12 +395,16 @@ export async function startServer(options: {
         "--base-dir",
         options.home,
         "--no-browser",
-        "--log-level",
-        "info",
+        ...(logLevel === null ? [] : ["--log-level", logLevel]),
       ],
       { cwd: REPO_ROOT, env: envFor(env), stdio: ["ignore", "pipe", "pipe"] },
     );
     child = spawned;
+    let tail = "";
+    exits.watch(spawned, () => tail);
+    // Opened per process and closed once its output ends; a write after the home is gone is harmless.
+    const logFd = NodeFS.openSync(logFile, "a");
+    spawned.once("close", () => NodeFS.closeSync(logFd));
     spawned.once("exit", (code, signal) =>
       options.onExit?.(signal === null ? `code ${String(code)}` : signal),
     );
@@ -297,22 +412,42 @@ export async function startServer(options: {
     try {
       await waitUntilServing(spawned, origin, (chunk) => {
         options.onOutput?.(chunk);
+        tail = (tail + chunk).slice(-LOG_TAIL_CHARS);
+        const bytes = Buffer.from(chunk);
+        NodeFS.writeSync(logFd, bytes);
+        logBytes += bytes.length;
         logs = (logs + chunk).slice(-LOG_LIMIT);
         for (const wake of logWaiters) wake();
       });
     } catch (error) {
+      exits.expect(spawned);
       await stopChild(spawned, "SIGKILL");
       throw error;
     }
+    exits.ready(spawned);
   };
-  await start();
+  let lease: PortLease | undefined = (
+    await startOnLeasedPort(
+      (leased) => {
+        port = leased;
+        origin = `http://${HOST}:${port}`;
+        return start(startEnv);
+      },
+      { note: options.note ?? ((line) => NodeProcess.stdout.write(`${line}\n`)) },
+    )
+  ).lease;
+  const release = () => {
+    lease?.release();
+    lease = undefined;
+  };
 
   const stop = async () => {
-    if (child) await stopChild(child);
+    await end();
+    release();
   };
   const shellHostPid = () => shellHostPidIn(options.home);
   const cli = (args: ReadonlyArray<string>) =>
-    runCli(serverBin, [...args, "--base-dir", options.home], envFor());
+    runCliOn(serverBin, options.home, args, envFor(startEnv));
   return {
     home: options.home,
     origin,
@@ -322,20 +457,26 @@ export async function startServer(options: {
     },
     stop,
     kill: async () => {
-      if (child) await stopChild(child, "SIGKILL");
+      await end("SIGKILL");
+      release();
     },
     restart: async (restartOptions) => {
-      await stop();
-      await start(restartOptions?.env);
+      await end();
+      lease ??= await leasePort({ range: { first: port, last: port } }).catch(() => {
+        throw new Error(
+          `The server cannot start again on port ${port}: another process took it after the stop.`,
+        );
+      });
+      await start(restartOptions?.env ?? startEnv);
     },
+    unexpectedExit: exits.unexpectedExit,
     logs: () => logs,
-    logged: waitForLog(
-      () => logs,
-      (wake) => {
-        logWaiters.add(wake);
-        return () => logWaiters.delete(wake);
-      },
-    ),
+    logMark: () => logBytes,
+    logSince: (mark) => bytesFrom(logFile, mark).toString("utf8"),
+    logged: waitForLog(logFile, (wake) => {
+      logWaiters.add(wake);
+      return () => logWaiters.delete(wake);
+    }),
     pairingUrl: async () => {
       pairings += 1;
       const credential = parsePairingCredentialOutput(
@@ -349,6 +490,11 @@ export async function startServer(options: {
     shellHostPid,
     stopShellHost: (signal) => stopShellHostIn(options.home, signal),
   };
+}
+
+/** Every server started on `home` appends its output here, so a failure can copy all of it. */
+function harnessLogFileIn(home: string): string {
+  return NodePath.join(home, "harness", "server.log");
 }
 
 function rawOutputDirIn(home: string): string {
@@ -385,7 +531,7 @@ export function attachServer(
   };
   let pairings = 0;
   const cli = (args: ReadonlyArray<string>) =>
-    runCli(DEFAULT_SERVER_BIN, [...args, "--base-dir", target.home], childEnv());
+    runCliOn(DEFAULT_SERVER_BIN, target.home, args, childEnv());
   const refused = (need: string) => () => Promise.reject(refuse(need));
   return {
     home: target.home,
@@ -394,8 +540,11 @@ export function attachServer(
     stop: refused("a server stop"),
     kill: refused("a server stop"),
     restart: refused("a restart"),
+    unexpectedExit: () => new Promise<never>(() => {}),
     logs: readLogs,
-    logged: waitForLog(readLogs, (wake) => {
+    logMark: () => fileSize(target.logFile),
+    logSince: (mark) => bytesFrom(target.logFile, mark).toString("utf8"),
+    logged: waitForLog(target.logFile, (wake) => {
       const watcher = NodeFS.watch(target.logFile, wake);
       return () => watcher.close();
     }),

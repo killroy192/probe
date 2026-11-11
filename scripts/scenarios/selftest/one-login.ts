@@ -1,8 +1,8 @@
-import type { Scenario } from "../scenario.ts";
-import { check } from "../support.ts";
+import { defineCheck } from "../scenario.ts";
+import { check } from "../lib/waits.ts";
 
 /** Signed-in pages share one login per server; anonymous pages and a second server stay apart. */
-export const oneLogin: Scenario = {
+export const oneLogin = defineCheck(import.meta.url, {
   id: "T4",
   title: "one login per server",
   needs: { restart: true, secondServer: true },
@@ -27,4 +27,4 @@ export const oneLogin: Scenario = {
     const second = await startSecondServer();
     check(second.pairings() === 0, "A second server shares the first one's login.");
   },
-};
+});

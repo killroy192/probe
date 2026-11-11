@@ -3,9 +3,10 @@
 
 import { deriveWsBaseUrl, normalizeHttpBaseUrl } from "@t3tools/shared/advertisedEndpoint";
 
-import type { PointerPage } from "./browser.ts";
-import { environmentId } from "./rpc.ts";
-import type { ServerHandle } from "./server.ts";
+import type { PointerPage } from "../browser.ts";
+import type { ServerHandle } from "../server.ts";
+import { environmentId, serverToken } from "./api.ts";
+import { pageSettled } from "./navigate.ts";
 
 // Mirrors `apps/web/src/connection/storage.ts`; R1 fails if the app stops reading this shape.
 const DATABASE_NAME = "t3code:connection-runtime";
@@ -19,17 +20,9 @@ export interface SavedServer {
   readonly bearerToken: string;
 }
 
-/** A bearer token for `server`, minted by its own CLI the way a headless client gets one. */
-export async function issueBearerToken(server: ServerHandle): Promise<string> {
-  const output = await server.cli(["auth", "session", "issue", "--token-only"]);
-  const token = output.trim().split("\n").at(-1)?.trim();
-  if (!token) throw new Error("The server issued no bearer token.");
-  return token;
-}
-
 /**
  * Saves `server` in the browser's connection catalog, as a paired bearer environment would be,
- * then reloads so the app's connection runtime reads it. The page must already be on the UI.
+ * then reloads so the app's connection runtime reads it.
  */
 export async function saveServerInBrowser(
   page: PointerPage,
@@ -37,7 +30,7 @@ export async function saveServerInBrowser(
   label: string,
 ): Promise<SavedServer> {
   const id = await environmentId(server.origin);
-  const bearerToken = await issueBearerToken(server);
+  const bearerToken = await serverToken(server);
   const httpBaseUrl = normalizeHttpBaseUrl(server.origin);
   // The id the app derives when it pairs a bearer environment (`bearerConnectionId`).
   const connectionId = `bearer:${id}:${new URL(httpBaseUrl).origin}`;
@@ -60,6 +53,8 @@ export async function saveServerInBrowser(
     remoteDpopTokens: [],
     disabledEnvironmentIds: [],
   });
+  // The app creates the catalog store when it boots; written earlier, the store is missing.
+  await pageSettled(page, "saving a server in the browser");
   // A string, since this package has no DOM types; it runs in the page.
   await page.evaluate(`new Promise((resolve, reject) => {
     const open = indexedDB.open(${JSON.stringify(DATABASE_NAME)});

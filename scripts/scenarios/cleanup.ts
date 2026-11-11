@@ -11,7 +11,10 @@ import * as NodeProcess from "node:process";
  * with SIGKILL can be cleaned up by the next one. Only these recorded pids, and pids written into
  * the run's own throwaway homes, are ever stopped; nothing is matched by name or path.
  */
-export const RUNS_DIR = NodePath.join(NodeOS.tmpdir(), "probe-scenario-runs");
+export const RUNS_DIR =
+  // A harness test gives its runs a folder of their own, so a concurrent run's sweep cannot take
+  // the leftovers the test expects its own cleaner to report.
+  NodeProcess.env.SCENARIO_RUNS_DIR || NodePath.join(NodeOS.tmpdir(), "probe-scenario-runs");
 
 export interface ManifestEntry {
   readonly kind: "server";
@@ -33,12 +36,28 @@ export interface SandboxRecord {
   readonly startedMs: number;
   /** The bundle the server serves; another time on `dist/index.html` means it was rebuilt since. */
   readonly bundleBuiltMs: number | null;
+  /** Written before the sandbox ends its server, so a run on it ends at once. */
+  readonly stopping?: true;
 }
 
-interface Manifest {
-  readonly runner: { readonly pid: number; readonly startTime: string };
+export interface ProcessIdentity {
+  readonly pid: number;
+  readonly startTime: string;
+}
+
+export interface Manifest {
+  readonly runner: ProcessIdentity;
+  /** The launcher of the run this process belongs to; a worker outliving it is abandoned. */
+  readonly run?: ProcessIdentity;
   readonly entries: ReadonlyArray<ManifestEntry>;
   readonly sandbox?: SandboxRecord;
+  /** The checkout's web bundle a launcher's run serves, so another run there does not rebuild it. */
+  readonly bundle?: BundleUse;
+}
+
+export interface BundleUse {
+  readonly root: string;
+  readonly builtMs: number | null;
 }
 
 /** The sandbox's server output file, next to its manifest and removed with it. */
@@ -107,16 +126,33 @@ function writeManifest(path: string, manifest: Manifest) {
 }
 
 /** This run's manifest; `add` on start, `remove` once stopped, `close` when the run ends. */
-export function openManifest(dir = RUNS_DIR) {
+export function openManifest(dir = RUNS_DIR, run?: ProcessIdentity) {
   const path = NodePath.join(dir, `${NodeProcess.pid}.json`);
   const runner = { pid: NodeProcess.pid, startTime: processStartTime(NodeProcess.pid) ?? "" };
   let entries: Array<ManifestEntry> = [];
   let sandbox: SandboxRecord | undefined;
-  const save = () => writeManifest(path, { runner, entries, ...(sandbox ? { sandbox } : {}) });
+  let bundle: BundleUse | undefined;
+  const save = () =>
+    writeManifest(path, {
+      runner,
+      ...(run ? { run } : {}),
+      entries,
+      ...(sandbox ? { sandbox } : {}),
+      ...(bundle ? { bundle } : {}),
+    });
   save();
   return {
     describeSandbox: (record: SandboxRecord) => {
       sandbox = record;
+      save();
+    },
+    useBundle: (use: BundleUse) => {
+      bundle = use;
+      save();
+    },
+    markSandboxStopping: () => {
+      if (sandbox === undefined) return;
+      sandbox = { ...sandbox, stopping: true };
       save();
     },
     add: (entry: ManifestEntry) => {
@@ -171,6 +207,42 @@ export function findSandbox(
     };
   }
   return { sandbox };
+}
+
+/** The live runs, other than this process, whose manifest says they serve `root`'s web bundle. */
+export function bundleUsers(root: string, dir = RUNS_DIR): ReadonlyArray<number> {
+  let names: ReadonlyArray<string> = [];
+  try {
+    names = NodeFS.readdirSync(dir).filter((name) => /^\d+\.json$/.test(name));
+  } catch {
+    return [];
+  }
+  return names.flatMap((name) => {
+    try {
+      const manifest = JSON.parse(
+        NodeFS.readFileSync(NodePath.join(dir, name), "utf8"),
+      ) as Manifest;
+      const { runner, bundle } = manifest;
+      return runner.pid !== NodeProcess.pid &&
+        bundle?.root === root &&
+        isSameProcess(runner.pid, runner.startTime)
+        ? [runner.pid]
+        : [];
+    } catch {
+      return [];
+    }
+  });
+}
+
+/** True once the sandbox is stopping or gone: it marks its record before it ends its server. */
+export function sandboxEnded(pid: number, dir = RUNS_DIR): boolean {
+  const found = findSandbox(pid, dir);
+  return (
+    "refusal" in found ||
+    found.sandbox.stopping === true ||
+    processStartTime(found.sandbox.serverPid) === null ||
+    !NodeFS.existsSync(found.sandbox.home)
+  );
 }
 
 const isUnder = (child: string, parent: string) => {
@@ -288,6 +360,19 @@ export function killServerTree(entry: ManifestEntry, { keepHome = false } = {}) 
   }
 }
 
+/**
+ * Whether a manifest's processes are left over: its owner is dead, or its owner lives on after the
+ * launcher of its run died (a worker of a SIGKILLed launcher), and then the owner is stopped too.
+ */
+export function abandonment(
+  manifest: Pick<Manifest, "runner" | "run">,
+  isLive: (process: ProcessIdentity) => boolean,
+): "live" | "ownerDead" | "launcherDead" {
+  if (!isLive(manifest.runner)) return "ownerDead";
+  if (manifest.run !== undefined && !isLive(manifest.run)) return "launcherDead";
+  return "live";
+}
+
 /** Cleans up after runs that ended without doing it themselves; returns what it printed. */
 export function cleanLeftovers(write: (line: string) => void, dir = RUNS_DIR) {
   let names: ReadonlyArray<string> = [];
@@ -310,12 +395,17 @@ export function cleanLeftovers(write: (line: string) => void, dir = RUNS_DIR) {
       );
       continue;
     }
-    if (isSameProcess(manifest.runner.pid, manifest.runner.startTime)) continue;
+    if (manifest.runner.pid === NodeProcess.pid) continue;
+    const state = abandonment(manifest, ({ pid, startTime }) => isSameProcess(pid, startTime));
+    if (state === "live") continue;
+    if (state === "launcherDead") kill(manifest.runner.pid);
     for (const entry of manifest.entries) killServerTree(entry);
     NodeFS.rmSync(path, { force: true });
     removeSideFiles(manifest.runner.pid, dir);
     write(
-      `scenarios: cleaned up after run ${manifest.runner.pid}: ${manifest.entries.length} server(s) and their homes`,
+      state === "launcherDead"
+        ? `scenarios: stopped ${manifest.runner.pid}, left running by the ended run ${manifest.run?.pid}, with ${manifest.entries.length} server(s) and their homes`
+        : `scenarios: cleaned up after run ${manifest.runner.pid}: ${manifest.entries.length} server(s) and their homes`,
     );
   }
 }

@@ -5,7 +5,7 @@ parent: PRB.E-005
 phase: 1
 labels: [testing, plan]
 created: 2026-11-10
-updated: 2026-11-10
+updated: 2026-11-11
 ---
 
 # Check and perf kinds, sets, composed scenarios and the cap gate
@@ -130,10 +130,10 @@ Read on `main` at `2eac97f07` on 2026-11-10 with grep and file reads; nothing wa
 
 | Depends on | Why | Status |
 | ---------- | --- | ------ |
-| PRB.T-038 | The library the perf scenarios and self-tests build their preconditions with, and its composition interface (needs from explicit inputs, results returned as values, unique names per call), which composed scenarios hand over. | backlog |
-| PRB.T-037 | The statement of needs and the sandbox, extended here with sets, composed scenarios and two new needs. | backlog |
+| PRB.T-038 | The library the perf scenarios and self-tests build their preconditions with, and its composition interface (needs from explicit inputs, results returned as values, unique names per call), which composed scenarios hand over. | in progress (code on branch `e005`, tag `e005-t038`) |
+| PRB.T-037 | The statement of needs and the sandbox, extended here with sets, composed scenarios and two new needs. | done |
 | PRB.T-042 | The rules file this story updates and the lint rules on scenario files. | done |
-| PRB.T-036 | The failure artifacts and the metrics this story turns into perf scenarios. | in progress (code merged) |
+| PRB.T-036 | The failure artifacts and the metrics this story turns into perf scenarios. | done |
 
 The kinds, sets, composition, the new needs and the gate stay one story: they are one change to the scenario contract and the registry, and each of them is only usable once that contract has the others' fields.
 
@@ -143,9 +143,57 @@ The kinds, sets, composition, the new needs and the gate stay one story: they ar
 
 | ID   | Statement | Kind (assumption / unknown) | Status (unverified / verified / false) | How and when to verify | Owner |
 | ---- | --------- | --------------------------- | -------------------------------------- | ---------------------- | ----- |
-| SA-1 | PRB.T-038 ships the composition interface its ticket describes, so a step can take an earlier step's result without reading leftovers. | assumption | unverified | Read PRB.T-038's code and handoff before planning. | author |
+| SA-1 | PRB.T-038 ships the composition interface its ticket describes, so a step can take an earlier step's result without reading leftovers. | assumption | verified (read on `e005`, 2026-11-11: kind-tagged results and `given()`; not run) | Read PRB.T-038's code and handoff before planning. | author |
 | SA-2 | Moving the timings out of S2, S3 and E2-S3 removes no check: each timing judged nothing since PRB.T-036. | assumption | verified (read `fixtures.ts:109-113`, 2026-11-10; not run) | AC-1, AC-4. | author |
 | SU-1 | Which limit E2-S3's harness-side click to prompt asserts, and whether S3's fork start stays. | decision | decided (user, 2026-11-10): PRB.E-002's 700 ms (PRB.T-028 reads it); S3's fork start is dropped | AC-4 | user |
 | SU-2 | Which limit S3's branch-label perf scenario asserts. | decision | decided (user, 2026-11-10): PRB.T-005 AC-26's 2 s, not the old 4000 ms harness gate | AC-4 | user |
-| SU-3 | The form of set names and the command lines for a set, a composed scenario and the gate. | unknown | unverified | Plan stage; each must be one line in the rules file. | TBD (author, plan stage) |
-| SU-4 | Whether the two new needs are their own values in PRB.T-037's statement or fold into an existing one. | unknown | unverified | Plan stage, against PRB.T-037's code and PRB.T-040 EC-17. | TBD (author, plan stage) |
+| SU-3 | The form of set names and the command lines for a set, a composed scenario and the gate. | unknown | decided (user, 2026-11-11, PRB.E-005 master plan U2): one `--only <name>` for an id, a set or a composed scenario, repeatable; `vp run scenarios:gate -- [--only <name>]... --quiet-confirmed`; self-test sets are named `T-<name>` | Plan stage; each must be one line in the rules file. | TBD (author, plan stage) |
+| SU-4 | Whether the two new needs are their own values in PRB.T-037's statement or fold into an existing one. | unknown | decided (plan D5, user-approved 2026-11-11): separate `serverWide` and `condition` fields; a condition is a function of the home | Plan stage, against PRB.T-037's code and PRB.T-040 EC-17. | TBD (author, plan stage) |
+
+## Handoff
+
+**Built as one wave of the PRB.E-005 master plan** (`.plans/e005-master.md`, not committed), on branch `e005`, together with PRB.T-038, PRB.T-039 and PRB.T-040. Nothing in this story's steps ran a scenario, the runner or the harness tests; verification is in the epic's final phase.
+
+**Self-test ids renumbered (master plan M1).** PRB.T-038 took T10 to T15, so this story's T10…T20 are **T16…T26**, in the same order: T16 returns a workspace, T17 takes one (or makes its own alone), T18 wrong UI state, T19 output never comes, T20 SIGKILLs its server (`serverWide: "kills its server"`), T21 composed [T16, T18, T17], T22 composed [T16, T17←1, T16, T17←3], T23 `serverWide`, T24 `condition`, T25 `revokeWrite` then fails, T26 composed [T16, T1]. Sets: `T-diagnosis` = [T18, T19, T20], `T-compose` = [T21, T22, T17, T25], `T-needs` = [T23, T24], `T-sandbox` = [T16, T17, T22], `T-restart-set` = [T16, T1], `T-gate` = [T16, T1, T22], plus `T-lib` = T10 to T15 for PRB.T-038. Every T16–T26 reference in this ticket's plan reads with these numbers; the AC texts name no ids.
+
+**Runtime host (master plan M10).** This story ships the contract, the pure rule modules, the `server.ts` primitives and the self-tests. It does not wire them into `run.ts`, which PRB.T-040 deletes: from step 2 on, `run.ts` runs atomic checks by id only and refuses the rest. Selection, composition, step undos, condition env, the server-exit race, artifacts per step, the gate and sandbox sets run on PRB.T-040's launcher, fixtures and reporter (`cli.ts`, `testFixtures.ts`, `suite.spec.ts`, `reporter.ts`). The spawned harness cases of plan step C1 are written once, on `cli.ts`, in PRB.T-040 step 7 (master plan 10B for `harness.test.ts`, 10C for `sandbox.test.ts`). So AC-1, AC-3, AC-5 to AC-14 and AC-16 are judged on the PRB.T-040 runner.
+
+**AC-2 source search (2026-11-11, at `5f6a76288`, not run).** Over the twelve check files in `scripts/scenarios/scenarios/` (every file there except the five `*.perf.ts`), a search for `Date.now`, `new Date(`, `performance.now`, `hrtime`, `metric(`, `METRIC`, `measure:` and `temporary: PRB.T-039` finds nothing; `temporary: PRB.T-039` occurs nowhere under `scripts/scenarios`, and no self-test file reads the clock. The lint half of AC-2 is `vp run check:changed` in the final phase. Left for PRB.T-040 10B: `lib/report.ts` still exports `metric()` with no caller (knip does not check `scripts` exports), and `harness.test.ts` (~lines 340 and 351) still expects `METRIC` lines from E2-S3 and S2; 10B deletes `metric()` and rewrites the E2-S3 case per plan D4 (it asserts `PASS E2-S3` under a slow startup file and no `METRIC` line).
+
+**Interface as built.**
+
+| Module | Holds |
+| --- | --- |
+| `scenario.ts` | `CheckScenario`, `PerfScenario` (`measure: {name, limitMs, limitFrom}`), `ComposedScenario` (`steps: {scenario, given?: {from}}[]`), `ScenarioSet {name, members}`; `defineCheck(url, {id, title, needs, covers?, takes?, returns?, run(ctx, given)})`, `definePerf(url, …)`, `defineComposed(url, …)`; `ScenarioNeeds` gains `serverWide?: string` and `condition?: {why, env(home)}`; `ResultKinds` = `workspace`, `shell`, `world` (PRB.T-039 adds kinds); `covers?: string[]` (master plan M11) |
+| `registryRules.ts` | `validateRegistry(registry, readSource)` → rejections; `composedRejections(c)`; `resolveName(registry, name)` → check, composed, set, perf (refused) or unknown; `composedNeeds(c)`; `freshServerNeeded(needs)` (restart, pristineHome, serverWide, condition; master plan M12, `unshared` removed by PRB.T-039); `perfVerdict(p, ms)`; `registryOf(scenarios, sets)` |
+| `compose.ts` | `runComposed(c, runId, runStep)`: steps in order, runId `${runId}s${n}`, first failure stops; returns the failed step, its stage, the not-run steps and their lines |
+| `gate.ts` | `GATE_CAP_MS` (20 000), `gateCapMs(env)` (test-only `SCENARIO_GATE_CAP_MS`), `judgeGate(outcomes, capMs)` → `{lines, over}`, `gateTargets(registry, names)` → `{timed, notTimed, refusals}`, `QUIET_UNCONFIRMED`, `notTimedLine` |
+| `sandboxRules.ts` | `sandboxRefusal(scenario)`, `sandboxRefusals(targets)` (all or nothing, naming each member or step) with the `serverWide` and `condition` reasons |
+| `server.ts` | `startServer({env})`; `restart({env})`; `unexpectedExit()` on the handle (never resolves on an attached sandbox server) |
+| `lib/expect.ts` | `expected({what, expected, found})` throwing `ExpectationError` (`<what>: expected <e>, found <f>`) |
+| `lib/files.ts` | `revokeWrite(ctx, path, what, run, {unreadable?})`: runs `run` with write access taken away and registers the undo through `onStepEnd`; skipped as root |
+| `registry.ts` | `checks`, `composed` (empty until PRB.T-039), `perfScenarios` (five), `sets` (empty until PRB.T-039), `selftests`, `pickedSelftests`, `selftestSets`; no `TOTAL`, no `PENDING`, no epic/story split |
+| `scenarios/*.perf.ts` | `perf-tree-node` (1000 ms, PRB.T-004 AC-3), `perf-start-to-banner` (2000 ms, PRB.E-001 NFR-1), `perf-branch-label` (2000 ms, PRB.T-005 AC-26), `perf-prompt-server` (700 ms, PRB.E-002 NFR-1), `perf-prompt-harness` (700 ms, PRB.E-002 NFR-1, read by PRB.T-028) |
+
+Commands (master plan U2): `vp run test:scenarios -- --only <name>` (id, set or composed; repeatable), `--sandbox <pid>` for the same on a sandbox, `vp run scenarios:gate -- [--only <name>]... --quiet-confirmed`; PRB.T-040 step 6 writes the root `package.json` scripts (master plan M18).
+
+**Deviations from the plan.**
+- `restart({env})` replaces the start env for that one restart only; the next plain `restart()` starts with the start env again (master plan M8 said `restart({env})` replaces it). So `restart({env: {}})` drops a condition for one restart, not for good.
+- T19 builds its own expected and found (the last three lines of the shell's history) around the library's output wait, because that wait names what it awaited, the offset and the deadline but gives no "found" (assumption 4 of the plan; its step 5 addition was not done).
+- `perf-prompt-server` starts its plain shell over the API rather than through the "+" modal, and reads the server's start-to-prompt time from the server log.
+- Plan step B1's `serverStartMs` is dropped: PRB.T-040 times each scenario after the shared server is ready, and a fresh server's start counts (master plan M13).
+- No `--set` flag, and the gate's flag is `--quiet-confirmed` (master plan M9).
+
+**Steps and commits (branch `e005`).**
+
+| Step | Commit | What |
+| --- | --- | --- |
+| ticket in progress | `be06655c0` | `tm mv` |
+| 1 contract and rules | `fbdfdfff8` (merged `548288e92`) | kinds, `define*`, `registryRules.ts`, `compose.ts`, `gate.ts`, `sandboxRules.ts`, `lib/expect.ts`, `revokeWrite`, pure tests |
+| B1' server primitives | `62da8f047` (merged `0907ccce9`) | start env, `unexpectedExit()` |
+| 2 re-register | `cc1ecd7b3` | every scenario and self-test through `defineCheck`; new `registry.ts`; `run.ts` minimal |
+| B3 perf moves | `7ff929c38` | five `.perf.ts` files; nine suppressions and the `metric()` calls gone; S3's fork-start time dropped |
+| B4 self-tests | `6e5e1dbbd` (merged `b6ba1e1fb`) | T16–T26 and their sets |
+| B1, B2 runtime | PRB.T-040 `87905c5f4` (reporter), `a6773ad16` (launcher); its fixtures and modes follow | hosted on PRB.T-040's runner |
+| C2 rules file | this commit | `.agents/rules/scenarios.md`: kinds, needs, sets, composition, step undos, the gate, `covers`; the PRB.T-043 interim line removed. `docs/internals/testing.md`, `docs/operations/development.md` and AGENTS.md contradict nothing |
+| C1 tests | PRB.T-040 step 7 | spawned cases on `cli.ts` |

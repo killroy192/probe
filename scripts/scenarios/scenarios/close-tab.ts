@@ -1,127 +1,139 @@
-// @effect-diagnostics nodeBuiltinImport:off - Makes folder fixtures in the throwaway home.
+import { expected } from "../lib/expect.ts";
+import { history, printedAfter, running, writeLine } from "../lib/shells.ts";
+import { plainTabs } from "../lib/setup.ts";
+import { closeTab, tabIds } from "../lib/ui/tabs.ts";
+import { shellPanel, shellReady } from "../lib/ui/terminal.ts";
+import { openFromTree, shellRow } from "../lib/ui/tree.ts";
+import { waitFor } from "../lib/waits.ts";
+import { type CheckScenario, defineCheck } from "../scenario.ts";
 
-import * as NodeFSP from "node:fs/promises";
-import * as NodePath from "node:path";
+const twoOpenTabs = async (ctx: Parameters<typeof plainTabs>[0]) => {
+  const made = await plainTabs(ctx, 2);
+  const [first, second] = made.shells as [
+    (typeof made.shells)[number],
+    (typeof made.shells)[number],
+  ];
+  return { ...made, first, second };
+};
 
-import * as Effect from "effect/Effect";
-
-import { connectRpc } from "../rpc.ts";
-import type { Scenario } from "../scenario.ts";
-import { alive, check, follow, pageFrames, recorder } from "../support.ts";
-import {
-  addProject,
-  closeTab,
-  createWorkspace,
-  history,
-  leaveAgent,
-  openFromTree,
-  shellList,
-  shellRow,
-  shellTab,
-  startShell,
-  tabs,
-  typeLine,
-} from "./workspaceUi.ts";
-
-export const closeTabScenario: Scenario = {
-  id: "S5",
-  title: "close a tab and reopen it from the tree",
+export const closeTabCheck = defineCheck(import.meta.url, {
+  id: "S5.close-tab",
+  title: "closing a tab hides its terminal while the shell runs on in the tree",
   needs: {},
-  run: async ({ server, openPage, runId }) => {
-    const name = `sparta-${runId}`;
-    const plain = NodePath.join(server.home, "folders", runId, "plain");
-    await NodeFSP.mkdir(plain, { recursive: true });
+  covers: ["S5 AC-3"],
+  returns: "closedTabShell",
+  run: async (ctx) => {
+    const { page, shown, setup, first, second } = await ctx.trail.stage("setup", () =>
+      twoOpenTabs(ctx),
+    );
 
-    const page = await openPage();
-    await page.setViewportSize({ width: 1200, height: 800 });
-    const frames = pageFrames(page);
-    const rpc = await connectRpc(server.origin, page);
-    const shells = shellList(rpc.client);
-    const running = (shellId: string) => {
-      const shell = shells.current().find((entry) => entry.shellId === shellId);
-      return shell?.status === "running" && shell.pid !== null && alive(shell.pid);
-    };
-    let stage = "setup";
-
-    try {
-      await createWorkspace(page, name);
-      check((await addProject(page, { import: plain })) === null, "Adding the folder failed.");
-      const first = await startShell(page, shells, plain);
-      const second = await startShell(page, shells, plain);
-
-      // AC-6 (setup): the first shell waits for a line, then prints after its tab is closed.
-
-      stage = "AC-6 setup";
-      await openFromTree(page, first.shellId);
-      await leaveAgent(page, rpc.client, first.shellId);
-      await typeLine(page, "read word; echo after-$word-s5");
-
-      // AC-3: closing a tab hides its terminal; the shell runs on and stays in the tree.
-
-      stage = "AC-3";
+    await ctx.trail.stage("AC-3", async () => {
       await closeTab(page, first.shellId);
-      check((await tabs(page).count()) === 1, "Closing one tab closed others (AC-3).");
-      check(running(first.shellId), "Closing the tab ended the shell (AC-3).");
-      await shellRow(page, first.shellId).waitFor();
-      check(
-        (await page.getByRole("tabpanel", { name: /./ }).count()) === 1,
-        "The closed shell's terminal is still shown (AC-3).",
-      );
+      await waitFor(shellPanel(page, first.shellId), `the terminal of shell ${first.shellId}`, {
+        state: "detached",
+      });
+      expected({ what: "the open tabs", expected: [second.shellId], found: await tabIds(page) });
+      expected({
+        what: `shell ${first.shellId}, whose tab was closed, running`,
+        expected: true,
+        found: running(setup.shells, first.shellId),
+      });
+      await waitFor(shellRow(page, first.shellId), `the tree row of shell ${first.shellId}`);
+    });
 
-      // AC-6: output made while the tab is closed shows when it reopens.
+    return { kind: "closedTabShell", shell: first, shown };
+  },
+});
 
-      stage = "AC-6";
-      // The scenario's own viewer sees the output arrive; the page has no viewer for it now.
-      const output = recorder<string>("attach events");
-      follow(rpc.client["shell.attach"]({ shellId: first.shellId }), (event) =>
-        output.push(JSON.stringify(event)),
-      );
-      // The first event of a fresh attach is its snapshot.
-      await output.until("the scenario's attach snapshot", () => true, 0);
-      // The page may keep receiving a closed tab's output, or get it as history on reopen.
-      const before = frames.mark();
-      const written = output.mark();
-      await Effect.runPromise(rpc.client["shell.write"]({ shellId: first.shellId, data: "go\r" }));
-      await output.until(
-        "the closed shell's output",
-        (event) => event.includes("after-go-s5"),
-        written,
-      );
-      check(
-        (await history(rpc.client, first.shellId)).includes("after-go-s5"),
-        "The closed shell's history lacks its output (AC-6).",
-      );
+export const outputWhileClosed = defineCheck(import.meta.url, {
+  id: "S5.output-while-closed",
+  title: "output a shell makes while its tab is closed shows when the tab reopens",
+  needs: {},
+  covers: ["S5 AC-6"],
+  run: async (ctx) => {
+    const made = await ctx.trail.stage("setup", () => twoOpenTabs(ctx));
+    const { page, frames, setup, first } = made;
 
-      // AC-4: selecting the shell in the tree opens its tab again with the running shell.
-
-      stage = "AC-4";
+    await ctx.trail.stage("AC-6", async () => {
+      await writeLine(setup.client, setup.shells, first.shellId, "read word; echo after-$word-s5");
+      await closeTab(page, first.shellId);
+      // The page may keep its attach while the tab is closed and send no new snapshot on reopen,
+      // and the terminal draws no DOM text, so the output counts from before it was made.
+      const madeFrom = frames.mark();
+      await printedAfter(setup, first.shellId, "go", "after-go-s5");
+      expected({
+        what: `the output made while the tab was closed in the history of ${first.shellId}`,
+        expected: true,
+        found: (await history(setup.client, first.shellId)).includes("after-go-s5"),
+      });
       await openFromTree(page, first.shellId);
+      await shellReady(page, first.shellId);
       await frames.until(
-        "the reopened tab's history",
+        "the output made while the tab was closed, on the page",
         (frame) => frame.includes("after-go-s5"),
-        before,
+        madeFrom,
       );
-      check(running(first.shellId), "The reopened shell is not running (AC-4).");
+    });
+  },
+});
 
-      // AC-5: closing every tab leaves no terminal and no error; the shells stay listed.
+export const reopenFromTree = defineCheck(import.meta.url, {
+  id: "S5.reopen-from-tree",
+  title: "selecting a shell in the tree opens its tab again with the running shell",
+  needs: {},
+  covers: ["S5 AC-4"],
+  run: async (ctx) => {
+    const made = await ctx.trail.stage("setup", () => twoOpenTabs(ctx));
+    const { page, setup, first } = made;
 
-      stage = "AC-5";
+    await ctx.trail.stage("AC-4", async () => {
+      // The criterion is the tab and the running shell. The terminal draws no DOM text, and a
+      // quick reopen may keep the page's attach, so no frame can show what the reopened tab draws.
+      await closeTab(page, first.shellId);
+      await openFromTree(page, first.shellId);
+      await shellReady(page, first.shellId);
+      expected({
+        what: `shell ${first.shellId} running after its tab reopened`,
+        expected: true,
+        found: running(setup.shells, first.shellId),
+      });
+    });
+  },
+});
+
+export const closeAll = defineCheck(import.meta.url, {
+  id: "S5.close-all",
+  title: "closing every tab leaves no terminal and no error while the shells stay listed",
+  needs: {},
+  covers: ["S5 AC-5"],
+  run: async (ctx) => {
+    const { page, setup, first, second } = await ctx.trail.stage("setup", () => twoOpenTabs(ctx));
+
+    await ctx.trail.stage("AC-5", async () => {
       await closeTab(page, first.shellId);
       await closeTab(page, second.shellId);
-      await page.getByText("No open shells").waitFor();
-      check((await page.getByRole("alert").count()) === 0, "Closing every tab showed an error.");
-      check(
-        running(first.shellId) && running(second.shellId),
-        "Closing every tab ended a shell (AC-5).",
-      );
-      for (const shell of [first, second]) await shellRow(page, shell.shellId).waitFor();
-      check((await shellTab(page, first.shellId).count()) === 0, "A closed tab is still shown.");
-    } catch (error) {
-      throw new Error(`S5 failed at ${stage}: ${error instanceof Error ? error.message : error}`, {
-        cause: error,
+      await waitFor(page.getByText("No open shells"), "the empty tab strip's notice");
+      expected({ what: "the open tabs", expected: [], found: await tabIds(page) });
+      expected({
+        what: "alerts after closing every tab",
+        expected: 0,
+        found: await page.getByRole("alert").count(),
       });
-    } finally {
-      await rpc.close();
-    }
+      for (const shell of [first, second]) {
+        expected({
+          what: `shell ${shell.shellId}, whose tab was closed, running`,
+          expected: true,
+          found: running(setup.shells, shell.shellId),
+        });
+        await waitFor(shellRow(page, shell.shellId), `the tree row of shell ${shell.shellId}`);
+      }
+    });
   },
-};
+});
+
+export const successors: ReadonlyArray<CheckScenario> = [
+  closeTabCheck,
+  outputWhileClosed,
+  reopenFromTree,
+  closeAll,
+];

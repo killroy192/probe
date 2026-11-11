@@ -4,15 +4,14 @@ import * as NodeFSP from "node:fs/promises";
 import * as NodePath from "node:path";
 import * as NodeProcess from "node:process";
 
-import { withClient } from "../fixtures.ts";
-import type { Scenario } from "../scenario.ts";
-import { issueBearerToken } from "../seam.ts";
+import { withClient } from "../lib/api.ts";
+import { defineCheck } from "../scenario.ts";
 
 /**
  * Makes a workspace and a folder named by its run, failing if either exists, and writes the note it
  * is given, so a test can change it between two runs on one sandbox. Picked only by id.
  */
-export const changedRerun: Scenario = {
+export const changedRerun = defineCheck(import.meta.url, {
   id: "T6",
   title: "names what it makes by its run",
   needs: {},
@@ -23,9 +22,7 @@ export const changedRerun: Scenario = {
     // Not recursive: a folder an earlier run made fails the scenario.
     await NodeFSP.mkdir(folder);
     await NodeFSP.writeFile(NodePath.join(folder, "note"), NodeProcess.env.SCENARIO_T6_NOTE ?? "");
-    await withClient(server.origin, await issueBearerToken(server), (client) =>
-      client["workspace.create"]({ name: workspace }),
-    );
+    await withClient(server, (client) => client["workspace.create"]({ name: workspace }));
     NodeProcess.stdout.write(`T6 made workspace=${workspace} folder=${folder}\n`);
   },
-};
+});

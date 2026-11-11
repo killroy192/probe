@@ -5,7 +5,7 @@ parent: PRB.E-005
 phase: 1
 labels: [testing, plan]
 created: 2026-11-09
-updated: 2026-11-09
+updated: 2026-11-11
 ---
 
 # Convert every scenario into atomic, composable check scenarios
@@ -79,7 +79,7 @@ Every old scenario is replaced by atomic check scenarios built on PRB.T-038's li
 - **Old ids as sets.** Every old id (S1 to S8, T-002, R1, E2-S1, E2-S3, E2-S4, and E2-S2 or E2-S5 if converted under EC-11) becomes a set of its check successors, so the old id stays usable and tickets that cite it resolve. On the sandbox, a set holding a member with a refused need is refused as a whole (PRB.T-043).
 - **A composed scenario from converted ones.** At least one composed scenario exists whose steps come from at least two old ids and are all accepted on the sandbox.
 - **Expected and found.** Every assertion in a converted scenario fails naming what it expected and what it found.
-- **Gate runs.** After implementing atomic scenarios, the agent asks the user to confirm the machine is quiet and runs PRB.T-043's cap gate once over them; a scenario over 15 s is split further or taken to the epic owner, never rerun unchanged.
+- **Gate runs.** After implementing atomic scenarios, the agent asks the user to confirm the machine is quiet and runs PRB.T-043's cap gate once over them; a scenario over 20 s is split further or taken to the epic owner, never rerun unchanged.
 - **S4.** The output that arrives during a reload is released by the scenario after the reload has begun, instead of a `sleep 2` typed before it, and is shown exactly once.
 - **S6.** The background jobs carry a value unique to the run, and the scenario finds only processes carrying it; a process of the old `sleep 1601` shape, or one carrying another run's value, is not matched.
 - **S3.** The shell that leaves its worktree goes to a folder the scenario owns, not `/tmp`.
@@ -139,7 +139,7 @@ Every old scenario is replaced by atomic check scenarios built on PRB.T-038's li
 
 ## Technical Scope
 
-- **Layers:** `scripts/scenarios` only: the scenario files, their registration and stated needs, the old ids' sets, the composed scenario from converted ones, self-tests of S4's release and S6's marker. No server, web, contracts or product code.
+- **Layers:** `scripts/scenarios` only: the scenario files, their registration and stated needs, the old ids' sets, the composed scenario from converted ones, self-tests of S4's release (S6's marker is checked against its decoys inside every `S6.kill-from-tree` run, AC-28). No server, web, contracts or product code.
 - **Agent CLIs:** the mock agent only; Claude Code and other CLIs are not run.
 - **Shells:** zsh and bash through the harness's isolated startup files; S4's release and S6's marker must behave the same under both, on Linux and macOS (SA-7).
 - **Docs impact:** the e2e rules file `.agents/rules/scenarios.md` only, in the same change: what an atomic scenario is and how its id is formed; what a scenario leaves; that old ids are set names.  The sentence that existing scenarios are converted in PRB.T-039 and the S2 example of an old scenario breaking a rule are removed. `docs/internals/testing.md`, `docs/operations/development.md` and AGENTS.md are only checked: each keeps its pointer and contradicts nothing.
@@ -198,12 +198,12 @@ Every old scenario is replaced by atomic check scenarios built on PRB.T-038's li
 
 | Depends on | Why | Status |
 | ---------- | --- | ------ |
-| PRB.T-043 | The check and perf kinds, sets, composed scenarios, the two new needs, the cap gate command and the deliberate-failure self-tests this story uses. | backlog |
-| PRB.T-038 | The library every atomic scenario builds its preconditions with, and its composition interface: needs from explicit inputs, results returned as values, unique names per call, the same on every server, nothing cleaned up on its own with remove steps offered. Also the debug log and console in artifacts that FR-19 relies on. | backlog |
-| PRB.T-037 | The statement of needs, the sandbox and its refusals, and the "not yet safe" refusals this story converts. | backlog |
+| PRB.T-043 | The check and perf kinds, sets, composed scenarios, the two new needs, the cap gate command and the deliberate-failure self-tests this story uses. | in progress (code on branch `e005`, tag `e005-t043`) |
+| PRB.T-038 | The library every atomic scenario builds its preconditions with, and its composition interface: needs from explicit inputs, results returned as values, unique names per call, the same on every server, nothing cleaned up on its own with remove steps offered. Also the debug log and console in artifacts that FR-19 relies on. | in progress (code on branch `e005`, tag `e005-t038`) |
+| PRB.T-037 | The statement of needs, the sandbox and its refusals, and the "not yet safe" refusals this story converts. | done |
 | PRB.T-042 | The rules file this story updates, and the lint rules on scenario files (including the `temporary: PRB.T-039` suppressions this story removes). | done |
-| PRB.T-036 | The failure artifacts, the PRB.T-011 order check and offsets on frame waits. | code merged 2026-11-10; in progress |
-| PRB.T-041 | Not needed to start; the switch rule decides who moves the scenarios to the signals. | backlog |
+| PRB.T-036 | The failure artifacts, the PRB.T-011 order check and offsets on frame waits. | done |
+| PRB.T-041 | Not needed to start; the switch rule decides who moves the scenarios to the signals. | done (landed first; the successors use its signals) |
 
 **Blocks:** PRB.T-040, which runs these scenarios in parallel on shared servers, decides fresh servers from the needs stated here (its EC-17), and runs the whole-suite gate. Tickets that cite old scenario ids or ACs (PRB.T-016 to PRB.T-020, PRB.T-022 and PRB.T-028 among them) resolve them, and the timings they read, through AC-1's mapping.
 
@@ -221,7 +221,284 @@ Every old scenario is replaced by atomic check scenarios built on PRB.T-038's li
 | SA-8 | PRB.T-043 ships sets, composition and the needs its ticket describes. | assumption | unverified | Read PRB.T-043's code and handoff before planning. | author |
 | SU-1 | Moved to PRB.T-043 (split, 2026-11-10). | – | – | – | – |
 | SU-2 | Moved to PRB.T-043 (split, 2026-11-10). | – | – | – | – |
-| SU-3 | The exact form of the new ids (old id plus a part name). | unknown | unverified | Plan stage; set names follow PRB.T-043. | TBD (author, plan stage, 2026-11-24) |
+| SU-3 | The exact form of the new ids (old id plus a part name). | unknown | settled: `<old id>.<part>`, `composed.<name>` (master plan U3) | Plan stage; set names follow PRB.T-043. | author |
 | SU-4 | Moved to PRB.T-043 (split, 2026-11-10). | – | – | – | – |
 | SU-6 | Moved to PRB.T-043 (split, 2026-11-10); decided there: no perf run before PRB.T-040. | – | – | – | – |
-| SU-5 | Whether E2-S2 or E2-S5 has landed as a long scenario when this story starts (EC-11). | unknown | unverified | Read the registry at the start. | TBD (author, at the start, 2026-11-24) |
+| SU-5 | Whether E2-S2 or E2-S5 has landed as a long scenario when this story starts (EC-11). | unknown | settled: neither had landed (registry read at the start) | Read the registry at the start. | author |
+
+## Handoff
+
+**Built as one wave of the PRB.E-005 master plan** (`.plans/e005-master.md`, not committed), on branch `e005` with PRB.T-038, PRB.T-043 and PRB.T-040. No step ran a scenario, the runner or the spawned harness tests; verification is the epic's final phase (master plan §4: V1 self-tests, V2 `check:changed`, V3 suite, V4 sandbox, V6 reviews, V7c gate).
+
+**What is registered.** 103 atomic checks (101 successors plus `T-041b` and `T-041c`, unchanged), one composed scenario `composed.close-then-kill` = [`S5.close-tab`, `S6.kill-closed-tab` ← step 1], 15 sets (the 14 old ids and `shared`, 73 members), and the self-tests `T27` and `T28` (picked, fail on purpose). No old id is a scenario id. Each old id's set is derived from `covers` in `registry.ts`; `shared` is every check `sandboxRefusal` accepts. `playwright test --list` lists 137 tests. `registry.test.ts` asserts AC-1 (auto part), AC-4, AC-20, AC-3's set, the sandbox refusals of `S7`, `S2.git-init-fails`, `E2-S1.list-offered`, `S1.start-screen` and `R1`, the acceptance of `composed.close-then-kill`, `S5`, `S5.close-tab` and `S6.kill-closed-tab`, and that `validateRegistry` rejects nothing. `unshared` is gone from the contract, the rules and the sandbox reasons (master plan M12).
+
+### Mapping (AC-1)
+
+One row per old criterion. The third column is the successor's one-line reason, where it covers more than one. For the developer's review before the merge (master plan U6); the old files stay readable on `main`.
+
+| Old criterion | Successor | Why grouped |
+| --- | --- | --- |
+| S1 AC-1 | `S1.start-screen` |  |
+| S1 AC-2 | `S1.create-workspace` |  |
+| S1 AC-3 | `S1.second-workspace` | One switch flow: create a second, list both, switch back, then choose the shown one again. |
+| S1 AC-4 | `S1.second-workspace` | One switch flow: create a second, list both, switch back, then choose the shown one again. |
+| S1 AC-5 | `S1.remove-other` |  |
+| S1 AC-6 | `S1.remove-shown` |  |
+| S1 AC-7 | `S1.reload-keeps-saved` | One reload: it shows the same workspace (AC-20) and its list keeps every saved one (AC-7). |
+| S1 AC-8 | `S1.second-workspace` | One switch flow: create a second, list both, switch back, then choose the shown one again. |
+| S1 AC-9 | `S1.second-workspace` | One switch flow: create a second, list both, switch back, then choose the shown one again. |
+| S1 AC-10 | `S1.settings-no-chat` |  |
+| S1 AC-11 with a workspace shown | `S1.chat-routes-shown` | One page showing a workspace: chat addresses and chat shortcuts both leave it shown. |
+| S1 AC-11 with none shown | `S1.chat-routes-start-screen` |  |
+| S1 AC-12 | `S1.chat-routes-shown` | One page showing a workspace: chat addresses and chat shortcuts both leave it shown. |
+| S1 AC-13 | `S1.name-refusals` | Both are the create dialog's refusals of a name; only the taken one needs a workspace. |
+| S1 AC-14 | `S1.name-refusals` | Both are the create dialog's refusals of a name; only the taken one needs a workspace. |
+| S1 AC-15 | `S1.invalid-workspace` |  |
+| S1 AC-16 | `S1.folder-unwritable` | One read-only folder refuses both changes: the create (AC-16) and the remove (AC-17). |
+| S1 AC-17 | `S1.folder-unwritable` | One read-only folder refuses both changes: the create (AC-16) and the remove (AC-17). |
+| S1 AC-20 | `S1.reload-keeps-saved` | One reload: it shows the same workspace (AC-20) and its list keeps every saved one (AC-7). |
+| S2 AC-1 | `S2.import-git` | One import: the folder picked in the server's folder browser, then what its "+" offers. |
+| S2 AC-2 | `S2.one-click-start` | One click on Create shell: its node, its single tab and its names all follow from that start. |
+| S2 AC-3 | `S2.one-click-start` | One click on Create shell: its node, its single tab and its names all follow from that start. |
+| S2 AC-4 | `S2.no-chat-chrome` |  |
+| S2 AC-5 | `S2.agent-echo` |  |
+| S2 AC-6 | `S2.grid-size` |  |
+| S2 AC-7 | `S2.repeat-start` | One second start: its preselection, its single shell and its own output follow from it. |
+| S2 AC-8 | `S2.import-git` | One import: the folder picked in the server's folder browser, then what its "+" offers. |
+| S2 AC-9 | `S2.new-folder-git` |  |
+| S2 AC-10 | `S2.plain-folder` |  |
+| S2 AC-11 | `S2.no-project` |  |
+| S2 AC-12 | `S2.repeat-start` | One second start: its preselection, its single shell and its own output follow from it. |
+| S2 AC-13 | `S2.cancel-modal` |  |
+| S2 AC-14 | `S2.deleted-folder` | One deletion: the refused start in the open modal, then the mark the next read shows. |
+| S2 AC-14b | `S2.removed-folder-last-start` |  |
+| S2 AC-15 | `S2.deleted-folder` | One deletion: the refused start in the open modal, then the mark the next read shows. |
+| S2 AC-16 | `S2.unstartable-script` |  |
+| S2 AC-17 | `S2.add-refusals` |  |
+| S2 AC-17 git init | `S2.git-init-fails` |  |
+| S2 AC-18 | `S2.connection-drop` |  |
+| S2 AC-19 | `S2.start-end-lines` |  |
+| S2 AC-20 | every S2 check that drives the page (17; all but `S2.start-end-lines`) | held by every page flow: pointer only (AC-20), no chat route checked last (AC-23) |
+| S2 AC-21 | `S2.one-click-start` | One click on Create shell: its node, its single tab and its names all follow from that start. |
+| S2 AC-23 | every S2 check that drives the page (17; all but `S2.start-end-lines`) | held by every page flow: pointer only (AC-20), no chat route checked last (AC-23) |
+| S2 AC-24 | `S2.repeat-start` | One second start: its preselection, its single shell and its own output follow from it. |
+| S2 AC-25 | `S2.other-workspace` |  |
+| S3 AC-1 | `S3.existing-primary` | One start in the primary checks its default, the list and its label; the repeat, that it stays. |
+| S3 AC-2 | `S3.existing-linked` | A start in the linked worktree, then the repeat its remembered choice preselects. |
+| S3 AC-3 | `S3.existing-primary`, `S3.existing-linked` | `S3.existing-primary`: One start in the primary checks its default, the list and its label; the repeat, that it stays; `S3.existing-linked`: A start in the linked worktree, then the repeat its remembered choice preselects. |
+| S3 AC-4 | `S3.fork-branch` | The origins list, then the one fork it starts and that fork's log line. |
+| S3 AC-5 | `S3.fork-branch` | The origins list, then the one fork it starts and that fork's log line. |
+| S3 AC-6 | `S3.fork-detached` |  |
+| S3 AC-7 | `S3.fork-remembered` | The repeat the remembered fork preselects is the one-click fork. |
+| S3 AC-8 | `S3.fork-branch` | The origins list, then the one fork it starts and that fork's log line. |
+| S3 AC-9 | `S3.fork-remembered` | The repeat the remembered fork preselects is the one-click fork. |
+| S3 AC-10 | `S3.existing-primary`, `S3.existing-linked` | `S3.existing-primary`: One start in the primary checks its default, the list and its label; the repeat, that it stays; `S3.existing-linked`: A start in the linked worktree, then the repeat its remembered choice preselects. |
+| S3 AC-11 | `S3.existing-primary` | One start in the primary checks its default, the list and its label; the repeat, that it stays. |
+| S3 AC-12 | `S3.ended-worktree` | The linked worktree's shells end, then the worktree itself goes. |
+| S3 AC-13 | `S3.origin-gone-fallback` |  |
+| S3 AC-14 | `S3.choice-per-project` |  |
+| S3 AC-15 | `S3.no-worktree-choice` | Two projects without a forkable checkout, each opened and started once. |
+| S3 AC-16 | `S3.no-worktree-choice` | Two projects without a forkable checkout, each opened and started once. |
+| S3 AC-17 | `S3.origin-deleted` | One refused fork: what it leaves, what it starts and what it remembers. |
+| S3 AC-18 | `S3.origin-deleted` | One refused fork: what it leaves, what it starts and what it remembers. |
+| S3 AC-19 | `S3.origin-deleted` | One refused fork: what it leaves, what it starts and what it remembers. |
+| S3 AC-22 | `S3.unstartable-in-worktree` |  |
+| S3 AC-23 | `S3.fork-double-click` |  |
+| S3 AC-24 | `S3.cancel-keeps-choice` |  |
+| S3 AC-25 | `S3.existing-primary` | One start in the primary checks its default, the list and its label; the repeat, that it stays. |
+| S3 AC-26 | `S3.branch-relabel` |  |
+| S3 AC-27 | `S3.leave-worktree` | One cd out of the worktree, into a folder the scenario owns. |
+| S3 AC-28 | `S3.ended-worktree` | The linked worktree's shells end, then the worktree itself goes. |
+| S3 AC-29 | `S3.import-linked` |  |
+| S3 AC-30 | `S3.leave-worktree` | One cd out of the worktree, into a folder the scenario owns. |
+| S4 AC-1 | `S4.many-shells`, `S4.reload-layout` | `S4.reload-layout`: One reload proves them: the workspace, its rows, the open tabs, the selection, the closed tab. |
+| S4 AC-2 | `S4.switch-tabs`, `S4.reopen-after-reload` | `S4.reopen-after-reload`: One reload proves them: the reopened tab (AC-2) and the open one (AC-3) show earlier output once. |
+| S4 AC-3 | `S4.reopen-after-reload` | One reload proves them: the reopened tab (AC-2) and the open one (AC-3) show earlier output once. |
+| S4 AC-4 | `S4.output-during-reload` | One held output proves them: shown once (AC-4), held with no sleep (AC-26), a plain shell (EC-3). |
+| S4 AC-5 | `S4.reload-layout` | One reload proves them: the workspace, its rows, the open tabs, the selection, the closed tab. |
+| S4 AC-11 | `S4.ended-after-reload` | One reload proves them: killed and exited shells stay gone, the signalled one shows ended. |
+| S4 AC-15 | `S4.ended-after-reload` | One reload proves them: killed and exited shells stay gone, the signalled one shows ended. |
+| S4 AC-26 | `S4.output-during-reload` | One held output proves them: shown once (AC-4), held with no sleep (AC-26), a plain shell (EC-3). |
+| S4 AC-28 | `S4.ended-after-reload` | One reload proves them: killed and exited shells stay gone, the signalled one shows ended. |
+| S4 AC-31 | `S4.reload-layout` | One reload proves them: the workspace, its rows, the open tabs, the selection, the closed tab. |
+| S4 AC-32 | `S4.reload-layout` | One reload proves them: the workspace, its rows, the open tabs, the selection, the closed tab. |
+| S4 EC-3 | `S4.output-during-reload` | One held output proves them: shown once (AC-4), held with no sleep (AC-26), a plain shell (EC-3). |
+| S5 AC-3 | `S5.close-tab` |  |
+| S5 AC-4 | `S5.reopen-from-tree` |  |
+| S5 AC-5 | `S5.close-all` |  |
+| S5 AC-6 | `S5.output-while-closed` |  |
+| S6 AC-7 | `S6.kill-from-tree` | One kill: the shell, its jobs, its tab and its log line all end with it; the decoys must not. |
+| S6 AC-8 | `S6.kill-from-tree`, `S6.kill-closed-tab` | `S6.kill-from-tree`: One kill: the shell, its jobs, its tab and its log line all end with it; the decoys must not. |
+| S6 AC-9 | `S6.kill-from-tree` | One kill: the shell, its jobs, its tab and its log line all end with it; the decoys must not. |
+| S6 AC-10 | `S6.probe-kill` | One `probe kill` in a shared worktree: its shell ends, the neighbour and the worktree stay. |
+| S6 AC-11 | `S6.probe-kill` | One `probe kill` in a shared worktree: its shell ends, the neighbour and the worktree stay. |
+| S6 AC-12 | `S6.probe-kill` | One `probe kill` in a shared worktree: its shell ends, the neighbour and the worktree stay. |
+| S6 AC-13 | `S6.probe-kill` | One `probe kill` in a shared worktree: its shell ends, the neighbour and the worktree stay. |
+| S6 AC-14 | `S6.kill-unreachable` |  |
+| S6 AC-15 | `S6.remove-workspace` | One removal: its shells end (AC-15) and its folders, the worktree's included, stay (AC-16). |
+| S6 AC-16 | `S6.remove-workspace` | One removal: its shells end (AC-15) and its folders, the worktree's included, stay (AC-16). |
+| S6 AC-17 | `S6.ended-during-confirm` |  |
+| S6 AC-18 | `S6.cancel-kill` |  |
+| S6 AC-20 | `S6.kill-from-tree` | One kill: the shell, its jobs, its tab and its log line all end with it; the decoys must not. |
+| S6 AC-28 | `S6.kill-from-tree` | One kill: the shell, its jobs, its tab and its log line all end with it; the decoys must not. |
+| S6 remove project | `S6.remove-project` |  |
+| S7 AC-6 | `S7.survive-restart` | One restart: every kind of running state is judged after the same restart (EC-3). |
+| S7 AC-7 | `S7.survive-restart` | One restart: every kind of running state is judged after the same restart (EC-3). |
+| S7 AC-8 | `S7.survive-restart` | One restart: every kind of running state is judged after the same restart (EC-3). |
+| S7 AC-9 | `S7.switch-workspace` |  |
+| S7 AC-10 | `S7.survive-restart` | One restart: every kind of running state is judged after the same restart (EC-3). |
+| S7 AC-12 | `S7.ended-after-restart` | One restart: each is how the restarted server shows a shell that ended before it. |
+| S7 AC-13 | `S7.ended-after-restart` | One restart: each is how the restarted server shows a shell that ended before it. |
+| S7 AC-14 | `S7.ended-after-restart` | One restart: each is how the restarted server shows a shell that ended before it. |
+| S7 AC-16 | `S7.ended-after-restart` | One restart: each is how the restarted server shows a shell that ended before it. |
+| S7 AC-17 | `S7.removed-stay-gone` | The removal, then the same entries after a restart. |
+| S7 AC-17 after restart | `S7.removed-stay-gone`, `S7.lost-host` | `S7.removed-stay-gone`: The removal, then the same entries after a restart; `S7.lost-host`: The lost host, then a second restart: the lost entries it removed stay gone (plan D10). |
+| S7 AC-18 | `S7.remove-unsaveable` |  |
+| S7 AC-19 | `S7.unreadable-workspace` |  |
+| S7 AC-20 | `S7.lost-host` | The lost host, then a second restart: the lost entries it removed stay gone (plan D10). |
+| S7 AC-21 | `S7.layout-unsaveable` |  |
+| S7 AC-22 | `S7.ended-after-restart` | One restart: each is how the restarted server shows a shell that ended before it. |
+| S7 AC-23 | `S7.ended-after-restart` | One restart: each is how the restarted server shows a shell that ended before it. |
+| S7 AC-29 | `S7.survive-restart` | One restart: every kind of running state is judged after the same restart (EC-3). |
+| S7 AC-31 | `S7.survive-restart` | One restart: every kind of running state is judged after the same restart (EC-3). |
+| S7 AC-33 | `S7.remove-workspace` |  |
+| S7 AC-34 | `S7.survive-restart` | One restart: every kind of running state is judged after the same restart (EC-3). |
+| S7 EC-1 | `S7.survive-restart` | One restart: every kind of running state is judged after the same restart (EC-3). |
+| S8 PRB.E-001 FR-17 | `S8.restore-after-signal`, `S8.restore-after-lost-host` | `S8.restore-after-signal`: The S8 behavior is the E-001 requirement: the restore is the user's, never automatic; `S8.restore-after-lost-host`: One lost host proves the restore (FR-17) and that the lost shell keeps its number (PRB.T-015). |
+| S8 PRB.E-001 FR-19 | `S8.no-restore-exit-kill`, `S8.no-restore-moved-folder` | `S8.no-restore-exit-kill`: An exit and a kill are the two ways a shell leaves for good, which FR-19 names; `S8.no-restore-moved-folder`: A missing folder is the other case FR-19 rules out of a restore. |
+| S8 PRB.T-015 numbering | `S8.restore-after-lost-host` | One lost host proves the restore (FR-17) and that the lost shell keeps its number (PRB.T-015). |
+| S8 no restore for a moved folder | `S8.no-restore-moved-folder` | A missing folder is the other case FR-19 rules out of a restore. |
+| S8 no restore for exit or kill | `S8.no-restore-exit-kill` | An exit and a kill are the two ways a shell leaves for good, which FR-19 names. |
+| S8 remove after restore | `S8.remove-restored` |  |
+| S8 restore after a restart | `S8.restore-after-lost-host` | One lost host proves the restore (FR-17) and that the lost shell keeps its number (PRB.T-015). |
+| S8 restore after a signal | `S8.restore-after-signal` | The S8 behavior is the E-001 requirement: the restore is the user's, never automatic. |
+| T-002 A-14 | `T-002.restart` |  |
+| T-002 AC-1 | `T-002.listed` | One open proves both: the shell starts outside any thread (AC-1) and is listed (AC-3). |
+| T-002 AC-3 | `T-002.listed` | One open proves both: the shell starts outside any thread (AC-1) and is listed (AC-3). |
+| T-002 AC-5 | `T-002.reload` |  |
+| T-002 AC-7 | `T-002.end` |  |
+| T-002 AC-15 | `T-002.view` | The view that shows the shell (AC-15) is the one whose pane sets its size (AC-16). |
+| T-002 AC-16 | `T-002.view` | The view that shows the shell (AC-15) is the one whose pane sets its size (AC-16). |
+| R1 AC-1 | `R1.two-servers` | One second server answers all four: its process and home, its workspaces, and its shells. |
+| R1 AC-2 | `R1.two-servers` | One second server answers all four: its process and home, its workspaces, and its shells. |
+| R1 AC-3 | `R1.seam` | The seam save is one action: the UI connecting (AC-3) and where the credential went (EC-1). |
+| R1 EC-1 | `R1.seam` | The seam save is one action: the UI connecting (AC-3) and where the credential went (EC-1). |
+| R1 EC-4 | `R1.two-servers` | One second server answers all four: its process and home, its workspaces, and its shells. |
+| R1 a shell on the second server | `R1.two-servers` | One second server answers all four: its process and home, its workspaces, and its shells. |
+| E2-S3 AC-1 | `E2-S3.fresh-list` |  |
+| E2-S3 AC-2a | `E2-S3.agent-command-ignored` | One plain start in a worktree: what it types (AC-2a, AC-13a) and how it is logged (AC-12). |
+| E2-S3 AC-2b | `E2-S3.plain-preselected` |  |
+| E2-S3 AC-12 | `E2-S3.agent-command-ignored` | One plain start in a worktree: what it types (AC-2a, AC-13a) and how it is logged (AC-12). |
+| E2-S3 AC-13a | `E2-S3.agent-command-ignored` | One plain start in a worktree: what it types (AC-2a, AC-13a) and how it is logged (AC-12). |
+| E2-S1 AC-3 | `E2-S1.agent-once-after-prompt` | One modal start of the mock agent: it starts (AC-3) and is typed once after the prompt (AC-10). |
+| E2-S1 AC-4 | `E2-S1.second-script` | One start of the echo script: it runs once (AC-4) and its start line names it (AC-12). |
+| E2-S1 AC-5 | `E2-S1.preselect-after-restart` |  |
+| E2-S1 AC-7 | `E2-S1.removed-falls-back` |  |
+| E2-S1 AC-8 | `E2-S1.seed-off-then-on` |  |
+| E2-S1 AC-9 | `E2-S1.damaged-kept` |  |
+| E2-S1 AC-10 | `E2-S1.agent-once-after-prompt` | One modal start of the mock agent: it starts (AC-3) and is typed once after the prompt (AC-10). |
+| E2-S1 AC-12 | `E2-S1.second-script` | One start of the echo script: it runs once (AC-4) and its start line names it (AC-12). |
+| E2-S1 AC-21 | `E2-S1.list-offered` |  |
+| E2-S1 AC-22 | `E2-S1.renamed-preselected` |  |
+| E2-S1 AC-23 | `E2-S1.emptied-not-seeded` |  |
+| E2-S4 AC-1 | `E2-S4.missing-program` | One refused start: its alert (AC-1, AC-12 by clicks only), the shell it removes (AC-2), its log line (AC-5) and the modal left open for another try (AC-4). |
+| E2-S4 AC-2 | `E2-S4.missing-program` | One refused start: its alert (AC-1, AC-12 by clicks only), the shell it removes (AC-2), its log line (AC-5) and the modal left open for another try (AC-4). |
+| E2-S4 AC-4 | `E2-S4.missing-program` | One refused start: its alert (AC-1, AC-12 by clicks only), the shell it removes (AC-2), its log line (AC-5) and the modal left open for another try (AC-4). |
+| E2-S4 AC-5 | `E2-S4.missing-program` | One refused start: its alert (AC-1, AC-12 by clicks only), the shell it removes (AC-2), its log line (AC-5) and the modal left open for another try (AC-4). |
+| E2-S4 AC-9 | `E2-S4.exiting-command` | One start of an exiting command: the shell stays (AC-9), takes a typed line (AC-10) and stays listed as running (AC-11). |
+| E2-S4 AC-10 | `E2-S4.exiting-command` | One start of an exiting command: the shell stays (AC-9), takes a typed line (AC-10) and stays listed as running (AC-11). |
+| E2-S4 AC-11 | `E2-S4.exiting-command` | One start of an exiting command: the shell stays (AC-9), takes a typed line (AC-10) and stays listed as running (AC-11). |
+| E2-S4 AC-12 | `E2-S4.missing-program` | One refused start: its alert (AC-1, AC-12 by clicks only), the shell it removes (AC-2), its log line (AC-5) and the modal left open for another try (AC-4). |
+| T-041a AC-4 reload | `T-041a.hidden-and-reload` | One page with a hidden and a shown tab: each later stage reads the same two tabs again. |
+| T-041a AC-4 restart | `T-041a.after-restart` |  |
+| T-041a AC-4 second client | `T-041a.hidden-and-reload` | One page with a hidden and a shown tab: each later stage reads the same two tabs again. |
+| T-041a AC-6 | `T-041a.hidden-and-reload` | One page with a hidden and a shown tab: each later stage reads the same two tabs again. |
+| T-041b AC-11 | `T-041b` |  |
+| T-041c AC-12 | `T-041c` |  |
+
+### Needs (AC-4)
+
+All 73 `{}` checks: every workspace, folder, fork name and job marker carries `runId`, and counts, kills and removes are scoped to what the check made (lane searches below). 28 checks get a server of their own; two share the main server and are refused on a sandbox.
+
+| Check | Needs | Cause |
+| --- | --- | --- |
+| `S1.start-screen` | pristineHome | its home and server-pid guard, and AC-1 on the first page of an empty home (D9 confirmed: the shown workspace is per browser, so only this one needs it) |
+| `S1.reload-keeps-saved`, `S1.invalid-workspace` | serverWide: writes into the server's workspaces folder | seeds `delphi-<runId>.json`, `broken-<runId>.json`, `locked-<runId>.json` straight into the folder |
+| `S1.folder-unwritable` | serverWide: makes the workspaces folder read-only | `revokeWrite` on `userdata/workspaces` |
+| `S2.unstartable-script`, `S3.unstartable-in-worktree` | serverWide: adds a starting script | writes the server's starting-script list |
+| `S2.git-init-fails` | condition: git reads a broken global config | `GIT_CONFIG_GLOBAL` points at `<home>/broken-gitconfig`, so the server's `git init` fails |
+| `S7.survive-restart`, `S7.ended-after-restart`, `S7.removed-stay-gone` | restart | the restart is the subject |
+| `S7.lost-host`, `S8.restore-after-lost-host` | restart | server stop, host stop, start (`S7.lost-host` restarts once more) |
+| `S7.remove-unsaveable` | serverWide: makes the state folder read-only | `revokeWrite` on `userdata/shells` |
+| `S7.layout-unsaveable` | serverWide: makes the state folder read-only | `revokeWrite` on `userdata/workspaces` |
+| `T-002.restart`, `T-041a.after-restart` | restart | the restart is the subject |
+| `R1.two-servers`, `R1.seam` | secondServer | `ctx.startSecondServer()`; the seam saves the second server in the browser |
+| `E2-S3.fresh-list` | serverWide: depends on the list a fresh state folder offers | asserts the exact list [Plain shell, mock agent] |
+| `E2-S3.agent-command-ignored` | condition: the server starts with `PROBE_AGENT_COMMAND` set | the variable must be in the server's start env |
+| `E2-S1.list-offered`, `.second-script`, `.renamed-preselected`, `.removed-falls-back`, `E2-S4.missing-program`, `E2-S4.exiting-command` | serverWide: writes the list | `writeStartingScripts` |
+| `E2-S1.preselect-after-restart`, `.emptied-not-seeded`, `.damaged-kept` | restart, serverWide: writes the list | the list is written, then the restart is the subject |
+| `E2-S1.seed-off-then-on` | restart, serverWide, condition: no mock agent to seed | starts with `PROBE_SEED_MOCK_AGENT` unset, then restarts once with `{}` env (seeding on) |
+
+### Restarts (AC-5)
+
+Old: 14 (SA-2). New: **11 in the 13 old ids**, the plan's number, plus T-041a's own one, so **12 restarts in 10 checks**. Old S7 had 3 and now has 5 (lane 6), which the plan's 11 already counted.
+
+| Check | Restart | Proves |
+| --- | --- | --- |
+| `S7.survive-restart` | restart | running shells keep pid, output, place, tabs, selection and last start; reattach log line; a live shell in a missing folder (one restart over every kind of state, EC-3) |
+| `S7.ended-after-restart` | restart | shells that ended before it stay gone or show ended; the fork worktree is still offered; missing folders are marked |
+| `S7.removed-stay-gone` | restart | removed entries and their projects stay gone |
+| `S7.lost-host` | host stop + restart, then restart | shells show `lost` and no process survives; after the second restart the removed lost entry stays gone |
+| `S8.restore-after-lost-host` | host stop + restart | listed `lost`, keeps "Shell 1", Restore runs it again |
+| `T-002.restart` | restart | a standalone shell keeps its pid and stays running |
+| `E2-S1.preselect-after-restart` | restart | last starts per project survive; the list file is unchanged |
+| `E2-S1.emptied-not-seeded` | restart | an emptied list is not seeded on start |
+| `E2-S1.damaged-kept` | restart | a damaged list is kept, logged, and offers Plain only |
+| `E2-S1.seed-off-then-on` | restart | a state folder with no list gets the mock agent once seeding is on |
+| `T-041a.after-restart` | restart | both tabs show attached and ready again after the shells reattach |
+
+Gone: S2's two (the git fault is now `S2.git-init-fails`'s condition server; the restart to see a new script is dropped because the list is read on every call), S3 AC-22's (read per call), E2-S3's (condition server of `E2-S3.agent-command-ignored`) and E2-S1 AC-8's first (condition server of `E2-S1.seed-off-then-on`).
+
+### Source searches (AC-28, AC-29), at integration
+
+Over `scripts/scenarios/scenarios/*.ts` except the perf files:
+- **Process table:** no `pidsRunning` and no `ps`. `S6.kill-from-tree` finds its jobs by the exact argv `sleep <run marker>`; its decoys (`sleep 1601` and another run's marker) start before its jobs, must not match, must outlive the kill, and end by captured pid at step end (D7).
+- **Kills:** `NodeProcess.kill(<pid>, "SIGKILL")` five times, each on a pid of a shell the check started (many-shells, restart, restore-shell, kill-shell, plus-modal); every tree kill and `setup.killShell` is on the check's own shells.
+- **Counts and removes:** scoped to the check's own projects, shell ids, workspace or fresh page; the Workspaces menu is checked as "includes mine, excludes my removed one"; S3's `[data-worktree]` counts are scoped to its own project (no page-wide count is left, M16).
+- **Write access:** six `revokeWrite` calls (boot 2, plus-modal 1, restart 3), each undone at step end, pass or fail. One raw `chmod`: `S7.layout-unsaveable` restores the folder's own mode to see saving resume, before the same undo.
+- **Absence:** each after its settling event, per the lane rows (a detached row, a list after a `mark()`, a present row after a reload, the refusal alert).
+- **No** `/tmp`, clock reads, typed `sleep`, or `temporary: PRB.T-039` left. One `sleep 0.05` loop remains, in the git hook that holds `S3.fork-double-click`'s fork from the test's side (`holdingHook` in `lib/files.ts`); it is a fixture script, not a scenario wait. It gives up after one library wait (`WAIT_MS`, 200 looks), and the check writes its release file at step end, pass or fail, so a failed wait never leaves the shared server's git hanging (V6, `lib/files.test.ts`).
+- **AC-34:** PRB.T-041 landed first; every successor waits on its signals (prompt ready, layout saved, shell ended) through the library.
+
+### Risks for the final phase
+
+- S8 started its API shells after the page showed the workspace (W4's SA-3 note). Its successors now start them before, and a shell started later (the `PRB.T-015 numbering` stage's) waits for its tree row; if the tree misses that list event, the wait fails naming the row.
+- `E2-S4.missing-program` AC-2: the scoped count of 0 could be met by a list from before the refused shell's add event (as the old scenario's could). Since V6 it waits for a list, after the start, that holds the refused shell, then for a later one without it.
+- `S1.chat-routes-shown` assumes a page load of `/<env>/thread-1` with a workspace shown restores the remembered workspace after the redirect (PRB.T-007); the old S1 page-loaded only with none shown.
+- Lines typed on the page (S2, S3, S4, S6, S7, S8 and E2 stages; lane 4's `S4.many-shells` and `S4.reopen-after-reload` among them) are exposed to the PRB.T-041 typed-chunk defect: recorded, not rerun (master plan U7, D5).
+- The cap: 28 checks count their own server start, the two-restart `S7.lost-host` and the four E2-S1 restart checks most of all (D10: split further if over, no exception).
+- SA-7 (macOS `ps`, `/tmp` link) for the marker and the release stays open until PRB.T-040's macOS run.
+
+### Product defects found in verification
+
+- **"Create workspace" appears late and moves the Workspaces menu under the pointer** (original story PRB.T-003). Symptom: right after a page load, the sidebar's Workspaces menu and the start screen show no "Create workspace" until the page learns its write permission, then insert it above "Open workspace"; a submenu opened in that window shuts and the highlight jumps to "Create workspace". Scenarios: `S3.fork-remembered` (V3 rerun 1) and `E2-S4.exiting-command` (V3 full run 2), both the first scenario on a fresh shared server. Artifacts: `/tmp/probe-scenario-artifacts/2026-11-11T05-37-41-502Z-82729/S3.fork-remembered/`, `/tmp/probe-scenario-artifacts/2026-11-11T05-40-41-857Z-93488/E2-S4.exiting-command/` (traces show the item missing at the click and present at the failure). Suspected cause: `canChange` (`workspaceEnvironment.create.permissionAtom`) resolves after the workspace list, and `WorkspaceSidebar`/`WorkspaceScreen` render the gated items only once it does. The harness now waits for the item before using the menu (`lib/ui/workspacesMenu.ts`).
+- **A started agent's program label can stay missing for over 10 s** (original story PRB.T-004). Symptom: a mock agent started by one click on "Create shell" printed its banner and session, but its tab stayed "Shell 1 · repo-2" and its tree row "Shell 1" (no "· node") for the whole 10 s wait; the shell list kept `process: null`. Scenario: `S2.one-click-start`, V4's second `--only shared` run on a sandbox holding about 155 running shells (it passed in the first). Artifacts: `/tmp/probe-scenario-artifacts/2026-11-11T05-57-08-980Z-35838/S2.one-click-start/` (`recorders.json` has an `activity` frame with `hasRunningSubprocess: false` right after the banner). Suspected cause: in `apps/server/src/terminal/Manager.ts`, a process-table snapshot taken before the agent was the shell's child (the native telemetry table, or its silent `ps` fallback, which also backs the poll off) finds no subprocess; the session then counts as quiet, and with every session quiet the poll snapshots only every 30th tick, so the label comes about 30 s late.
+
+- **The branch label misses PRB.T-005 AC-26's 2 s limit on some runs** (original story PRB.T-005). Symptom: `perf-branch-label` measured 399 ms in the V7 perf run and in loop perf run 1, then 2042 ms and 2055 ms in loop perf runs 2 and 3 (limit 2000 ms). Artifacts: `/tmp/probe-scenario-artifacts/loop-2026-11-11T09-05-20-348Z-73013/perf-2/` and `perf-3/`. Cause: the server re-reads each worktree's HEAD on a 2 s poll (`apps/server/src/terminal/Shells.ts`, `refreshLocations` repeated with `Schedule.spaced("2 seconds")`), so the label can lag a switch by the full interval plus the read. The user then raised the limit to 3 s (2026-11-11, recorded in PRB.T-005); the 3-run loop of `perf-branch-label` passed 0/3 (1283, 2048 and 2068 ms).
+
+### Checks weakened in verification
+
+- **S5 AC-4 and AC-6 cannot be seen on the reopened tab** (V3 `8b277856e`, V4 `a2b914515`, V6). The terminal draws on a canvas, with no DOM text, and a tab closed and reopened quickly may keep the page's attach, so the page gets no new snapshot on reopen and a frame cannot say what the reopened tab draws. `S5.reopen-from-tree` (AC-4: the tab opens again with the running shell) now checks only that: the reopened tab shows attached and ready, and the shell runs; its frame wait counted output printed while the tab was still open, so it proved nothing and is gone. `S5.output-while-closed` (AC-6) proves that the output made while the tab was closed is in the shell's history and reached the page (live while closed, or in a snapshot on reopen), and that the reopened tab shows attached and ready; not that the tab draws it. The old S5 judged AC-6 the same way.
+
+### Deviations from the plan
+
+- `restartAndReload` now always returns after the new connection's first shell list and takes `{ env?, lostHost? }`, where its fifth argument was `env`. Lanes 6 and 7 had each built the same lost-host restart (server stop, host stop, start) and first-list wait; both now call it.
+- The lanes' helper modules are folded: workspace following, a signed-in page with recorded frames, the framed world, plain tabs and an uncommitted repo into `lib/setup.ts`; the path wait into `lib/navigate.ts`; the text expectation into `lib/expect.ts`; frame counts into `lib/network.ts`; a written line and its output into `lib/shells.ts`; the starting-script reads and the modal start into `lib/ui/plusModal.ts`, replacing its unused only-Plain check. Seven scenario files had their own copy of the framed page; all use the library's now.
+- `S2.grid-size` starts a plain shell, `S2.start-end-lines` is API-only and so does not cover S2 AC-20/AC-23, and `S2.agent-echo` prints no `S2 server pid=` line on a shared server (PRB.T-040 10B keys its SIGKILL case on the shared server's line).
+- `T27` and `T28` are registered in `pickedSelftests` (the step brief; the master plan had left self-test arrays to 10B). `harness.test.ts`'s old-id uses are 10B's and `sandbox.test.ts`'s are 10C's; integration removed only the `unshared` row there so the typecheck stays green.
+- `S7.lost-host`'s missing grouping comment was added at integration.
+- Per lane: lane 1 checks the start-screen refusal on a second fresh page; lane 4 writes S5's earlier lines over the API; lane 5 uses plain shells where the agent was not the subject; lane 6 splits old S7 AC-16 into AC-16 and AC-22 stages and uses two shells in `lost-host`; lane 7 keeps `T-002.restart` as a plain server restart; lane 8 waits for E2-S4 AC-5's log line; lane 9 makes R1's names carry `runId`.
+
+### Commits
+
+Lane 0 `217ebf102` (shared pieces, inventory). Lanes: 1 S1 `ebf67f8bf`, 2 S2 `50203fc58`, 3 S3 `edc8a7c91`, 4 S4/S5/T27/T28 `d605f74e1`, 5 S6 `6341d096c`, 6 S7 `9a8540d4a`, 7 S8/T-002 `7151616c2`, 8 E2 `9338005bb`, 9 R1/T-041a `efd62a9f4`, merged at `6fd865077`. Integration: `feat(scenarios): register atomic scenarios, old ids as sets (PRB.T-039)`, tag `e005-t039`.
