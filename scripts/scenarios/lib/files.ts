@@ -9,8 +9,24 @@ import type { StartingScript } from "@t3tools/contracts";
 import { gitEnv } from "../isolation.ts";
 import type { ScenarioContext } from "../scenario.ts";
 import type { ServerHandle } from "../server.ts";
+import { WAIT_MS } from "./deadlines.ts";
 import { unlessRoot } from "./report.ts";
 import { check } from "./waits.ts";
+
+/** How often a held git hook looks for its release file. */
+const HOOK_STEP_MS = 50;
+
+/**
+ * A git hook that, while `hold` exists, waits for `release`. It gives up after `steps` looks
+ * (by default one library wait), so a check that fails before releasing it, or a killed worker,
+ * never leaves git, and the server's fork with it, hanging.
+ */
+export const holdingHook = (hold: string, release: string, steps = WAIT_MS / HOOK_STEP_MS) =>
+  `#!/bin/sh
+[ -f "${hold}" ] || exit 0
+i=0
+while [ ! -f "${release}" ] && [ "$i" -lt ${steps} ]; do sleep ${HOOK_STEP_MS / 1000}; i=$((i + 1)); done
+`;
 
 /** Git for fixtures, with the harness's own config, never the developer's. */
 export const git = (cwd: string, args: ReadonlyArray<string>) =>

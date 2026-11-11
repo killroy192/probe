@@ -8,7 +8,7 @@ import * as Effect from "effect/Effect";
 
 import type { PointerPage } from "../browser.ts";
 import { expected } from "../lib/expect.ts";
-import { addStartingScript, gitOk } from "../lib/files.ts";
+import { addStartingScript, gitOk, holdingHook } from "../lib/files.ts";
 import { showWorkspace } from "../lib/navigate.ts";
 import { pageFrames } from "../lib/network.ts";
 import { shellsOf, worktreeNodes } from "../lib/scoped.ts";
@@ -116,11 +116,9 @@ async function gitFixture(
   if (holdForks) {
     // Holds a fork open while the hold file exists, so a second click lands mid-start (AC-23).
     const hooks = NodePath.join(repo, ".git", "hooks");
-    await NodeFSP.writeFile(
-      NodePath.join(hooks, "post-checkout"),
-      `#!/bin/sh\n[ -f "${hold}" ] || exit 0\nwhile [ ! -f "${release}" ]; do sleep 0.05; done\n`,
-      { mode: 0o755 },
-    );
+    await NodeFSP.writeFile(NodePath.join(hooks, "post-checkout"), holdingHook(hold, release), {
+      mode: 0o755,
+    });
     await gitOk(repo, "config", "core.hooksPath", hooks);
   }
   return {
@@ -849,6 +847,7 @@ export const forkDoubleClick = defineCheck(import.meta.url, {
       const held = await proposedName(page);
       const before = await worktreeCount();
       await NodeFSP.writeFile(git.hold, "");
+      ctx.onStepEnd("the held fork", () => NodeFSP.writeFile(git.release, ""));
       await startButton(page).dblclick();
       await waitFor(dialog(page).getByText(`Creating ${held}…`), "the modal's creating line");
       expected({

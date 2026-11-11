@@ -467,7 +467,7 @@ Over `scripts/scenarios/scenarios/*.ts` except the perf files:
 - **Counts and removes:** scoped to the check's own projects, shell ids, workspace or fresh page; the Workspaces menu is checked as "includes mine, excludes my removed one"; S3's `[data-worktree]` counts are scoped to its own project (no page-wide count is left, M16).
 - **Write access:** six `revokeWrite` calls (boot 2, plus-modal 1, restart 3), each undone at step end, pass or fail. One raw `chmod`: `S7.layout-unsaveable` restores the folder's own mode to see saving resume, before the same undo.
 - **Absence:** each after its settling event, per the lane rows (a detached row, a list after a `mark()`, a present row after a reload, the refusal alert).
-- **No** `/tmp`, clock reads, typed `sleep`, or `temporary: PRB.T-039` left. One bounded `sleep 0.05` loop remains inside `S3.fork-double-click`'s git hook that holds a fork from the test's side; it is a fixture script, not a scenario wait.
+- **No** `/tmp`, clock reads, typed `sleep`, or `temporary: PRB.T-039` left. One `sleep 0.05` loop remains, in the git hook that holds `S3.fork-double-click`'s fork from the test's side (`holdingHook` in `lib/files.ts`); it is a fixture script, not a scenario wait. It gives up after one library wait (`WAIT_MS`, 200 looks), and the check writes its release file at step end, pass or fail, so a failed wait never leaves the shared server's git hanging (V6, `lib/files.test.ts`).
 - **AC-34:** PRB.T-041 landed first; every successor waits on its signals (prompt ready, layout saved, shell ended) through the library.
 
 ### Risks for the final phase
