@@ -1,8 +1,12 @@
 // @effect-diagnostics nodeBuiltinImport:off - Scenario runner owns host directories and processes directly.
 
+import * as NodeFS from "node:fs";
 import * as NodeFSP from "node:fs/promises";
 import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
+
+import type { ProcessIdentity } from "./cleanup.ts";
+import type { ReporterOptions } from "./reporter.ts";
 
 export interface RunOptions {
   readonly selftest: boolean;
@@ -135,13 +139,46 @@ export async function createThrowawayHome(): Promise<string> {
   return await NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "probe-scenario-"));
 }
 
-/** The default folder for this run's failure artifacts; never under a throwaway home. */
-export const defaultArtifactsDir = (startedAt: Date) =>
+/**
+ * The default folder for this run's failure artifacts; never under a throwaway home. The pid tells
+ * apart two runs that start in the same millisecond.
+ */
+export const defaultArtifactsDir = (startedAt: Date, pid?: number) =>
   NodePath.join(
     NodeOS.tmpdir(),
     "probe-scenario-artifacts",
-    startedAt.toISOString().replace(/[:.]/g, "-"),
+    `${startedAt.toISOString().replace(/[:.]/g, "-")}${pid === undefined ? "" : `-${pid}`}`,
   );
+
+/** Workers when none are asked for: half the cores, at least one and at most four. */
+export const defaultWorkers = (cores: number) => Math.min(4, Math.max(1, Math.floor(cores / 2)));
+
+/** Names the run plan file for Playwright's processes; not `PROBE_*`, which servers never inherit. */
+export const RUN_PLAN_ENV = "SCENARIO_RUN_PLAN";
+
+/** What the launcher decided before Playwright starts; its config, spec and fixtures read it. */
+export interface RunPlan {
+  readonly mode: "suite" | "selftest";
+  /** The ids to declare as tests, in this order: fresh-server scenarios first. */
+  readonly ids: ReadonlyArray<string>;
+  readonly workers: number;
+  readonly artifactsRoot: string;
+  readonly browser: string | undefined;
+  readonly serverBin: string | undefined;
+  readonly ownShellConfig: boolean;
+  /** The launcher, recorded as the `run` of every manifest its Playwright processes write. */
+  readonly launcher: ProcessIdentity;
+  readonly reporter: ReporterOptions;
+}
+
+/** The plan the launcher handed over, or undefined when Playwright was started without one. */
+export function readRunPlan(
+  env: Readonly<Record<string, string | undefined>>,
+): RunPlan | undefined {
+  const file = env[RUN_PLAN_ENV];
+  if (file === undefined || file === "") return undefined;
+  return JSON.parse(NodeFS.readFileSync(file, "utf8")) as RunPlan;
+}
 
 export async function removeThrowawayHome(home: string): Promise<void> {
   await NodeFSP.rm(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });

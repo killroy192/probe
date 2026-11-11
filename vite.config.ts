@@ -370,6 +370,25 @@ export default defineConfig({
         },
       },
       {
+        // Scenarios stay data: only the spec declares tests, so none sets a timeout or retry.
+        files: ["scripts/scenarios/scenarios/**", "scripts/scenarios/selftest/**"],
+        rules: {
+          "eslint/no-restricted-imports": [
+            "error",
+            {
+              paths: [...RESTRICTED_IMPORT_PATHS, RESTRICTED_PULL_REQUEST_GLYPH_IMPORTS],
+              patterns: [
+                {
+                  group: ["@playwright/test", "@playwright/test/*"],
+                  message:
+                    "Scenario files never import the test runner; suite.spec.ts declares every test (see .agents/rules/scenarios.md).",
+                },
+              ],
+            },
+          ],
+        },
+      },
+      {
         files: ["apps/server/src/mcp/McpHttpServer.ts"],
         rules: { "t3code/no-raw-mcp-registration": "off" },
       },
