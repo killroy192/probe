@@ -38,6 +38,6 @@ Once any starting script can be chosen, a typo or an uninstalled CLI must say wh
 
 ## Follow-ups
 
-- `Manager.test.ts` "removes a shell that exits on its own, and keeps one a signal ended" failed 1 run in 4: the two end handlers persist the registry concurrently, so a stale write can drop the `ended` entry. Needs its own ticket; none exists yet.
+- `Manager.test.ts` "removes a shell that exits on its own, and keeps one a signal ended" failed 1 run in 4: the two end handlers persist the registry concurrently, so a stale write can drop the `ended` entry: PRB.T-047.
 - A save-time hint in Settings and detecting a failure after the shell started: still undecided (TBD, user, 2026-11-15).
 - How the command reaches a workspace on another server: PRB.E-003 story 2.

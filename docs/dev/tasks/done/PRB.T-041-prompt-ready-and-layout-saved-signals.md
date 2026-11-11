@@ -45,7 +45,7 @@ Scenarios guessed three facts the app could state. They typed into a terminal as
 
 ## Follow-ups
 
-- **Typed lines lose a chunk.** This is likely a product defect in the typing path. It is untracked, and the developer reports and handles it (2026-11-11). A contiguous middle piece of a typed line is missing, not reordered, even though the page showed the tab attached and ready:
+- **Typed lines lose a chunk.** This is likely a product defect in the typing path: PRB.T-044. A contiguous middle piece of a typed line is missing, not reordered, even though the page showed the tab attached and ready:
   - S6: `sleep 1601 & (sleep 1602 &); echo jobs-started` arrived as `sleeep 1602 &); echo jobs-started`.
   - S5, inside PRB.T-037's `sandbox.test.ts` on a quiet machine: `read word; echo after-$word-s5` arrived as `readfter--s5`.
   - S6 failed 2 of 3 runs and S7 1 of 2 runs (2026-11-10, busy machine). S7's message does not name the line.

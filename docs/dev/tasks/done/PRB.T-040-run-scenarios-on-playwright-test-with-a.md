@@ -10,275 +10,47 @@ updated: 2026-11-11
 
 # Run scenarios on Playwright Test with a shared server and parallel workers
 
-## Business Goal
+## Goal
 
-**Problem:** The suite runs one scenario at a time, and every scenario cold-starts its own server and shell host. Once PRB.T-039 has made the scenarios atomic there are many more of them, so a full run pays many more cold starts, and the 20 s cap per atomic scenario (epic KPI) assumes a shared server (epic A-13). Scenarios also see each other: a port is picked by binding and releasing it, S3 counts worktree nodes across the whole page, and nothing yet proves that two scenarios on one server, or two suites on one machine, leave each other alone. A failure has no trace. Perf scenarios have no command of their own. Nothing in the runner stops a retry, and the N-run flake loop that measures determinism is not written down anywhere.
+The scenario suite ran one scenario at a time with a cold server each, no trace on failure, no perf command and nothing stopping a retry. It now runs on Playwright Test in parallel workers, one shared server per worker and a fresh one only for scenarios that need it, with traces, a serial perf run, retries refused and one documented N-run loop.
 
-**Proposed solution:** Run the scenarios on Playwright Test, in parallel workers, with one server per worker shared by the scenarios that run on it and a fresh server only for those that restart it or need a pristine home. Scenarios get conflict-free ports and assertions scoped to their own workspace. A failed scenario also leaves a trace. A separate serial command runs only the perf scenarios. Retries are fixed at zero, and the N-run flake loop is the one documented repeat. The sandbox and the cap gate keep working on the new runner. The story closes with one whole-suite cap gate and the flake loop, both green. If PRB.T-037 found that the new runner or the shared server does not work, the epic's fallback applies instead (EC-14).
+## Delivered
 
-## Epic and Requirements
+Merged in `d9a240c6b` (PRB.E-005; this story ends at tag `e005-t040`). Main commits: launcher and config `a6773ad16`, fixtures `e68107782`, perf run, gate, sandbox runs and loop `13c8c0913`, harness and sandbox tests with `run.ts` retired `f90f145ba` and `e65f35986`, rules `98c9e3295`, then the verification fixes up to `abbe5f6db`.
 
-- **Epic:** PRB.E-005 Fast, deterministic scenario tests
-- **Candidate story:** # 6 PRB.T-040 Run scenarios on the Playwright Test runner with a shared server and parallel workers
-- **Delivers:**
-  - FR-13: parallel workers, several scenarios sharing one server, a fresh server only for scenarios that restart or need a pristine home; selection of one scenario by id or one named set by name; every old id (S1 to S8, T-002, R1, E2-S1, E2-S3, E2-S4) is findable as a set name in the output. The sets themselves, and the scenarios inside them, come from PRB.T-039 (FR-17, FR-11).
-  - FR-14, this story's part: ports with no bind-then-release race, and assertions scoped to the scenario's own workspace (S3's page-wide `[data-worktree]` count). PRB.T-039 owns S6's process-table marker; this story checks that no process pattern another run could match is left, and runs the epic's FR-14 check (two suites at once).
-  - FR-4, this story's part: the serial perf command, which runs only `.perf.ts` scenarios, one at a time; the default suite never runs them. The budgets inside perf scenarios belong to the stories that write them (PRB.T-043 for the ones moved out of S2, S3 and E2-S3, product epics for product budgets such as PRB.E-002's click-to-prompt).
-  - FR-6, the trace: a failed scenario also leaves a trace, on top of the artifacts PRB.T-036 and PRB.T-038 deliver (screenshot, server log, recorded values, browser console).
-  - FR-19, the runner part: retries fixed at 0 in the runner configuration, no retry or repeat option in any documented command, and the N-run flake loop documented in the rules file as the only sanctioned repeat.
-  - FR-9, FR-16, FR-17 and FR-22 (kept, not delivered): the sandbox (PRB.T-037), and the check/perf split, sets, composed scenarios and cap gate (PRB.T-043), work on the new runner as they did on the old one. One whole-suite cap gate runs when this story closes.
-  - FR-12, the parallel-load check: the scenarios that use PRB.T-041's signals pass the N-run loop under parallel load, and epic A-11 is checked here.
-  - FR-15 (kept): the e2e rules file of PRB.T-042 is updated in the same change.
-  - NFR-1: the whole-suite cap gate at close (KPI "met for all of them when PRB.T-040 closes").
-  - NFR-2: 0 failures in N runs with no retries and no per-test timeout arguments; a runner or worker killed abruptly leaves nothing the next run cannot clean up by captured PID.
-  - NFR-3, NFR-4, NFR-5, NFR-6 and NFR-7: the guard, Linux and macOS with the existing Chromium, one line per command, timing and artifacts on every run, and the old runner retired with no duplicate helpers.
-  - KPI guardrail: the flake rate over N runs of the check suite and of the perf run, measured when this story closes (epic KPI: "measured when the last story closes").
-- **One deployable outcome:** `vp run test:scenarios` runs the check scenarios in parallel on shared servers, prints the same PASS and FAIL lines with timings, leaves a trace for each failure and never retries. A separate serial command runs the perf scenarios. The suite has passed one whole-suite cap gate and N consecutive runs with no failures. This is the step that lets the epic's 20 s cap hold for every atomic scenario and its flake guardrail be measured. The perf command, the retry refusal and the loop stay in this story, as the epic assigns them: they are commands of the new runner, and the closing loop runs the perf run too.
+Epic requirements: FR-13, FR-14 (ports, workspace scoping), FR-4 (serial perf run), FR-6 (trace), FR-19 (runner part); FR-9, FR-16, FR-17, FR-22 kept on the new runner; NFR-1, NFR-2 and the flake KPI met at close.
 
-## Current Behavior
-
-Read on 2026-11-10 on `main` after the PRB.T-036 merge (`4786cd250`), with grep and file reads; the code search index was down. PRB.T-037, PRB.T-038, PRB.T-039 and PRB.T-041 have not landed (PRB.T-042 has, after this was read), so this is the code those stories change before this one starts. What they will have changed is described by the FRs the epic gives them, not here.
-
-- **Runner.** `vp run test:scenarios` is `node scripts/scenarios/run.ts` (root `package.json:41`). `run.ts` launches one Chromium through `playwright-core` (`browser.ts:6-24`, with Playwright's own SIGINT, SIGTERM and SIGHUP handlers turned off so the runner stops its servers first, `browser.ts:7-13`), then runs the selected scenarios one after another (`run.ts:307-326`). It prints `PASS    <id> <title> (<s> s, teardown <ms> ms)` or `FAIL    <id> <title> (...): <message>` plus an artifacts line, and `PENDING` for a scenario without a `run` (`run.ts:308-325`). The summary is `scenarios: <n>/8 passing, ...` from the constant `TOTAL = 8` (`run.ts:39`, `328-332`), then `scenarios: total <s> s` (`run.ts:333`). Every page action has a 10 s default timeout (`run.ts:40`, `230`). There is no retry anywhere in the harness (grep for `retries`/`repeat`, 2026-11-10).
-- **Selection.** `--only <id>` matches one id exactly; no match exits 2 with `no scenario has the id …` (`run.ts:297-301`, `environment.ts:39`). There are no sets. `--selftest` runs T1, T2 and T4; T3 runs only when picked with `--only` (`registry.ts:39-46`, `run.ts:292-296`).
-- **Registry.** `registry.ts:19-37` lists S1 to S8 and the story scenarios T-002, R1, E2-S3, E2-S1 and E2-S4 (`starting-scripts.ts:69,155,346`).
-- **Servers.** Each scenario gets a new throwaway home and server (`run.ts:179-216`), and a second server through `startSecondServer` (R1, `second-server.ts:49`; self-tests T3 and T4). Servers start with `--log-level info` (`server.ts:225-226`). The scenarios that restart the server or stop the shell host are S2 (`plus-modal.ts:408,448`), S3 (`worktrees.ts:473`), S7 (`restart.ts:100-101,225,420,430`), S8 (`restore-shell.ts:121-122`), T-002 (`standalone-shell.ts:147`), E2-S3 (`starting-scripts.ts:112`) and E2-S1 (through `restartAndReload`, `starting-scripts.ts:251,290,299,311,318`).
-- **Port.** `reservePort` binds port 0, reads the port, closes the socket and returns the number (`server.ts:80-93`); the server is spawned on it later (`server.ts:198`, `216-229`), so another process can take it in between.
-- **Cleanup.** In-memory cleanups run on SIGINT, SIGTERM and SIGHUP (`run.ts:43-62`). Since PRB.T-036, each run writes the servers it started to `<tmp>/probe-scenario-runs/<runner pid>.json`, and the next run stops what a dead runner left, by recorded pid and start time, never by pattern; a manifest whose runner is still alive is skipped (`cleanup.ts:9-14`, `170-183`; `run.ts:282-283`).
-- **Artifacts.** A failure saves `error.txt`, a full-page screenshot per page, each server's last 200 log lines and the recorders' last values into `<tmp>/probe-scenario-artifacts/<run start>/<id>/` (`run.ts:112-159`, `environment.ts:83-88`). No trace and no browser console.
-- **Workspace scoping.** S3 counts `[data-worktree]` across the whole page (`worktrees.ts:140`); its later count is scoped to one project (`worktrees.ts:226`). S3 also changes into `/tmp` (`worktrees.ts:203-204`).
-- **Process-table pattern.** S6 lists the whole process table with `ps -A` and matches `^sleep 160[12]$` (`kill-shell.ts:34-44`, `119-120`); two suites at once would see each other's jobs. PRB.T-039 owns the fix.
-- **Skips.** A check that relies on file permissions prints `SKIP    <id> <check>: running as root, …` and is skipped, while its scenario goes on to PASS or FAIL on its other checks (`fixtures.ts:91-98`; used in S1, S2 and S7, for example `restart.ts:350,376,393`). The summary does not count skips.
-- **Timing.** Per-scenario and total times are printed and never compared (`run.ts:65-66`, `315`). Durations inside check scenarios are printed as `METRIC` lines (`fixtures.ts:109-111`; S2 `plus-modal.ts:148,154`, E2-S3 `starting-scripts.ts:98-102`, S3 `worktrees.ts:198,294`). No perf run and no `.perf.ts` file exist.
-- **Guard.** `refusalReason` refuses `--base-dir`, `--home-dir`, `--server`, `--server-url`, `--url` and a `T3CODE_HOME`/`T3CODE_BASE_DIR` under `~/.t3` (`environment.ts:51-76`). The server child never inherits `T3CODE_*`, `VITE_*` or `PROBE_*` (`server.ts:54-78`). Scenarios get a `PointerPage` without `keyboard` (`browser.ts:4`).
-- **Harness tests.** `harness.test.ts` spawns `run.ts` (`harness.test.ts:23-32`) and asserts on its output: refusals, browser and server start failures, self-test PASS and FAIL lines, the `1/8 passing, 0 pending, 0 failed` summary (`harness.test.ts:278`), cleanup after interrupt and SIGKILL, and a bystander server left alone.
-- **Dependencies.** `scripts/package.json` depends on `playwright-core` 1.60.0; `apps/web/package.json:103` on `playwright` 1.60.0. `knip.jsonc:80` ignores `playwright-core`. `@playwright/test` is not installed. The container's Playwright cache holds `chromium_headless_shell-1223` and `ffmpeg-1011` (`~/.cache/ms-playwright`, 2026-11-10).
-- **Docs.** The scenario rules are still in AGENTS.md "Verifying" (`AGENTS.md:192`), `docs/internals/testing.md` "Scenario tests" (which justifies a Node runner with Playwright as a library) and `docs/operations/development.md:301-322`. PRB.T-042 moves them into one rules file under `.agents/rules/` and leaves pointers; `.agents/rules/` does not exist yet.
-- **Mobile and desktop.** Nothing under `apps/mobile` or `apps/desktop` refers to `scripts/scenarios` (grep, 2026-11-10).
-
-## Expected Behavior
-
-- **One command, parallel.** `vp run test:scenarios` runs every check scenario on Playwright Test, several at a time. Scenarios that neither restart the server, stop its shell host nor need a pristine home share a server (with its shell host and throwaway home) with the other scenarios on the same worker. A scenario that does need one gets a fresh server, home and port of its own, and nothing else runs on that server. Fewer servers start than scenarios run. Every server, shell host and home the run started is gone when it ends. The number of workers is bounded and can be set; the default is documented. The web bundle step runs once per run.
-- **Isolation.** Each scenario has its own workspace and its own browser page, and asserts only about its own workspace, so another scenario's workspaces, projects and shells on the same server never change its result. Servers get ports with no window in which another process can take them. Two suites on one machine do not see each other's processes, ports or homes.
-- **Output.** One `PASS` or `FAIL` line per scenario, with its id, title and time, in the order scenarios finish; a `FAIL` line adds the stage, what was expected and what was found, and where the artifacts are. The summary is counted from the results, with no fixed total and no `PENDING`. Per-scenario time is printed on every run and never compared to the cap. Sets show their name in the output, so every old id can be found there.
-- **Selection.** One documented line runs one scenario by id; one documented line runs a named set, and exactly its members run. Composed scenarios run like any scenario and name the failing step. Self-tests stay out of the default suite and run with their own line. An id or set that matches nothing is an error.
-- **Failures.** A failed scenario leaves a trace as well as the screenshot, the server's debug log lines from that scenario's time on its server, the browser console and the last recorded values. Nothing is retried: retries are 0 in the runner configuration, and a retry or repeat option given on the command line is refused with a reason that points at the rules file. No test sets its own timeout. A failure never makes a later scenario fail: a scenario that runs after a failed one on the same worker gets a working server.
-- **Serial perf run.** A separate documented command runs every saved `.perf.ts` scenario, one at a time on one worker, with nothing else in the run, and nothing but `.perf.ts` scenarios. Perf self-tests (one within its budget, one over it) are not in it, nor in the N-run loop; they run only with the self-test line, as check self-tests do. Each perf scenario passes or fails on its own budget in that one run. The default suite, sets and the cap gate never run a `.perf.ts` file.
-- **Cap gate.** The cap gate command of PRB.T-043 works on the new runner: after the user confirms nothing in the background slows the machine, it runs the chosen atomic check scenarios serially, once each, and fails any over 20 s (the cap, epic R-8, 2026-11-11). A scenario's gate time includes its own server start only when it needs a fresh server (epic KPI). Normal runs never compare a time to the cap. When this story closes, one gate run of the whole suite passes.
-- **N-run flake loop.** One documented command takes N and runs the check suite N times and the perf run N times in a row, with no retries and no changes between runs, and reports failures per scenario. It also accepts one id or set, for a story's own N-run check of a fix (epic FR-19; for example PRB.T-041's loop over the scenarios that use the signals). It is the one command exempt from the repeat refusal, and the rules file names it as the only sanctioned repeat.
-- **Sandbox.** Saved scenarios, sets and composed scenarios still run by id against a live sandbox (PRB.T-037) with no cold start, and the sandbox still refuses unsaved scripts and the scenarios that need a restart, a pristine home or a second server. For every scenario, the sandbox's refusal for a restart, a shell-host stop, a pristine home, server-wide state or a server started under a condition and the runner's choice of a fresh server agree. Needing a second server is a separate refusal reason on the sandbox; on the runner such a scenario (R1) may share its main server and starts its second server itself (EC-9).
-- **Cleanup and guard.** An interrupt (SIGINT, SIGTERM, SIGHUP) stops every server and shell host the run started and deletes their homes. After a SIGKILL of the runner or of a worker, the next run removes what is left, by captured PID, and never touches another live run or a bystander server. The runner still refuses real data and server addresses before anything starts, the server never inherits `T3CODE_*`, `VITE_*` or `PROBE_*`, and scenarios still get a page without `keyboard`.
-- **Retired.** On the Playwright Test path, `run.ts`, `TOTAL`, `PENDING` and the run-order lists are gone; `registry.ts` stays as the catalog of ids, sets and kinds that the launcher and the sandbox read before Playwright starts (PRB.E-005 master plan U5, user-approved 2026-11-11). The rules file describes the new runner in the same change, and no other doc does.
-- **Fallback (EC-14).** If PRB.T-037 found epic A-5 false (Playwright Test does not run with the existing Chromium) or A-4 false (scenarios cannot share a server), or this story finds the parallel half of A-4 false (SA-2) and the epic owner chooses the fallback over fixing the scoping, the current Node runner stays and scenarios run in parallel lanes that each start their own server. Then these do not hold: fewer servers than scenarios, the runner's choice of a fresh server and its agreement with the sandbox (every scenario has its own server; the sandbox's refusals follow each scenario's declared needs alone), picking one scenario's lines out of a shared server's log (EC-11), the shared-server-death case (ER-5), and the trace. The old runner's `run.ts` stays; `TOTAL` and `PENDING` go. Every other behavior above still holds.
-
-### User Flow
-
-1. The developer or an agent changes code and runs `vp run test:scenarios`.
-2. The bundle step runs once; workers start with one server each; PASS and FAIL lines appear as scenarios finish, each with its time; the counted summary follows, and the exit code is non-zero if any scenario failed.
-3. For a failure, they read the id, stage, expected and found values, open the trace, screenshot, log lines and console from the artifacts folder, and find the cause from that run. They fix the scenario or the code and run that one scenario, or its set, with the one-line command. They never run it again unchanged.
-4. Before a release, or when asked, the developer runs the serial perf command and reads each perf scenario's result against its own budget.
-5. After a scenario is implemented, or when the user asks, the agent asks the user to confirm the machine is quiet, then runs the cap gate.
-6. When determinism is in question (the epic's guardrail, or a story's own fix), the developer runs the N-run flake loop; it is the only time a run is repeated unchanged.
-7. An agent checking one behavior starts the sandbox and runs saved scenarios or sets against it by id, as the rules file says.
-
-### Edge Cases
-
-- EC-1: One scenario is selected: only the servers it needs start; no worker starts an idle server.
-- EC-2: A scenario leaves workspaces, projects or running shells on a shared server: later scenarios on that server do not see them in their assertions; they end with the server at the end of the run.
-- EC-3: A scenario that restarts the server or stops its shell host runs while others run: it has its own server, and the others are unaffected.
-- EC-4: Several servers start at the same moment, or another process takes a port the harness was about to use: no server fails to start because of a port taken by someone else.
-- EC-5: Two suites run at the same time on one machine (two agents, each in its own checkout), with a dev server also running: all three leave each other alone, and neither suite's leftover cleanup touches the other. Two suites in the same checkout share its web bundle, and what happens when one rebuilds it while the other runs is open (SU-6).
-- EC-6: The machine is slow or loaded: a step that is too slow fails the scenario with its stage, with no retry and no longer per-test timeout; the printed time shows the slowdown and is not compared to the cap.
-- EC-7: A check that cannot run here (for example as root, epic FR-7) prints its `SKIP` line with the reason, as today; its scenario still reports PASS or FAIL on its other checks, and the summary counts the skipped checks apart, never as passes.
-- EC-8: The run is interrupted while scenarios run: every started server, shell host and home is cleaned up and the exit code is non-zero.
-- EC-9: A scenario needs a second server (R1): it gets one on its own home and port, stopped when the scenario ends, also on failure.
-- EC-10: A `.perf.ts` scenario is selected by id in the default command, or a check scenario in the perf command: the run refuses and names the command that runs it.
-- EC-11: A scenario fails on a shared server: its artifacts carry the server log lines from that scenario's time on the server, not only the server's last lines, which may belong to another scenario.
-- EC-12: PRB.T-041 has already landed when the parallel runner first works: the "before the signals" half of the A-11 check cannot be run; the handoff says so, and the "after" half still runs.
-- EC-13: Someone passes a retry or repeat option: the run refuses it before starting and names the N-run loop in the rules file.
-- EC-14: The epic fallback is in force (PRB.T-037 found A-5 or A-4 false): parallel lanes each start their own server, there is no trace, and each acceptance criterion that names a shared server or a trace applies in the form its Check column states. If every scenario then pays a cold start, the epic owner re-checks the cap before the whole-suite gate (epic Approach).
-- EC-15: A composed scenario's step fails on the new runner: the output names the composed scenario and the failing step; a named set runs exactly its members and no others.
-- EC-16: A worker process dies in the middle of a scenario: that scenario is reported as FAIL with the reason, not left out; the worker's servers are stopped by the end of the run or by the next run's cleanup.
-- EC-17: A scenario changes or asserts on server-wide state rather than its own workspace (for example the starting-script list, as E2-S1 and E2-S4 do today, or the whole Workspaces menu), or needs a server started under a condition (an environment variable, a faulty git config), as PRB.T-039 states: it is treated like a scenario that needs a pristine home and gets a fresh server, unless PRB.T-039 has made it workspace-local; the sandbox refuses it for the same reason, so AC-14's agreement still holds.
-
-### Error Handling
-
-- ER-1: Chromium cannot start: the run fails before any server starts, naming the browser and how to install it, and leaves nothing behind.
-- ER-2: A worker's shared server cannot start: every scenario that needed it fails with the server's output; other workers continue; no process or home is left.
-- ER-3: A forbidden target is asked for (`~/.t3` or a path under it by flag or by `T3CODE_HOME`/`T3CODE_BASE_DIR`, or a server address): the run refuses before launching anything and exits non-zero with the reason.
-- ER-4: A scenario fails: its line is `FAIL` with id, stage, expected and found; the other scenarios still run; the exit code is non-zero.
-- ER-5: A shared server dies while a scenario runs on it: that scenario fails naming the server's exit, with its log lines; later scenarios are not failed by it.
-- ER-6: A perf scenario misses its budget: the perf run fails it, naming the measure, the value and the budget, and exits non-zero.
-- ER-7: An atomic check scenario exceeds 20 s in the cap gate: the gate fails it, naming the scenario, its time and the cap.
-- ER-8: An id or set name matches nothing: the run exits non-zero saying so.
-- ER-9: The whole-suite gate or the N-run loop fails at close: the story does not close. The failure is diagnosed from that run and fixed in the scenario or the code; a scenario that cannot fit the cap is split or the epic owner raises the cap for all (epic R-8). It is never rerun unchanged.
-
-## Out Of Scope
-
-- The sandbox itself, the A-5 spike and the sequential A-4 check: PRB.T-037. This story depends on their result.
-- The shared e2e library, direct setup over the API and debug-level scenario servers: PRB.T-038 (FR-10, FR-20, FR-21).
-- The `.perf.ts` split, named sets, composed scenarios, the cap gate command and the deliberate-failure self-tests: PRB.T-043 (FR-16, FR-17, FR-19, FR-22). Atomic scenarios, old ids as sets and S6's process marker: PRB.T-039 (FR-11, FR-14 for S6).
-- The prompt-ready and layout-saved signals and the process-end wait: PRB.T-041 (FR-12).
-- Creating the rules file and its pointers: PRB.T-042 (FR-15). This story only updates the file.
-- Product perf budgets (for example PRB.E-002's 700 ms click-to-prompt): product epics own them (epic Out). This story provides the command that runs perf scenarios, not their budgets. PRB.T-036 still names a 700 ms gate in "PRB.T-040 (its AC-15)"; that text predates the epic's 2026-11-10 decision and is superseded by it.
-- Making scenarios a CI gate (epic Out); browsers other than Chromium; sharding across machines; mobile or desktop clients.
-- Changing what any scenario proves, or removing real PTYs, git worktrees, websockets, restarts and SIGKILL cases (epic must-not-change list).
-- A full-suite time target: the epic's KPI is the per-scenario cap; total time is printed, not targeted.
-- Setting N for the flake loop: the epic owner (epic U-2).
-- Parallel runs of several scenarios on one sandbox: the epic gives no FR for it (FR-9 is single scenarios, sets and composed scenarios). PRB.T-037 currently points it here; if it is wanted, it needs an epic decision first.
-
-## Technical Scope
-
-- **Layers:** the scenario harness (`scripts/scenarios`: runner, server and browser fixtures, result output, selection, perf and gate commands, guard, cleanup, self-tests and `harness.test.ts`); the scripts package's Playwright dependency and the knip entry that names it; the root test command and the perf, gate and loop commands. No server, web or contracts code.
-- **Agent CLIs:** the mock agent only; Claude Code and other CLIs are not run (NFR-4).
-- **Docs impact:** the e2e rules file under `.agents/rules/` (PRB.T-042) is updated in the same change, with the runner model (shared server per worker, when a scenario gets a fresh server), workspace-scoped assertions, the one-line commands (suite, one scenario, one set, self-tests, perf run, cap gate, N-run loop, worker count), where traces and artifacts go, and that retries and repeats are refused and the N-run loop is the only sanctioned repeat. `docs/internals/testing.md`, `docs/operations/development.md` and AGENTS.md are only checked: each keeps its one-line pointer and contradicts nothing.
-- **Mobile impact:** none; no contract or mobile change. Desktop: none, the suite drives the browser build only.
-
-## Non-functional Requirements and Constraints
-
-- The repo test rules and the rules file apply to the harness: no sleeps, no polling loops, no wall-clock deltas outside the classes the rules file allows (runner timing output is runner bookkeeping, not a scenario recording a duration), no per-test timeout argument, no retry. Lint rules `t3code/no-test-timeout-or-unreasoned-skip`, `no-wall-clock-in-tests`, `no-real-time-wait-in-tests` and `no-polling-loop-in-tests` hold; every suppression carries the reason the rules file requires.
-- Waits: a timeout-based wait only where no event exists; otherwise subscribe to an event raced against a deadline that fails with a named message; never a fixed sleep (user decision, 2026-11-10).
-- Mouse-first: scenarios keep a page without `keyboard`; typing into a terminal or field stays allowed.
-- NFR-3 holds: no path to `~/.t3`, no server the harness did not start, the server never inherits `T3CODE_*`, `VITE_*`, `PROBE_*`, agent CLIs' global config is never edited, sandboxes bind loopback only. Killing is by captured PID only (AGENTS.md rule 1).
-- Compatibility: the existing cached Chromium with no new browser download; Linux devcontainer and macOS (NFR-4). Any Playwright Test dependency is at the version `apps/web` already uses (1.60.0, epic A-5).
-- Stable interface: the suite command stays `vp run test:scenarios`, and the PASS and FAIL lines keep their shape (status, id, title, timing; reason on FAIL), so the tickets and tools that read them keep working (epic R-6).
-- No reruns (epic FR-19): every check in this story is one run; the N-run loop is the only repeat, and the A-11 before/after runs are on different code.
-- Performance: shared servers and parallel workers must not make any scenario depend on timing or on another scenario's state. The perf run is serial with nothing else in it.
-- The cap gate and the whole-suite gate run only after the user confirms the machine is quiet (epic FR-22).
-
-## Acceptance Criteria
-
-| ID    | Criterion (Given / When / Then) | Check (auto / manual) | Covers (FR / NFR / EC / ER) |
-| ----- | ------------------------------- | --------------------- | --------------------------- |
-| AC-1  | Given the check suite, when `vp run test:scenarios` runs once, then every scenario prints one `PASS` or `FAIL` line with its id, title and time, in the order scenarios finish, the summary is counted from the results with no fixed total and no `PENDING`, no `.perf.ts` scenario and no self-test runs, and the exit code is non-zero exactly when a scenario failed | auto | FR-13, FR-4, NFR-6, ER-4 |
-| AC-2  | Given a run with more than one worker, when a harness test observes it, then at least two scenarios were running at the same time, fewer servers were started than scenarios run, and every server, shell host and home the run started is gone at the end | auto. Fallback: the overlap holds, one server per scenario | FR-13, NFR-2 |
-| AC-3  | Given a scenario that restarts the server and one that stops its shell host, when they run in the same run as scenarios on a shared server, then each runs on a fresh server and home that nothing else used, the shared-server scenarios stay green, and the fresh servers are stopped afterwards | auto. Fallback: every scenario has its own server; the others stay green | FR-13, EC-3 |
-| AC-4  | Given the documented one-line commands, when one runs a single scenario by id, then only that scenario and the servers it needs start; when one runs a named set, then exactly its members run; when each old id (S1 to S8, T-002, R1, E2-S1, E2-S3, E2-S4) is given as a set, then its members run and the set name shows in the output; when an id or set matches nothing, then the run exits non-zero saying so; and the documented self-test line runs the self-tests, which no other line runs | auto | FR-13, NFR-5, EC-1, ER-8 |
-| AC-5  | Given a self-test in which two scenarios on one shared server each create a workspace and shells, when both run, then each sees only its own workspace and shells; and the same self-test with its assertion made page-wide fails (negative control); and every scenario that changes or asserts on server-wide state runs on a fresh server (EC-17) | auto. Fallback: not applicable (no shared server), recorded in the handoff | FR-14, EC-2, EC-17 |
-| AC-6  | Given the scenario sources, when searched, then no assertion counts nodes outside the scenario's own workspace (S3's page-wide `[data-worktree]` count is scoped) and no check matches processes by a pattern another run's processes could satisfy (S6, fixed by PRB.T-039, is confirmed) | manual (author, source search listed in the handoff) | FR-14 |
-| AC-7  | Given another process that takes the port the harness would have used, and separately several servers started at once, when the servers start, then each starts on a free port and none fails with "address in use"; a harness test shows both | auto | FR-14, EC-4 |
-| AC-8  | Given two full suites started at the same time on one machine, each in its own checkout, with a dev server running, when both finish, then both exit 0, the dev server still answers, no process or home of either is left, and neither run's leftover cleanup stopped the other's servers | manual (developer, one run of each) | FR-14, NFR-2, EC-5 |
-| AC-9  | Given the deliberate-failure self-test, when it runs once, then the output names the scenario id, stage, expected and found values and the artifacts folder, which holds a trace, a screenshot, the server's debug log lines from that scenario's time on its server, the browser console and the last recorded values; the other scenarios still ran and the exit is non-zero; a green run leaves no failure artifacts (negative control) | auto. Fallback: everything but the trace | FR-6, FR-19, NFR-6, EC-11, ER-4 |
-| AC-10 | Given the runner configuration and the documented commands, when read, then retries are 0 and no command but the N-run loop has a repeat option; given a run of any other command started with a retry or a repeat option, then it is refused before anything starts, with a reason naming the N-run loop in the rules file | auto (refusal); manual (review of the configuration and the rules file) | FR-19, EC-13 |
-| AC-11 | Given the serial perf command, when it runs once, then it runs every saved `.perf.ts` scenario and nothing else, one at a time on one worker, with no perf self-test; given the self-test line, then a perf self-test within its budget passes and one over its budget fails naming the measure, value and budget (negative control); a check scenario id given to the perf command, or a `.perf.ts` id given to the default command, is refused naming the right command | auto | FR-4, FR-16 (kept), FR-19, EC-10, ER-6 |
-| AC-12 | Given the cap gate command on the new runner, when the agent runs it after the user confirms the machine is quiet, then it runs the chosen atomic check scenarios serially once each, counts a server start only for a scenario that needs a fresh server, and fails a scenario over the cap naming the scenario, its time and the cap; a normal run of the same scenarios prints times and never fails on the cap | auto (a harness test of the gate, which may lower the cap for the test so that a normal self-test exceeds it, with no sleep; the confirmation applies to real gate runs, not to this test); manual (the agent asks for the confirmation before a real gate run). Fallback: every scenario's gate time includes its own server start | FR-22, ER-7 |
-| AC-13 | Given the story is ready to close and the user has confirmed the machine is quiet, when one cap gate run of every atomic check scenario runs on the devcontainer, then every one is at or under 20 s and the per-scenario times are recorded in this ticket's handoff | manual (developer, one gate run). Fallback: the epic owner re-checks the cap before this run, and every time includes its own server start | NFR-1, FR-22, KPI, ER-9, EC-14 |
-| AC-14 | Given a live sandbox (PRB.T-037) and the new runner, when an agent following only the rules file runs one saved scenario, one set and one composed scenario against it, then each runs with no cold start; an unsaved script and a scenario that restarts the server, needs a pristine home or a second server are refused with a reason; and for every scenario the sandbox's refusal for a restart, a shell-host stop or a pristine home matches the runner's fresh-server choice | manual (developer or an agent, following only the rules file). Fallback: the last clause becomes "the sandbox's refusals match each scenario's declared needs" | FR-9 (kept), FR-17 (kept), FR-13 |
-| AC-15 | Given PRB.T-041 has landed and N is set (epic U-2), when the documented N-run loop runs the check suite N times with several workers and the perf run N times (self-tests excluded from both), with no retries and no changes between runs, then there are 0 failures, the failures-per-scenario count is recorded in the handoff, and the scenarios that use the signals are among those run | manual (developer, the loop) | KPI guardrail, NFR-2, FR-12, FR-13, FR-19 |
-| AC-16 | Given the parallel runner works, when one N-run loop of the atomic scenarios runs under parallel load before PRB.T-041 lands and one after it, then both results are recorded in the handoff and epic A-11 is marked verified or false; the "after" run is AC-15's loop, not a second one; if PRB.T-041 landed first, the handoff says the "before" run was not possible and A-11 stays unverified; and a source search finds no polling for a process exit where the server owns the pid | manual (developer) | FR-12, A-11, EC-12 |
-| AC-17 | Given a run, when SIGINT, SIGTERM or SIGHUP reaches the runner, then every server, shell host and home it started is gone and the exit is non-zero; given the runner or one worker killed with SIGKILL, when the next run starts, then it removes what was left by captured PID, reports the killed worker's scenario as FAIL in the killed run if the runner survived, and leaves another live run and a bystander server untouched | auto | NFR-2, EC-8, EC-16 |
-| AC-18 | Given a request for real data (`~/.t3` or a path under it by flag or by `T3CODE_HOME`/`T3CODE_BASE_DIR`) or a server address, when any documented command is started (suite, one id, one set, self-tests, perf run, cap gate, N-run loop), then it refuses before any server or browser starts and exits non-zero; and a server the harness starts has none of `T3CODE_*`, `VITE_*`, `PROBE_*` from the outside | auto | NFR-3, ER-3 |
-| AC-19 | Given a browser that cannot start, when the suite runs, then it fails before any server starts, naming the browser and how to install it, and leaves no process or home | auto | ER-1 |
-| AC-30 | Given a shared server binary that cannot start, or a second server that cannot start (R1's path, self-test T3), when the suite runs, then the output names the server with its output, other workers continue, and every server that did start is stopped and its home deleted | auto. Fallback: "shared server" reads "the lane's server" | ER-2, EC-9 |
-| AC-20 | Given a self-test whose shared server is killed in the middle of a scenario, and another in which a scenario fails an ordinary assertion, when the run ends, then the first fails naming the server's exit with its log lines, the second fails with its own reason, and in both cases the scenarios after it on that worker pass on a working server | auto. Fallback: the server-death case is not applicable (no shared server); the ordinary-failure case holds | ER-5, ER-4 |
-| AC-21 | Given a machine where a check cannot run (a root-only gap, epic FR-7), when the suite runs, then the check prints its `SKIP` line with the reason, its scenario reports PASS or FAIL on its other checks, and the summary counts the skipped checks apart, not as passes | auto | EC-7 |
-| AC-22 | Given a composed self-test of three atomic scenarios whose second step fails, when it runs on the new runner, then the output names the composed scenario and the failing step | auto | FR-17 (kept), EC-15 |
-| AC-23 | Given the harness sources after the change, when `vp run check:changed` runs, then lint passes with no per-test timeout, retry, sleep, polling loop or wall-clock delta outside the rules file's classes, a scenario that uses `keyboard` on its page fails the typecheck (negative control), and typecheck and knip pass for `scripts` | auto | NFR-2, NFR-5, NFR-7 |
-| AC-24 | Given the repository after the change, when searched, then `run.ts`, `TOTAL`, `PENDING` and the run-order lists are gone (`registry.ts` stays as the catalog, master plan U5) and no helper is defined outside the shared library | manual (reviewer). Fallback: `run.ts` stays; `TOTAL` and `PENDING` are gone | NFR-7 |
-| AC-25 | Given the rules file after the change, when read against the code, then it describes the runner model, workspace-scoped assertions, each command (suite, one scenario, one set, self-tests, perf run, cap gate, N-run loop, worker count) in one line, where traces and artifacts go, and that retries and repeats are refused; each command behaves as written (each run is one of this story's AC runs, none is repeated); and `docs/internals/testing.md`, `docs/operations/development.md` and AGENTS.md still hold only their pointer and contradict nothing | manual (developer, docs review) | FR-15 (kept), NFR-5, NFR-7 |
-| AC-26 | Given the devcontainer's cached Chromium, when the suite runs, then no browser is downloaded; and given a Mac, when the developer runs the suite once, then it passes | manual (developer: the cache folder is unchanged on Linux; one run on macOS) | NFR-4, A-16 |
-| AC-27 | Given a web source file newer than the bundle, when the suite starts with several workers, then the bundle is rebuilt once for the whole run and the run prints which bundle it used | auto | FR-1 (kept) |
-| AC-28 | Given the documented way to set the number of workers, when a run starts with a value, then no more than that many scenarios run at once; without a value the bound is the documented default | auto | FR-13, EC-6 |
-| AC-29 | Given a self-test whose step waits for an event that never comes, when it runs on the new runner, then it fails within the runner's action timeout with its stage and the name of what it waited for, is not retried, and no test in the suite sets a longer timeout of its own | auto | EC-6, FR-19, NFR-2 |
-
-## Dependencies
-
-| Depends on | Why | Status |
-| ---------- | --- | ------ |
-| PRB.T-037 | Its first step answers epic A-5 (Playwright Test with the existing Chromium) and A-4 for scenarios run one after another; that result picks the Playwright Test path or the epic fallback (EC-14). The sandbox it builds (FR-8, FR-9) must keep working here (AC-14) | done |
-| PRB.T-038 | The shared library with direct setup over the API and debug-level scenario servers (FR-10, FR-20, FR-21, by the epic's ownership): without it setup is too slow to share a server under the cap, and the artifacts lack the debug log and the browser console. Reworked 2026-11-10 | built on branch `e005` (tag `e005-t038`); in progress until the epic's final verification |
-| PRB.T-043 | The `.perf.ts` files this story's serial perf command runs, sets and composed scenarios, the two new needs its EC-17 uses, and the cap gate command (FR-16, FR-17, FR-19, FR-22). Split from PRB.T-039 on 2026-11-10 | built on branch `e005` (tag `e005-t043`); in progress until the epic's final verification |
-| PRB.T-039 | Atomic scenarios that each build their own state, old ids as sets and S6's marker (FR-11, FR-14 for S6, by the epic's ownership). Parallel workers on a shared server need scenarios that leave nothing for each other. Reworked 2026-11-10: it owns S6's per-run marker; this story keeps S3's scoping and the two-suite check. This story is re-reviewed against PRB.T-039 before it is planned | built on branch `e005` (tag `e005-t039`); in progress until the epic's final verification |
-| PRB.T-041 | Must land before this story closes: the flake-free claim (AC-15) needs the prompt-ready and layout-saved signals and the process-end wait (FR-12). Not needed to start | done |
-| PRB.T-042 | Creates the e2e rules file this story updates (FR-15) | done |
-| PRB.T-036 | The bundle step, isolated shells, failure artifacts, the cleanup manifest and the timing output this story ports; its baseline (AC-21) gives the per-scenario times and lets the epic owner set N (epic U-2) | done |
-
-Order (epic, user decision 2026-11-10): PRB.T-037, PRB.T-038, PRB.T-043, PRB.T-039, then this story; PRB.T-041 is independent and lands before this one closes. Blocks: nothing; with this story closed, the epic's Done-when list can be checked.
-
-## Assumptions
-
-| ID    | Statement | Kind (assumption / unknown) | Status (unverified / verified / false) | How and when to verify | Owner |
-| ----- | --------- | --------------------------- | -------------------------------------- | ---------------------- | ----- |
-| SA-1  | PRB.T-037's spike finds epic A-5 true and its sequential check finds A-4 true, so this story builds on Playwright Test with a shared server; otherwise the fallback applies (EC-14) | assumption | verified (PRB.T-037, 2026-11-10: A-5 true, A-4 true one after another; no fallback) | Read PRB.T-037's Delivered section (its notes for this story) before planning | author |
-| SA-2  | Atomic scenarios scoped to their own workspace can share one server per worker in parallel (epic A-4, parallel half) | assumption | unverified | AC-2, AC-5 and AC-15. If false, the epic owner decides between fixing the scoping in this story and the epic fallback (EC-14) | author; decision: epic owner |
-| SA-3  | With direct setup and a shared server, every atomic check scenario fits under 20 s (epic A-13) | assumption | unverified | AC-13, the whole-suite gate | author |
-| SA-4  | Parallel load exposes waits that are only guesses (epic A-11) | assumption | unverified | AC-16 | author |
-| SA-5  | Playwright Test lets the harness stop its servers and shell hosts on SIGINT, SIGTERM and SIGHUP before the process exits, as `browser.ts:7-13` arranges for the library today | assumption | unverified | AC-17 | author |
-| SA-6  | A port can be had with no bind-then-release window without changing server code (Technical Scope) | assumption | unverified | Plan stage; AC-7. If it needs a server change, the plan says so and this story's Technical Scope is amended first | author |
-| SA-7  | The cleanup manifest, keyed today by the runner's pid (`cleanup.ts:9-14`), also covers servers started from worker processes whose pids differ from the run's | assumption | unverified | Plan stage; AC-17 | author |
-| SA-8  | Recording a trace for every scenario, so a failure can keep it, does not push atomic scenarios over the cap | assumption | unverified | AC-13 | author |
-| SA-9  | Nothing in `apps/mobile` or `apps/desktop` uses the harness, so this story changes nothing there | assumption | verified | grep for `scripts/scenarios` in `apps/mobile` and `apps/desktop`, no hit, 2026-11-10 | author |
-| SA-10 | The harness runs on macOS as on Linux (epic A-16) | assumption | unverified | AC-26, one macOS run by the developer | developer |
-| SU-1  | The default and upper bound for the number of workers on the devcontainer and on a Mac | unknown | decided (master plan U4, user-approved 2026-11-11): `min(4, max(1, floor(cores / 2)))`, `--workers` refused above the core count; one config-wide 180 s hang ceiling | TBD (author, plan stage): chosen from PRB.T-036's baseline and the shape PRB.T-039 leaves | author |
-| SU-2  | N for the flake loop (epic U-2) | unknown | decided | N = 3 (user, 2026-11-11) | epic owner |
-| SU-3  | Whether the serial perf run, like the cap gate, first asks the user to confirm that nothing in the background slows the machine | decision | decided (user, 2026-11-10): yes, the serial perf run is started only after the user confirms the machine is quiet, like the cap gate | Rules file and the perf command's AC | user |
-| SU-4  | How a failing scenario's log lines are picked out of a shared server's log for its artifacts (EC-11) | unknown | decided (master plan M7): the trail records the log offset when a server is registered for a scenario, and `<label>.log` runs from there | TBD (author, plan stage); AC-9 | author |
-| SU-5  | Whether a scenario run against the sandbox goes through the new runner or through the sandbox's own entry point | unknown | decided (plan): through the launcher, on one worker, attached to the sandbox's server | TBD (author, plan stage, after PRB.T-037 lands); AC-14 | author |
-| SU-6  | What happens when two suites run in the same checkout and one rebuilds the web bundle while the other runs (EC-5) | unknown | decided (plan): a run that would rebuild while another live run serves the bundle is refused, naming that run. Sandboxes are not covered: a sandbox start neither checks for live runs nor counts as one | TBD (author, plan stage); AC-8 uses two checkouts | author |
-
-## Handoff
-
-**Built as one wave of the PRB.E-005 master plan** (`.plans/e005-master.md`, not committed), on branch `e005`, together with PRB.T-038, PRB.T-043 and PRB.T-039. No step ran a scenario, the launcher, `harness.test.ts` or `sandbox.test.ts`; the pure tests, the typecheck, lint, knip and `playwright test --list` (145 tests: 103 checks, 1 composed, 5 perf, 36 self-tests) ran. Every AC is verified in the epic's final phase. The rules file (`.agents/rules/scenarios.md`, "The runner" and "Running") is the user-facing description; this section records what a later session needs.
-
-**Interface as built.**
-
-| Module | Holds |
+| ACs | Proof |
 | --- | --- |
-| `cli.ts` | The only entry point. `parseLaunchArgs(argv, cores)` → options or refusal (retry and repeat flags, unknown and Playwright flags, script paths, mode mixes, sandbox-fixed flags); `planRun(options, registries, context)` → one or two `RunPlan`s (`--selftest` is two: checks on the workers, then perf self-tests on one); `rebuildRefusal(rebuild, bundle, users)` (SU-6). `main` runs the guard, the registry check, the leftover sweep, the Chromium probe, the bundle, then Playwright in its own process group with an IPC channel and `SCENARIO_RUN_PLAN`, forwards SIGINT/SIGTERM/SIGHUP as one SIGINT, sweeps again and exits 130 on a signal. `--list` declares without starting anything |
-| `environment.ts` | `RunPlan`, `readRunPlan(env)`, `RUN_PLAN_ENV`, `defaultWorkers(cores)`, `defaultArtifactsDir(start, pid)`, the guard |
-| `playwright.config.ts` | `retries: 0`, `repeatEach: 1`, `forbidOnly`, `maxFailures: 0`, `fullyParallel`, workers from the plan, `timeout: 180_000`, 10 s action and navigation timeouts, `trace: "off"` (tracing is the fixture's), only `reporter.ts`, output under the run's artifacts root (`preserveOutput: "failures-only"`) |
-| `suite.spec.ts` | The only `test()` caller: one test per planned id, titled `<id> <title>` |
-| `testFixtures.ts` | `scenarioTest`: worker-scoped lazy `sharedServer.get()` (log to `servers/w<worker>-<n>.log`, replaced when it ended between scenarios, teardown line `server <pid>: <k> scenarios, <m> shells running`), worker manifest, test-scoped `runScenario`: fresh server by `freshServerNeeded`, the guarded shared handle, traced contexts, the exit race, composed steps with per-step artifacts and undos, perf verdict, outcome attachment; on a sandbox it attaches and watches `sandboxEnded` |
-| `scenarioRun.ts` | Pure pieces of the fixture: `guardShared`, `raceServerExit`, `describeExit`, `failureMessage`, `artifactsDir`, `sharedLogFile`, `artifactLines`, `runUndos`, `composedSteps`, `scenarioOutcome`, `sandboxEndedMessage` |
-| `reporter.ts` | PASS/FAIL lines in finish order, step and perf lines, `undone:` lines, SKIP count, summary and set lines, gate lines through `judgeGate`, `results.json` |
-| `ports.ts` | `leasePort`, `startOnLeasedPort` (≤ 3 moves on `EADDRINUSE`, `portTakenLine`), `PORT_RANGE` 20000–31999, `PORTS_DIR` |
-| `cleanup.ts` | Manifests with `run` (the launcher), the `home` entry before spawn, abandonment by a dead owner or a dead launcher, `useBundle` and `bundleUsers`, sandbox `stopping` flag |
-| `loop.ts` | `parseLoopArgs`, `planLoop`, `changedSource`, `tally`: N check runs, then N perf runs |
-| root `package.json` | `test:scenarios`, `test:scenarios:perf` (`--perf`), `test:scenarios:loop`, `scenarios:gate` (`--gate`), `scenarios:sandbox` |
-| self-tests | `T29`, `T30` and `T31` (set `T-shared`, AC-5 and its negative control), `T32` (kills its shared server, AC-20), `T33` and `T34` (perf within and over budget, AC-11), `T35` (holds a shell for the interrupt and SIGKILL cases), `T36` (stops its shell host, AC-3) |
+| AC-1, AC-4, AC-9, AC-10, AC-11, AC-18, AC-19, AC-27 to AC-30 | `harness.test.ts` launcher cases (refusals, browser and server start failures, `reports each failure by name…`, bundle once per run), `cli.test.ts`, `reporter.test.ts` |
+| AC-2, AC-3, AC-5 | `T29`, `T30`, `T31` (set `T-shared`, `--workers 1`; T31 is the negative control), `T36` (stops its shell host on a fresh server) |
+| AC-7 | `ports.test.ts`, `harness.test.ts` "server ports" |
+| AC-17, AC-20 | `T35` (interrupt and SIGKILL), `T32` (kills its shared server); `harness.test.ts` cleanup cases |
+| AC-12, AC-21, AC-22, AC-29 | `gate.test.ts` and `T-gate`, the reporter's `SKIP` count, `T21`, `T14` |
+| AC-6, AC-24 | source searches at `c5862bf19`: no page-wide count, no pattern match on processes, `run.ts`, `TOTAL` and `PENDING` gone |
+| AC-13, AC-15, AC-16 | final runs below |
 
-**Steps and commits (branch `e005`).**
+**Final runs (V7, 2026-11-11, machine confirmed quiet, tip `abbe5f6db`).** Cap gate: 103 atomic checks timed, 0 over 20 s, slowest `S7.lost-host` 16.6 s. Perf run 5/5. N = 3 loop: check suite 104/104 in each run; `perf-branch-label` failed 2 of 3 (2042 and 2055 ms against 2000 ms), passed 3/3 after the user raised the limit to 3 s. A-11's "before" run was impossible because PRB.T-041 landed first (EC-12).
 
-| Step | Commit | What |
-| --- | --- | --- |
-| ticket in progress | `3c4c5e1d6` | `tm mv` |
-| 1–3 (part) | `dcc31a2f7` (merged `89026f742`) | `@playwright/test` 1.60.0 and knip entry, `ports.ts`, manifest `run` and `home`, abandonment rule, config and spec stubs; `--list` loader proof |
-| 1, 2 wiring | `f5ba550d6` (merged `f277d499f`) | servers and the sandbox on leased ports, the `EADDRINUSE` start loop, the sandbox `stopping` flag |
-| 5 reporter | `87905c5f4` (merged `548288e92`) | `reporter.ts`, `results.json`, pure tests |
-| 3 launcher | `a6773ad16` (merged `d34321f72`) | `cli.ts`, `playwright.config.ts`, the scenario import lint rule |
-| 4 fixtures | `e68107782` (merged `58eb559d4`) | `testFixtures.ts`, `scenarioRun.ts`, `suite.spec.ts` |
-| 6 modes | `13c8c0913` (merged `6e3f928f5`) | perf run, gate, sandbox runs, SU-6 refusal, `loop.ts`, root scripts |
-| 7 harness tests | `f90f145ba` (merged `666585763`), `e65f35986` (merged `c5862bf19`) | `sandbox.test.ts` and `harness.test.ts` on `cli.ts`, T29–T36; `run.ts` deleted |
-| 8, 9 | this commit | AC-6 and AC-24 searches, dead code left by `run.ts`, rules file, this handoff |
+## Decisions
 
-**Deviations from the plan.**
-- **No `globalSetup`.** `playwright.config.ts` opens the manifest and installs the `disconnect` → SIGINT handler itself, only in Playwright's main process (its parent is the launcher); workers load the config too and skip it.
-- **The shared server refuses** `stop`, `kill`, `restart` and `stopShellHost`: a scenario that tries one fails naming the need it did not state, instead of taking the server down for the others. A sandbox attach refuses the same.
-- **The reporter relies on `_mode: "list"`**, an undocumented reporter option Playwright passes with `--list`, to print nothing then. A Playwright upgrade may change it.
-- **SU-6 does not cover sandboxes.** A sandbox start rebuilds the bundle when it is stale without checking for live runs, and does not record itself as a bundle user.
-- **`restart({env})` replaces the start env for that one restart**; the next plain `restart()` uses the start env again (PRB.T-043 6B; master plan M8 said it replaces it for good).
-- `T32`'s needs are `{}` on purpose (master plan M17); no set holds it, but `--sandbox <pid> --only T32` is not refused and would kill the sandbox's server. The rules file says so.
-- `T-shared` proves AC-5 only with `--workers 1`, so T29, T30 and T31 share one server; the harness case passes it.
-- Removed in step 8 as left by `run.ts`: `pickScenario` (`sandboxRules.ts`) and `strayArgs` with its flag list (`environment.ts`). `lib/shells.ts` `leaveAgent` has no caller since PRB.T-039 (not a `run.ts` leftover; left for the library owner).
+- Playwright Test path, no fallback: PRB.T-037 found A-5 and A-4 (one after another) true (2026-11-10). `@playwright/test` pinned to `apps/web`'s 1.60.0.
+- Workers default to `min(4, max(1, floor(cores / 2)))`, `--workers` refused above the core count, and one config-wide 180 s hang ceiling (master plan U4, user-approved 2026-11-11).
+- N = 3 for the flake loop (user, 2026-11-11).
+- `registry.ts` stays as the catalog the launcher and sandbox read before Playwright starts; `run.ts`, `TOTAL`, `PENDING` and run-order lists removed (master plan U5, user-approved 2026-11-11).
+- A shared server refuses `stop`, `kill`, `restart` and `stopShellHost`, so an undeclared need fails one scenario instead of taking down the others.
+- A failing scenario's log on a shared server starts at the offset recorded when the server was registered for it (master plan M7).
+- Sandbox runs go through the same launcher on one worker (SU-5). A run that would rebuild the bundle while another live run serves it is refused; sandbox starts are not covered (SU-6).
+- The reporter keys its silence under `--list` on `_mode: "list"`, an undocumented option Playwright passes; a Playwright upgrade may change it.
+- Parallel runs of several scenarios on one sandbox were left out: the epic has no FR for it.
 
-**AC-6 source search (2026-11-11, at `c5862bf19`).** Over `scripts/scenarios/scenarios/`, `selftest/` and `lib/`:
-- Counts: every `.count()` is on the scenario's own page and, for tree nodes, scoped to its own project, folder or shell id (`[data-worktree]` only through S3's per-project `worktreeNodes`; no page-wide count left). The page shows only the scenario's workspace. `T31`'s server-wide count is the deliberate negative control; `T18`'s project count is its deliberate wrong state.
-- Processes: one `ps -A` in the library, used only by S6's job lookup, which matches the exact argv `sleep <per-run marker>`; no `pgrep`, `pkill` or pattern kill.
-- `/tmp`: no scenario path under `/tmp`; `T3` names a missing server bin under the temp dir on purpose.
-- No harness-side scoping fix was needed.
+## Docs
 
-**AC-24 source search (same commit).** `run.ts` is gone and nothing imports or names it under `scripts/` or in the root scripts; `TOTAL` and `PENDING` occur in no code, only in tickets' "Current Behavior" baselines; no run-order lists remain (the launcher declares fresh-server scenarios first). File-local helpers remain in scenario files (each used by its own file; PRB.T-038's handoff lists the duplicates), for the reviewer's call.
+- [Scenario rules](../../../../.agents/rules/scenarios.md), "The runner" and "Running"
 
-**Risks for verification.**
-- `EADDRINUSE` detection is a substring match on the server's start error, unverified against a real taken port (AC-7).
-- `sandbox.test.ts`'s busy-run case relies on `T19` still running about 1 s after `ready`: a timing margin, not a forced order.
-- AC-2's overlap check proves ordering only: both fresh servers started before the first scenario ended, not that two scenarios executed at the same instant.
-- The 60 s Vitest project timeout on the spawned harness cases under `check:changed` load (plan risk; U9 is the last resort).
-- Worker replacement after every failure costs one cold start per failure; leftovers on a long-lived shared server (D-5) show in the teardown counts.
-- A-11's "before" run was not possible: PRB.T-041 landed first (EC-12); A-11 stays unverified (AC-16).
+## Follow-ups
 
-**Final runs (V7, 2026-11-11, the user confirmed the machine was quiet; tip `abbe5f6db`).**
-- Cap gate: `vp run scenarios:gate -- --quiet-confirmed` timed 103, 0 over the 20 s cap; the slowest was S7.lost-host at 16.6 s.
-- Perf run: `vp run test:scenarios:perf -- --quiet-confirmed` ran 5 and passed 5.
-- Loop: `vp run test:scenarios:loop -- 3 --quiet-confirmed`. Check suite 3/3 runs at 104/104. Perf runs: `perf-branch-label` failed 2 of 3 (2042 ms and 2055 ms against 2000 ms), a product limit miss recorded in PRB.T-039 "Product defects found in verification". After the user raised the limit to 3 s, `vp run test:scenarios:loop -- 3 --only perf-branch-label --quiet-confirmed` failed 0/3. With the check suite's 3 clean runs, AC-15 and the epic flake KPI are met.
-- V8 (macOS, A-16) was skipped by the developer (2026-11-11).
+- AC-8 (two suites at once beside a dev server) and AC-14 (an agent following only the rules file on a sandbox) have no recorded run; not tracked.
+- AC-26 / epic A-16: the macOS run was skipped by the developer (2026-11-11); tracked in [questions.md](../../questions.md).
+- Epic A-11 cannot be verified any more (PRB.T-041 landed first); closed as such in PRB.E-005 Decisions.
+- `sandbox.test.ts`'s busy-run case relies on `T19` still running about 1 s after `ready`, a timing margin rather than a forced order. Not tracked.
