@@ -3,10 +3,11 @@ import * as Effect from "effect/Effect";
 import type { PointerPage } from "../browser.ts";
 import type { ServerHandle } from "../server.ts";
 import type { Deadline } from "./deadlines.ts";
+import { type CheckScenario, defineCheck } from "../scenario.ts";
 import { expected } from "./expect.ts";
 import { layoutSaved } from "./navigate.ts";
-import type { pageFrames } from "./network.ts";
-import type { WorkspaceResult } from "./setup.ts";
+import { type pageFrames, timesSeen } from "./network.ts";
+import { plainTabs, type WorkspaceResult } from "./setup.ts";
 import { followOutput, type ShellFollower, writeLine } from "./shells.ts";
 import type { WsClient } from "./api.ts";
 import { workspaceShown } from "./ui/tree.ts";
@@ -97,4 +98,50 @@ export async function reloadReleasing(
     options,
   );
   return reloadedFrom;
+}
+
+/**
+ * A plain shell holds its output and lets it go at `release` while the page reloads; the page
+ * must show it exactly once after the reload.
+ */
+export function outputDuringReload(
+  url: string,
+  spec: {
+    readonly id: string;
+    readonly title: string;
+    readonly covers?: ReadonlyArray<string>;
+    readonly release: ReleaseTiming;
+    readonly deadline?: Deadline;
+  },
+): CheckScenario {
+  const { release, deadline, ...named } = spec;
+  return defineCheck(url, {
+    ...named,
+    needs: {},
+    run: async (ctx) => {
+      const { trail } = ctx;
+      const { page, frames, workspace, shells, setup } = await trail.stage("setup", () =>
+        plainTabs(ctx, 1),
+      );
+      const shell = shells[0]!;
+      const held = await trail.stage("hold the output", () =>
+        holdOutput(setup.client, setup.shells, shell.shellId, `during-${ctx.runId}-s4`),
+      );
+      const reloadedFrom = await trail.stage("reload while the output is held", () =>
+        reloadReleasing(
+          { page, server: ctx.server, client: setup.client, frames, workspace },
+          held,
+          release,
+          deadline === undefined ? {} : { deadline },
+        ),
+      );
+      await trail.stage("AC-4", async () => {
+        expected({
+          what: "times the output made during the reload reached the page after it",
+          expected: 1,
+          found: timesSeen(frames, held.marker, reloadedFrom),
+        });
+      });
+    },
+  });
 }

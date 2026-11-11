@@ -1,15 +1,14 @@
-// @effect-diagnostics nodeBuiltinImport:off - Lists the machine's processes for a shell's background jobs.
+// @effect-diagnostics nodeBuiltinImport:off - Lists the machine's processes for a shell's background jobs, and ends a shell from outside.
 
 import * as NodeChildProcess from "node:child_process";
+import * as NodeProcess from "node:process";
 
 import type { ShellSummary } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
 import * as Stream from "effect/Stream";
 
-import type { PointerPage } from "../browser.ts";
 import type { WsClient } from "./api.ts";
-import { typeLine } from "./ui/terminal.ts";
 import { alive, check, follow, gone, recorder } from "./waits.ts";
 
 /** OSC 133;B, which Probe's zsh and bash wrappers print when the line editor first reads input. */
@@ -91,9 +90,31 @@ export async function runningIn(list: ShellLists, cwd: string, count: number) {
 export const isRunning = (shell: ShellSummary | undefined) =>
   shell?.status === "running" && shell.pid !== null && alive(shell.pid);
 
+/** The shell's entry in the current list; undefined once the server forgets it. */
+export const listedShell = (shells: ShellFollower, shellId: string) =>
+  shells.current().find((entry) => entry.shellId === shellId);
+
 /** Whether the current list has `shellId` running, with its process alive. */
 export const running = (shells: ShellFollower, shellId: string) =>
-  isRunning(shells.current().find((entry) => entry.shellId === shellId));
+  isRunning(listedShell(shells, shellId));
+
+/** Kills each shell's process from outside and waits until the server lists it as ended by a signal. */
+export async function signalShells(
+  shells: ShellFollower,
+  signalled: ReadonlyArray<{ readonly shellId: string; readonly pid: number | null }>,
+) {
+  const from = shells.lists.mark();
+  for (const shell of signalled) NodeProcess.kill(shell.pid!, "SIGKILL");
+  await shells.lists.until(
+    "the signalled shells to be listed as ended",
+    (list) =>
+      signalled.every((shell) =>
+        list.some((entry) => entry.shellId === shell.shellId && entry.ended === "signal"),
+      ),
+    from,
+  );
+  for (const shell of signalled) await shellEnded(shells, shell);
+}
 
 /** Opens a standalone shell in `cwd`, outside any workspace. */
 export const openShell = (
@@ -199,35 +220,6 @@ export async function agentReady(client: WsClient, shellId: string) {
   const { output, stop } = followOutput(client, shellId);
   try {
     await agentBanner(output);
-  } finally {
-    await stop();
-  }
-}
-
-/**
- * Types `exit` into the shell's mock agent once it runs, and waits for its goodbye, so the next
- * line reaches the shell, not the agent's input buffer.
- */
-export async function leaveAgent(page: PointerPage, client: WsClient, shellId: string) {
-  const { output, stop } = followOutput(client, shellId);
-  try {
-    await agentBanner(output);
-    const typed = output.mark();
-    await typeLine(page, "exit");
-    // The shell reads the next line at its next prompt, which follows the goodbye (SU-1).
-    const bye = await output.until(
-      "the agent's goodbye",
-      (event) => event.includes("mock-agent: bye"),
-      typed,
-    );
-    const promptMark = JSON.stringify(PROMPT_MARK).slice(1, -1);
-    await output.until(
-      "the shell's prompt after the agent's goodbye",
-      (event) =>
-        event.includes(promptMark) &&
-        (event !== bye || event.indexOf(promptMark, event.indexOf("mock-agent: bye")) !== -1),
-      output.seen.indexOf(bye, typed),
-    );
   } finally {
     await stop();
   }

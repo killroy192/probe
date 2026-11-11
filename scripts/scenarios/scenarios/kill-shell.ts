@@ -19,11 +19,11 @@ import {
   type Setup,
   type ShellResult,
 } from "../lib/setup.ts";
-import { agentReady, history, running, shellEnded, survivors } from "../lib/shells.ts";
+import { agentReady, history, listedShell, running, shellEnded, survivors } from "../lib/shells.ts";
 import { closeTab, shellTab } from "../lib/ui/tabs.ts";
 import { typeLine } from "../lib/ui/terminal.ts";
 import { answerConfirm, askToKill, killFromTree, shellRow } from "../lib/ui/tree.ts";
-import { removeWorkspace } from "../lib/ui/workspacesMenu.ts";
+import { removeWorkspace, startScreenButton } from "../lib/ui/workspacesMenu.ts";
 import { alive, waitFor } from "../lib/waits.ts";
 import { defineCheck, type ScenarioContext } from "../scenario.ts";
 
@@ -43,7 +43,7 @@ async function runInShell(
     .catch((error: unknown) => {
       // The raw output outlives the shell; the server forgets an ended one.
       const output = JSON.stringify(ctx.server.rawOutput(shell.shellId).slice(-600));
-      const current = setup.shells.current().find((entry) => entry.shellId === shell.shellId);
+      const current = listedShell(setup.shells, shell.shellId);
       const listed = JSON.stringify(current ?? "not listed");
       throw new Error(
         `${error instanceof Error ? error.message : error} The shell's output ends with ${output}; it is ${listed}.`,
@@ -398,7 +398,7 @@ export const removeWorkspaceScenario = defineCheck(import.meta.url, {
       });
       await removeWorkspace(page, made.workspace.name);
       await waitFor(
-        page.getByTestId("workspace-screen").getByRole("button", { name: "Open workspace" }),
+        startScreenButton(page, "Open workspace"),
         "the start screen after removing the workspace",
       );
       for (const shell of made.shells) await shellEnded(setup.shells, shell);

@@ -2,6 +2,14 @@ import type { PointerPage } from "../../browser.ts";
 import { check, waitFor } from "../waits.ts";
 import { workspaceShown } from "./tree.ts";
 
+/** A start-screen button, there while the page shows no workspace. */
+export const startScreenButton = (page: PointerPage, name: "Create workspace" | "Open workspace") =>
+  page.getByTestId("workspace-screen").getByRole("button", { name });
+
+/** An item of the menu opened last, by its exact name. */
+export const menuItem = (page: PointerPage, name: string) =>
+  page.getByRole("menu").last().getByRole("menuitem", { name, exact: true });
+
 /** Opens the "Workspaces" menu, or its "Open workspace" / "Remove workspace" submenu. */
 export async function openWorkspacesMenu(
   page: PointerPage,
@@ -49,10 +57,7 @@ export async function createWorkspace(
     await openWorkspacesMenu(page);
     await page.getByRole("menuitem", { name: "Create workspace" }).click();
   } else {
-    await page
-      .getByTestId("workspace-screen")
-      .getByRole("button", { name: "Create workspace" })
-      .click();
+    await startScreenButton(page, "Create workspace").click();
   }
   const refusal = await fillCreateWorkspace(page, name);
   check(refusal === null, `Creating ${name} was refused: ${refusal}`);

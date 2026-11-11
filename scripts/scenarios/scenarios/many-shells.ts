@@ -3,11 +3,10 @@
 import * as NodePath from "node:path";
 import * as NodeProcess from "node:process";
 
-import type { Deadline } from "../lib/deadlines.ts";
 import { expected } from "../lib/expect.ts";
 import { layoutSaved, openTab, showWorkspace } from "../lib/navigate.ts";
 import { timesSeen } from "../lib/network.ts";
-import { holdOutput, type ReleaseTiming, reloadReleasing } from "../lib/reloadRelease.ts";
+import { outputDuringReload } from "../lib/reloadRelease.ts";
 import { framedPage, plainTabs } from "../lib/setup.ts";
 import { history, printedAfter, running, shellEnded, writeLine } from "../lib/shells.ts";
 import { closeTab, selectedShellTab, selectedTab, shellTab, tabIds } from "../lib/ui/tabs.ts";
@@ -170,52 +169,6 @@ export const reloadLayout = defineCheck(import.meta.url, {
     });
   },
 });
-
-/**
- * A plain shell holds its output and lets it go at `release` while the page reloads; the page
- * must show it exactly once after the reload.
- */
-export function outputDuringReload(
-  url: string,
-  spec: {
-    readonly id: string;
-    readonly title: string;
-    readonly covers?: ReadonlyArray<string>;
-    readonly release: ReleaseTiming;
-    readonly deadline?: Deadline;
-  },
-): CheckScenario {
-  const { release, deadline, ...named } = spec;
-  return defineCheck(url, {
-    ...named,
-    needs: {},
-    run: async (ctx) => {
-      const { trail } = ctx;
-      const { page, frames, workspace, shells, setup } = await trail.stage("setup", () =>
-        plainTabs(ctx, 1),
-      );
-      const shell = shells[0]!;
-      const held = await trail.stage("hold the output", () =>
-        holdOutput(setup.client, setup.shells, shell.shellId, `during-${ctx.runId}-s4`),
-      );
-      const reloadedFrom = await trail.stage("reload while the output is held", () =>
-        reloadReleasing(
-          { page, server: ctx.server, client: setup.client, frames, workspace },
-          held,
-          release,
-          deadline === undefined ? {} : { deadline },
-        ),
-      );
-      await trail.stage("AC-4", async () => {
-        expected({
-          what: "times the output made during the reload reached the page after it",
-          expected: 1,
-          found: timesSeen(frames, held.marker, reloadedFrom),
-        });
-      });
-    },
-  });
-}
 
 export const outputDuringReloadCheck = outputDuringReload(import.meta.url, {
   id: "S4.output-during-reload",

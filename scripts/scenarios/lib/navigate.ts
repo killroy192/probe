@@ -10,7 +10,7 @@ import {
   type WorkspaceResult,
 } from "./setup.ts";
 import { openFromTree, workspaceRoot, workspaceShown } from "./ui/tree.ts";
-import { openWorkspace } from "./ui/workspacesMenu.ts";
+import { openWorkspace, startScreenButton } from "./ui/workspacesMenu.ts";
 
 /**
  * Records every layout save state the page shows, from each page load on, so a scenario can
@@ -86,14 +86,13 @@ async function reloadOnto(page: PointerPage, name: string) {
   );
   await page.reload();
   if (!remembered) {
-    const screen = page.getByTestId("workspace-screen");
     // "Create workspace" joins the start screen once the page learns it may change workspaces,
     // moving "Open workspace" and shutting a menu opened before; harness pages may.
     await waitFor(
-      screen.getByRole("button", { name: "Create workspace" }),
+      startScreenButton(page, "Create workspace"),
       "the start screen to offer Create workspace after the reload",
     );
-    await screen.getByRole("button", { name: "Open workspace" }).click();
+    await startScreenButton(page, "Open workspace").click();
     await page.getByRole("menuitem", { name, exact: true }).click();
   }
   await workspaceShown(page, name, " after the reload");
@@ -152,9 +151,7 @@ export interface ShownPage {
  */
 /** Waits until the page has settled on a workspace or the start screen, so the app has booted. */
 export async function pageSettled(page: PointerPage, before: string) {
-  const startScreen = page
-    .getByTestId("workspace-screen")
-    .getByRole("button", { name: "Open workspace" });
+  const startScreen = startScreenButton(page, "Open workspace");
   await waitFor(
     startScreen.or(page.getByRole("tree").getByRole("treeitem", { level: 1 })).first(),
     `the page to settle on a workspace or the start screen before ${before}`,

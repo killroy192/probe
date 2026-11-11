@@ -6,6 +6,7 @@ import * as Effect from "effect/Effect";
 
 import { openTab, reloadShowing, showWorkspace } from "../lib/navigate.ts";
 import { setupOn, world } from "../lib/setup.ts";
+import { startScreenButton } from "../lib/ui/workspacesMenu.ts";
 import { check } from "../lib/waits.ts";
 import { defineCheck } from "../scenario.ts";
 
@@ -68,10 +69,7 @@ export const reachWorkspace = defineCheck(import.meta.url, {
       return { ws, shell: await setup.shell(project) };
     });
     await ctx.trail.stage("show it from the start screen", async () => {
-      await page
-        .getByTestId("workspace-screen")
-        .getByRole("button", { name: "Open workspace" })
-        .waitFor();
+      await startScreenButton(page, "Open workspace").waitFor();
       await showWorkspace(page, first.ws);
     });
     await ctx.trail.stage("open its shell's tab from the tree", () => openTab(page, first.shell));

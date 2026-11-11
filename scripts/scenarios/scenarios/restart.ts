@@ -1,8 +1,7 @@
-// @effect-diagnostics nodeBuiltinImport:off - Removes and moves fixture folders, and ends a shell from outside.
+// @effect-diagnostics nodeBuiltinImport:off - Removes and moves fixture folders.
 
 import * as NodeFSP from "node:fs/promises";
 import * as NodePath from "node:path";
-import * as NodeProcess from "node:process";
 
 import { expected } from "../lib/expect.ts";
 import { revokeWrite } from "../lib/files.ts";
@@ -17,7 +16,15 @@ import { pageFrames } from "../lib/network.ts";
 import { expectMenuOffers } from "../lib/scoped.ts";
 import { expectLogged } from "../lib/serverLog.ts";
 import { mockAgent, type Setup, setupOn, type ShellResult } from "../lib/setup.ts";
-import { agentReady, history, lastStartOf, running, shellEnded, survivors } from "../lib/shells.ts";
+import {
+  agentReady,
+  history,
+  lastStartOf,
+  listedShell,
+  running,
+  signalShells,
+  survivors,
+} from "../lib/shells.ts";
 import { alert } from "../lib/ui/dialog.ts";
 import {
   cancelModal,
@@ -34,16 +41,14 @@ import {
   askToKill,
   endedRow,
   killFromTree,
+  missingMark,
+  projectMissing,
   shellRow,
   workspaceShown,
 } from "../lib/ui/tree.ts";
 import { openWorkspace, removeWorkspace } from "../lib/ui/workspacesMenu.ts";
 import { alive, waitFor } from "../lib/waits.ts";
-import type { PointerPage } from "../browser.ts";
 import { defineCheck, type ScenarioContext } from "../scenario.ts";
-
-const missingMark = (page: PointerPage, shellId: string) =>
-  page.locator(`[data-shell-row="${shellId}"] [data-missing]`);
 
 const widePage = async (ctx: ScenarioContext) => {
   const page = await ctx.openPage();
@@ -55,7 +60,7 @@ const workspaceFile = (ctx: ScenarioContext, name: string) =>
   NodePath.join(ctx.server.home, "userdata", "workspaces", `${name}.json`);
 
 const listed = (setup: Setup, shell: Pick<ShellResult, "shellId">) =>
-  setup.shells.current().find((entry) => entry.shellId === shell.shellId);
+  listedShell(setup.shells, shell.shellId);
 
 /** Judged on the first list after a restart, which is the restarted server's whole state. */
 const unlistedAfterRestart = (setup: Setup, shells: ReadonlyArray<ShellResult>, what: string) =>
@@ -64,21 +69,6 @@ const unlistedAfterRestart = (setup: Setup, shells: ReadonlyArray<ShellResult>, 
     expected: [],
     found: shells.filter((shell) => listed(setup, shell) !== undefined).map((s) => s.shellId),
   });
-
-/** Kills each shell's process from outside and waits until the server lists it as ended by a signal. */
-async function signalShells(setup: Setup, shells: ReadonlyArray<ShellResult>) {
-  const from = setup.shells.lists.mark();
-  for (const shell of shells) NodeProcess.kill(shell.pid!, "SIGKILL");
-  await setup.shells.lists.until(
-    "the signalled shells to be listed as ended",
-    (list) =>
-      shells.every((shell) =>
-        list.some((entry) => entry.shellId === shell.shellId && entry.ended === "signal"),
-      ),
-    from,
-  );
-  for (const shell of shells) await shellEnded(setup.shells, shell);
-}
 
 export const surviveRestart = defineCheck(import.meta.url, {
   id: "S7.survive-restart",
@@ -356,7 +346,7 @@ export const endedAfterRestart = defineCheck(import.meta.url, {
 
       const inRemoved = await setup.shell(removed, agentScript);
       const inMoved = await setup.shell(moved, agentScript);
-      await signalShells(setup, [inRemoved, inMoved]);
+      await signalShells(setup.shells, [inRemoved, inMoved]);
       await NodeFSP.rm(removed.path, { recursive: true });
       await NodeFSP.rename(moved.path, `${moved.path}-elsewhere`);
       const missing = [
@@ -395,11 +385,7 @@ export const endedAfterRestart = defineCheck(import.meta.url, {
 
     await trail.stage("AC-16", async () => {
       for (const [folder, shell] of made.missing) {
-        const project = page.locator(`[data-project="${folder}"]`);
-        await waitFor(
-          project.locator(`[role="treeitem"][aria-label="${folder}"] [data-missing]`),
-          `project ${folder} to show as not found`,
-        );
+        await waitFor(projectMissing(page, folder), `project ${folder} to show as not found`);
         await waitFor(
           endedRow(page, shell.shellId, "signal"),
           `shell ${shell.shellId} to show as ended by a signal`,
@@ -443,7 +429,7 @@ export const removedStayGone = defineCheck(import.meta.url, {
       const keptShell = await setup.shell(kept);
       const inRemoved = await setup.shell(removed);
       const inMoved = await setup.shell(moved);
-      await signalShells(setup, [inRemoved, inMoved]);
+      await signalShells(setup.shells, [inRemoved, inMoved]);
       await NodeFSP.rm(removed.path, { recursive: true });
       await NodeFSP.rename(moved.path, `${moved.path}-elsewhere`);
       await showWorkspace(page, sparta);
@@ -648,7 +634,7 @@ export const removeUnsaveable = defineCheck(import.meta.url, {
     const made = await trail.stage("setup", async () => {
       const sparta = await setup.workspace("sparta");
       const shell = await setup.shell(await setup.project(sparta, await setup.folder("plain")));
-      await signalShells(setup, [shell]);
+      await signalShells(setup.shells, [shell]);
       await showWorkspace(page, sparta);
       await waitFor(
         endedRow(page, shell.shellId, "signal"),

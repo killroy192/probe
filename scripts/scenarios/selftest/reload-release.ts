@@ -1,5 +1,5 @@
 import { SELFTEST_SHORT_MS } from "../lib/deadlines.ts";
-import { outputDuringReload } from "../scenarios/many-shells.ts";
+import { outputDuringReload } from "../lib/reloadRelease.ts";
 
 /** Lets the held output go before the reload, so the raw-output check fails on purpose. */
 const releaseBeforeReload = outputDuringReload(import.meta.url, {

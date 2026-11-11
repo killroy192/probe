@@ -45,7 +45,7 @@ import {
 } from "../lib/ui/plusModal.ts";
 import { shellTab, tabs } from "../lib/ui/tabs.ts";
 import { typeLine } from "../lib/ui/terminal.ts";
-import { shellNodes } from "../lib/ui/tree.ts";
+import { projectMissing, shellNodes } from "../lib/ui/tree.ts";
 import { follow, recorder, waitFor } from "../lib/waits.ts";
 import { defineCheck, type ScenarioContext } from "../scenario.ts";
 import { MOCK_AGENT_COMMAND } from "../server.ts";
@@ -590,12 +590,7 @@ export const deletedFolder = defineCheck(import.meta.url, {
       // Opening the modal reads the workspace again; the deleted folder is then marked.
       await openModal(page, other.path);
       await cancelModal(page);
-      await waitFor(
-        page.locator(
-          `[data-project="${plain.path}"] [role="treeitem"][aria-label="${plain.path}"] [data-missing]`,
-        ),
-        "the deleted folder's missing mark",
-      );
+      await waitFor(projectMissing(page, plain.path), "the deleted folder's missing mark");
       expected({
         what: "Create shell buttons on the deleted folder",
         expected: 0,

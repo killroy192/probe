@@ -33,6 +33,16 @@ export const shellRow = (page: PointerPage, shellId: string) =>
 const rowWithActions = (page: PointerPage, shellId: string) =>
   page.locator(`[data-shell-row="${shellId}"]`);
 
+/** The mark a shell's whole row shows while the folder it ran in is gone. */
+export const missingMark = (page: PointerPage, shellId: string) =>
+  rowWithActions(page, shellId).locator("[data-missing]");
+
+/** The mark a project's own row shows while its folder is gone. */
+export const projectMissing = (page: PointerPage, folder: string) =>
+  page.locator(
+    `[data-project="${folder}"] [role="treeitem"][aria-label="${folder}"] [data-missing]`,
+  );
+
 /** The "Restore" an ended shell's row offers. */
 export const restoreButton = (page: PointerPage, shellId: string) =>
   rowWithActions(page, shellId).getByRole("button", { name: /^Restore / });

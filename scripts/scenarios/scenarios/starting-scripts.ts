@@ -13,6 +13,7 @@ import { framedPage, framedWorld, type SetupContext } from "../lib/setup.ts";
 import {
   agentTypedOnceAfterPrompt,
   history,
+  listedShell,
   MOCK_AGENT_LINES,
   PROMPT_MARK,
   shellsIn,
@@ -597,7 +598,7 @@ export const exitingCommand = defineCheck(import.meta.url, {
         (frame) => frame.includes("typed-42"),
         typedFrom,
       );
-      const after = setup.shells.current().find((shell) => shell.shellId === quick.shellId);
+      const after = listedShell(setup.shells, quick.shellId);
       expected({
         what: "the shell after its command exited",
         expected: { status: "running", ended: null },

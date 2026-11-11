@@ -16,9 +16,11 @@ import { workspaceShown } from "../lib/ui/tree.ts";
 import {
   createWorkspace,
   fillCreateWorkspace,
+  menuItem,
   openWorkspace,
   openWorkspacesMenu,
   removeWorkspace,
+  startScreenButton,
 } from "../lib/ui/workspacesMenu.ts";
 import { waitFor } from "../lib/waits.ts";
 import { defineCheck } from "../scenario.ts";
@@ -26,10 +28,6 @@ import type { ServerHandle } from "../server.ts";
 
 const screen = (page: PointerPage) => page.getByTestId("workspace-screen");
 const treeRoot = (page: PointerPage) => page.getByRole("tree").getByRole("treeitem");
-const startButton = (page: PointerPage, name: "Create workspace" | "Open workspace") =>
-  screen(page).getByRole("button", { name });
-const menuItem = (page: PointerPage, name: string) =>
-  page.getByRole("menu").last().getByRole("menuitem", { name, exact: true });
 
 async function shownWorkspace(page: PointerPage, name: string) {
   await workspaceShown(page, name);
@@ -41,7 +39,7 @@ async function shownWorkspace(page: PointerPage, name: string) {
 }
 
 async function onStartScreen(page: PointerPage) {
-  await waitFor(startButton(page, "Create workspace"), "the start screen");
+  await waitFor(startScreenButton(page, "Create workspace"), "the start screen");
   expected({
     what: "trees on the start screen",
     expected: 0,
@@ -183,13 +181,13 @@ export const nameRefusals = defineCheck(import.meta.url, {
     const ws = await setup.workspace("sparta");
     await ctx.trail.stage("AC-13", async () => {
       await onStartScreen(page);
-      await startButton(page, "Create workspace").click();
+      await startScreenButton(page, "Create workspace").click();
       expected({
         what: "the refusal of an empty name",
         expected: "Enter a name.",
         found: await fillCreateWorkspace(page, ""),
       });
-      await startButton(page, "Create workspace").click();
+      await startScreenButton(page, "Create workspace").click();
       expected({
         what: "whether a name with a slash is refused",
         expected: true,
@@ -302,7 +300,7 @@ export const removeShown = defineCheck(import.meta.url, {
         from,
       );
       await onStartScreen(page);
-      await startButton(page, "Open workspace").click();
+      await startScreenButton(page, "Open workspace").click();
       await waitFor(menuItem(page, rest.name), `the start screen to offer ${rest.name}`);
       await waitFor(
         menuItem(page, removed.name),
@@ -483,7 +481,7 @@ export const invalidWorkspace = defineCheck(import.meta.url, {
     await ctx.trail.stage("AC-15 from the start screen", async () => {
       const fresh = await ctx.openPage();
       await onStartScreen(fresh);
-      await startButton(fresh, "Open workspace").click();
+      await startScreenButton(fresh, "Open workspace").click();
       await menuItem(fresh, broken).click();
       await waitFor(
         alert(fresh, `Workspace "${broken}" cannot be opened`),

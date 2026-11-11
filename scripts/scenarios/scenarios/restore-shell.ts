@@ -1,18 +1,18 @@
-// @effect-diagnostics nodeBuiltinImport:off - Moves a project folder and ends a shell's process from outside.
+// @effect-diagnostics nodeBuiltinImport:off - Moves a project folder.
 
 import * as NodeFSP from "node:fs/promises";
-import * as NodeProcess from "node:process";
 
 import type { PointerPage } from "../browser.ts";
 import { expected } from "../lib/expect.ts";
 import { openTab, restartAndReload, showWorkspace } from "../lib/navigate.ts";
 import { pageFrames } from "../lib/network.ts";
 import { framedPage, type Setup, type ShellResult } from "../lib/setup.ts";
-import { history, shellEnded } from "../lib/shells.ts";
+import { history, listedShell, signalShells } from "../lib/shells.ts";
 import { shellTab } from "../lib/ui/tabs.ts";
 import { typeLine } from "../lib/ui/terminal.ts";
 import {
   endedRow,
+  missingMark,
   openFromTree,
   restoreButton,
   restoreFromTree,
@@ -49,12 +49,11 @@ async function prepare(
 }
 
 const latest = (setup: Setup, shell: Pick<ShellResult, "shellId">) =>
-  setup.shells.current().find((entry) => entry.shellId === shell.shellId);
+  listedShell(setup.shells, shell.shellId);
 
 /** Ends the shell's process with SIGKILL from outside and waits for its ended row. */
 async function signal(page: PointerPage, setup: Setup, shell: ShellResult) {
-  NodeProcess.kill(shell.pid!, "SIGKILL");
-  await shellEnded(setup.shells, shell);
+  await signalShells(setup.shells, [shell]);
   await waitFor(endedRow(page, shell.shellId), `the row of shell ${shell.shellId} as ended`);
 }
 
@@ -198,7 +197,7 @@ export const noRestoreMovedFolder = defineCheck(import.meta.url, {
       await signal(page, setup, shell);
       await NodeFSP.rename(path, `${path}-elsewhere`);
       await waitFor(
-        page.locator(`[data-shell-row="${shell.shellId}"] [data-missing]`),
+        missingMark(page, shell.shellId),
         `the row of shell ${shell.shellId} as missing its folder`,
       );
       await page.locator(`[data-shell-row="${shell.shellId}"]`).hover();
