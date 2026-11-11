@@ -280,5 +280,5 @@ Order (epic, user decision 2026-11-10): PRB.T-037, PRB.T-038, PRB.T-043, PRB.T-0
 **Final runs (V7, 2026-11-11, the user confirmed the machine was quiet; tip `abbe5f6db`).**
 - Cap gate: `vp run scenarios:gate -- --quiet-confirmed` timed 103, 0 over the 20 s cap; the slowest was S7.lost-host at 16.6 s.
 - Perf run: `vp run test:scenarios:perf -- --quiet-confirmed` ran 5 and passed 5.
-- Loop: `vp run test:scenarios:loop -- 3 --quiet-confirmed`. Check suite 3/3 runs at 104/104. Perf runs: `perf-branch-label` failed 2 of 3 (2042 ms and 2055 ms against 2000 ms), a product limit miss recorded in PRB.T-039 "Product defects found in verification". AC-15 and the epic flake KPI are therefore not met.
+- Loop: `vp run test:scenarios:loop -- 3 --quiet-confirmed`. Check suite 3/3 runs at 104/104. Perf runs: `perf-branch-label` failed 2 of 3 (2042 ms and 2055 ms against 2000 ms), a product limit miss recorded in PRB.T-039 "Product defects found in verification". After the user raised the limit to 3 s, `vp run test:scenarios:loop -- 3 --only perf-branch-label --quiet-confirmed` failed 0/3. With the check suite's 3 clean runs, AC-15 and the epic flake KPI are met.
 - V8 (macOS, A-16) was skipped by the developer (2026-11-11).
