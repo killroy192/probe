@@ -34,7 +34,9 @@ async function websocketTicket(origin: string, auth: RpcAuth): Promise<string> {
     if (!response.ok) throw new Error(`WebSocket ticket request failed: ${response.status}`);
     return decodeTicket(await response.json()).ticket;
   }
-  const response = await auth.request.post(url);
+  // Playwright pools keep-alive sockets across contexts; one the server is just closing as idle
+  // resets this request (ECONNRESET), so the connection is never left in the pool.
+  const response = await auth.request.post(url, { headers: { connection: "close" } });
   if (!response.ok()) throw new Error(`WebSocket ticket request failed: ${response.status()}`);
   return decodeTicket(await response.json()).ticket;
 }
