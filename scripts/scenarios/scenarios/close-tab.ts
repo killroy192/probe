@@ -84,15 +84,17 @@ export const reopenFromTree = defineCheck(import.meta.url, {
     const { page, frames, setup, first } = made;
 
     await ctx.trail.stage("AC-4", async () => {
+      // A quick reopen may reuse the page's attach and send no new snapshot, so the output counts
+      // from before it was printed; the reopened tab must show attached and ready.
+      const printedFrom = frames.mark();
       await printedAfter(setup, first.shellId, "echo before-$((1+1))-s5", "before-2-s5");
       await closeTab(page, first.shellId);
-      const reopenedFrom = frames.mark();
       await openFromTree(page, first.shellId);
       await shellReady(page, first.shellId);
       await frames.until(
-        "the reopened tab's earlier output",
+        "the shell's earlier output on the page",
         (frame) => frame.includes("before-2-s5"),
-        reopenedFrom,
+        printedFrom,
       );
       expected({
         what: `shell ${first.shellId} running after its tab reopened`,
