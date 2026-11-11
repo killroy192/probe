@@ -22,24 +22,20 @@ import {
   RUNS_DIR,
   sandboxLogFile,
 } from "./cleanup.ts";
-import { parseSandboxArgs, strayArgs } from "./environment.ts";
-import { checks, pickedSelftests, selftests } from "./registry.ts";
+import { parseSandboxArgs } from "./environment.ts";
 import { withClient } from "./lib/api.ts";
 import { alive, gone } from "./lib/waits.ts";
-import { pickScenario, sandboxRefusal, staleSandboxFile } from "./sandboxRules.ts";
+import { sandboxRefusal, staleSandboxFile } from "./sandboxRules.ts";
 import { attachServer, REPO_ROOT } from "./server.ts";
 import { type Spawned, spawnScript } from "./spawned.ts";
 
 const here = (file: string) => NodeURL.fileURLToPath(new URL(file, import.meta.url));
 const sandboxBin = here("./sandbox.ts");
-const runnerBin = here("./run.ts");
+const launcherBin = here("./cli.ts");
 const scratch = (label: string) => NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), label));
-const registered = [...checks, ...selftests, ...pickedSelftests].filter(
-  (entry) => entry.kind === "check",
-);
 
 describe("sandbox rules", () => {
-  it("refuses every stated need and an unstated one, and accepts only scenarios that need nothing", () => {
+  it("refuses every stated need and an unstated one, and accepts a scenario that needs nothing", () => {
     const base = { id: "X", title: "x" };
     assert.isUndefined(sandboxRefusal({ ...base, needs: {} }));
     assert.include(sandboxRefusal(base) ?? "", "does not state its needs");
@@ -47,36 +43,13 @@ describe("sandbox rules", () => {
       [{ restart: true }, "restarts the server"],
       [{ secondServer: true }, "starts a second server"],
       [{ pristineHome: true }, "needs an empty home"],
-      [{ unshared: "it matches every process" }, "it matches every process); PRB.T-039"],
+      [
+        { serverWide: "adds a starting script" },
+        "every run on the sandbox sees (adds a starting script)",
+      ],
     ] as const) {
       assert.include(sandboxRefusal({ ...base, needs }) ?? "", reason);
     }
-    assert.deepStrictEqual(
-      registered.filter((scenario) => sandboxRefusal(scenario) === undefined).map(({ id }) => id),
-      ["S4", "S5", "T-041b", "T-041c", "T2", "T5", "T6", "T8", "T9"],
-    );
-    assert.deepStrictEqual(
-      registered.filter(({ needs }) => needs === undefined).map(({ id }) => id),
-      [],
-    );
-  });
-
-  it("runs saved scenarios only, by id", () => {
-    assert.deepStrictEqual(pickScenario("S5", registered), {
-      scenario: registered.find(({ id }) => id === "S5")!,
-    });
-    for (const [id, says] of [
-      ["./probe-check.ts", "is a path to a script"],
-      ["/tmp/x.mjs", "is a path to a script"],
-      ["S99", "No scenario has the id S99"],
-    ] as const) {
-      const picked = pickScenario(id, registered);
-      const refusal = "refusal" in picked ? picked.refusal : "";
-      assert.include(refusal, says);
-      assert.include(refusal, "the sandbox runs saved scenarios only");
-      assert.include(refusal, `"Registering a scenario" in .agents/rules/scenarios.md`);
-    }
-    assert.deepStrictEqual(strayArgs(["--sandbox", "12", "--only", "S5", "./x.ts"]), ["./x.ts"]);
   });
 
   it("parses the sandbox's options and names one it does not take", () => {
@@ -249,8 +222,16 @@ async function startSandbox(args: ReadonlyArray<string> = [], env: NodeJS.Proces
   return sandbox;
 }
 
-const onSandbox = (sandbox: Sandbox, id: string, extra: ReadonlyArray<string> = []) =>
-  spawnScript(runnerBin, ["--sandbox", String(sandbox.pid), "--only", id, ...extra]);
+/** A launcher run on `sandbox` of every name in `only`. */
+const onSandbox = (sandbox: Sandbox, only: ReadonlyArray<string>, env: NodeJS.ProcessEnv = {}) =>
+  spawnScript(
+    launcherBin,
+    ["--sandbox", String(sandbox.pid), ...only.flatMap((name) => ["--only", name])],
+    env,
+  );
+
+const passLine = (id: string) =>
+  new RegExp(`^PASS\\s+${id} .* \\(\\d+\\.\\d s, teardown \\d+ ms\\)$`, "m");
 
 /** The sandbox server's workspaces (with their projects) and shells, read over its API. */
 async function apiState(sandbox: Sandbox) {
@@ -446,7 +427,7 @@ describe("sandbox", () => {
   );
 
   it.live(
-    "refuses a bad start, and on a live sandbox anything but a saved scenario that needs nothing",
+    "refuses a bad start, and on a live sandbox anything but saved scenarios that need nothing",
     () =>
       Effect.promise(async () => {
         const unknown = await spawnScript(sandboxBin, ["--fixture", "nope"]).done;
@@ -490,41 +471,57 @@ describe("sandbox", () => {
         const sandbox = await startSandbox();
         try {
           const before = await apiState(sandbox);
-          for (const [id, says] of [
-            ["S7", "restarts the server"],
-            ["R1", "starts a second server"],
-            ["S1", "needs an empty home"],
-            ["S6", "PRB.T-039"],
-            ["T1", "restarts the server"],
-            ["T3", "starts a second server"],
-            ["T4", "restarts the server"],
-            ["./probe-check.ts", "is a path to a script"],
-            ["S99", "No scenario has the id S99"],
+          const restarts = "it restarts the server, which every run on the sandbox shares";
+          for (const [only, says] of [
+            [["T1"], [`T1 cannot run on a sandbox: ${restarts}.`]],
+            [["T3"], ["T3 cannot run on a sandbox: it starts a second server"]],
+            [["T4"], [restarts, "it starts a second server"]],
+            // A set refuses as a whole when one member does, naming that member.
+            [["T-restart-set"], [`T1 cannot run on a sandbox: ${restarts}.`]],
+            [["T26"], [`T26 step 2 (T1) cannot run on a sandbox: ${restarts}.`]],
+            [
+              ["T23"],
+              [
+                "T23 cannot run on a sandbox: it changes or depends on state every run on the sandbox sees (adds a starting script every scenario on its server lists).",
+              ],
+            ],
+            [
+              ["T24"],
+              [
+                "T24 cannot run on a sandbox: its server starts under a condition (SCENARIO_CONDITION_T24 is set), and the sandbox's did not.",
+              ],
+            ],
+            [["T99"], ["No scenario or set has the name T99."]],
+            [[], ["--sandbox runs saved scenarios; name each with --only <name>."]],
           ] as const) {
-            const { code, output } = await onSandbox(sandbox, id).done;
+            const { code, output } = await onSandbox(sandbox, only).done;
             assert.strictEqual(code, 2, output);
-            assert.include(output, says);
+            assert.include(output, "scenarios: refusing to run on the sandbox.");
+            for (const said of says) assert.include(output, said);
             assert.notInclude(output, "scenarios: ready");
           }
           for (const [args, says] of [
             [
-              ["--sandbox", String(sandbox.pid), "--only", "S5", "./probe-check.ts"],
-              "the sandbox runs saved scenarios only",
+              ["--sandbox", String(sandbox.pid), "--only", "T16", "./probe-check.ts"],
+              "./probe-check.ts is a path to a script",
             ],
             [
-              ["--sandbox", String(sandbox.pid), "--only", "S5", "--server", "http://127.0.0.1:1"],
+              ["--sandbox", String(sandbox.pid), "--only", "T16", "--server", "http://127.0.0.1:1"],
               "only run against a server they start themselves",
             ],
             [
-              ["--sandbox", String(sandbox.pid), "--only", "S5", "--rebuild"],
-              "start a new sandbox",
+              ["--sandbox", String(sandbox.pid), "--only", "T16", "--rebuild"],
+              "--rebuild does not apply to a sandbox; start a new sandbox instead.",
             ],
             // A live process that is no sandbox, as a dev server would be.
-            [["--sandbox", String(process.pid), "--only", "S5"], "No sandbox this harness started"],
-            [["--sandbox", "http://127.0.0.1:1", "--only", "S5"], "takes the sandbox pid"],
+            [
+              ["--sandbox", String(process.pid), "--only", "T16"],
+              "No sandbox this harness started",
+            ],
+            [["--sandbox", "http://127.0.0.1:1", "--only", "T16"], "takes the sandbox pid"],
           ] as const) {
-            const { code, output } = await spawnScript(runnerBin, args).done;
-            assert.notStrictEqual(code, 0, output);
+            const { code, output } = await spawnScript(launcherBin, args).done;
+            assert.strictEqual(code, 2, output);
             assert.include(output, says);
             assert.notInclude(output, "scenarios: ready");
           }
@@ -533,7 +530,7 @@ describe("sandbox", () => {
           const built = NodeFS.statSync(index);
           NodeFS.utimesSync(index, built.atimeMs / 1000, built.mtimeMs / 1000 + 1);
           try {
-            const { code, output } = await onSandbox(sandbox, "S5").done;
+            const { code, output } = await onSandbox(sandbox, ["T16"]).done;
             assert.strictEqual(code, 2, output);
             assert.include(
               output,
@@ -549,14 +546,14 @@ describe("sandbox", () => {
         } finally {
           await sandbox.stop();
         }
-        const { code, output } = await onSandbox(sandbox, "S5").done;
+        const { code, output } = await onSandbox(sandbox, ["T16"]).done;
         assert.strictEqual(code, 2);
         assert.include(output, "No sandbox this harness started");
       }),
   );
 
   it.live(
-    "runs saved scenarios one after another on one server, and only on the sandbox it names",
+    "runs a set and a composed scenario one after another on one server, and only on the sandbox it names",
     () =>
       Effect.promise(async () => {
         const sandbox = await startSandbox(["--fixture", "shells"]);
@@ -572,15 +569,38 @@ describe("sandbox", () => {
             [true],
           );
           assert.isEmpty(otherBefore.shells);
-          for (const id of ["S5", "S4"]) {
-            const { code, output } = await onSandbox(sandbox, id).done;
-            assert.strictEqual(code, 0, output);
+
+          const set = await onSandbox(sandbox, ["T-sandbox"]).done;
+          assert.strictEqual(set.code, 0, set.output);
+          assert.include(set.output, "scenarios: set T-sandbox: 3 members");
+          for (const id of ["T16", "T17"]) assert.match(set.output, passLine(id));
+          assert.match(set.output, /^PASS\s+T22 .* \(composed, 4 steps, \d+\.\d s\)$/m);
+          assert.include(set.output, "scenarios: set T-sandbox 3/3 passed");
+
+          const handover = await onSandbox(sandbox, ["T22"]).done;
+          assert.strictEqual(handover.code, 0, handover.output);
+          assert.match(handover.output, /^PASS\s+T22 .* \(composed, 4 steps, \d+\.\d s\)$/m);
+          for (const [n, id] of [
+            [1, "T16"],
+            [2, "T17"],
+            [3, "T16"],
+            [4, "T17"],
+          ] as const) {
             assert.match(
-              output,
-              new RegExp(`PASS\\s+${id} .* \\(\\d+\\.\\d s, teardown \\d+ ms\\)`),
+              handover.output,
+              new RegExp(`^\\s+step ${n} ${id} \\(\\d+\\.\\d s\\)$`, "m"),
             );
-            assert.include(output, `on sandbox ${sandbox.pid} (server pid=${serverPid} `);
-            assert.notInclude(output, `${id} server pid=`);
+          }
+
+          // No cold start: neither run starts a server, and the sandbox's own is the one that ran.
+          for (const { output } of [set, handover]) {
+            assert.include(
+              output,
+              `scenarios: on sandbox ${sandbox.pid} (server pid=${serverPid} `,
+            );
+            assert.include(output, `scenarios: on sandbox ${sandbox.pid}, `);
+            assert.notMatch(output, /server pid=\d+ home=.* log=/);
+            assert.notMatch(output, /scenarios: T\d+ (second )?server pid=/);
           }
           assert.strictEqual(factsOf(sandbox.spawned.output())["server-pid"], serverPid);
           assert.isTrue(alive(Number(serverPid)));
@@ -601,37 +621,37 @@ describe("sandbox", () => {
         try {
           const serverPid = Number(sandbox.facts["server-pid"]);
           const shellHostPid = Number(sandbox.facts["shell-host-pid"]);
-          const first = await onSandbox(sandbox, "S5").done;
+          const first = await onSandbox(sandbox, ["T16"]).done;
           assert.strictEqual(first.code, 0, first.output);
 
-          const failed = await onSandbox(sandbox, "T2").done;
+          const failed = await onSandbox(sandbox, ["T2"]).done;
           assert.strictEqual(failed.code, 1);
           assert.match(
             failed.output,
-            /FAIL\s+T2 deliberate failure .*at stage "read the page title": expected "a title no page has", found "[^"]*"/,
+            /FAIL\s+T2 deliberate failure .*expected "a title no page has", found "[^"]*"/,
           );
           const [, dir, saved] = /artifacts: (\S+) \(([^)]*)\)/.exec(failed.output)!;
           assert.isFalse(dir!.startsWith(sandbox.facts.home!));
-          assert.deepStrictEqual(saved!.split(", "), [
-            "error.txt",
-            "page-1.png",
-            "sandbox-server-log-tail.txt",
-            "recorders.json",
-          ]);
-          assert.isNotEmpty(
-            NodeFS.readFileSync(NodePath.join(dir!, "sandbox-server-log-tail.txt"), "utf8"),
+          const names = saved!.split(", ");
+          for (const name of ["error.txt", "sandbox-server.log", "recorders.json"]) {
+            assert.include(names, name);
+          }
+          assert.isTrue(
+            names.some((name) => /^page-1-[\w-]+\.png$/.test(name)),
+            saved,
           );
+          assert.isTrue(NodeFS.existsSync(NodePath.join(dir!, "sandbox-server.log")));
           NodeFS.rmSync(dir!, { recursive: true, force: true });
 
-          // The second S5 run on this server: its names and folders never meet the first one's.
-          const next = await onSandbox(sandbox, "S5").done;
+          // The second T16 run on this server: its names and folders never meet the first one's.
+          const next = await onSandbox(sandbox, ["T16"]).done;
           assert.strictEqual(next.code, 0, next.output);
-          const names = (await apiState(sandbox)).workspaces.filter((name) =>
-            name.startsWith("sparta-"),
+          const made = (await apiState(sandbox)).workspaces.filter((name) =>
+            name.startsWith("t16-"),
           );
-          assert.strictEqual(new Set(names).size, 2);
+          assert.strictEqual(new Set(made).size, 2);
 
-          const unstated = await onSandbox(sandbox, "T5").done;
+          const unstated = await onSandbox(sandbox, ["T5"]).done;
           assert.strictEqual(unstated.code, 1);
           for (const need of [
             "stopping the shell host",
@@ -665,11 +685,9 @@ describe("sandbox", () => {
           const made: Array<{ workspace: string; folder: string; note: string }> = [];
           // The note stands for a change to the scenario between the two runs.
           for (const note of ["before the change", "after the change"]) {
-            const { code, output } = await spawnScript(
-              runnerBin,
-              ["--sandbox", String(sandbox.pid), "--only", "T6"],
-              { SCENARIO_T6_NOTE: note },
-            ).done;
+            const { code, output } = await onSandbox(sandbox, ["T6"], {
+              SCENARIO_T6_NOTE: note,
+            }).done;
             assert.strictEqual(code, 0, output);
             const [, workspace, folder] = /T6 made workspace=(\S+) folder=(\S+)/.exec(output)!;
             made.push({ workspace: workspace!, folder: folder!, note });
@@ -697,23 +715,24 @@ describe("sandbox", () => {
         const sandbox = await startSandbox();
         let frozen = false;
         try {
-          const killed = onSandbox(sandbox, "S4");
+          // T19 waits for output that never comes, so it is still running when it is killed.
+          const killed = onSandbox(sandbox, ["T19"]);
           await killed.line(/scenarios: ready/);
-          const busy = await onSandbox(sandbox, "S5").done;
+          const busy = await onSandbox(sandbox, ["T16"]).done;
           assert.strictEqual(busy.code, 2);
           assert.include(busy.output, "One scenario runs at a time on a sandbox");
 
-          const browserPids = linux ? descendants(killed.child.pid!) : [];
-          if (linux) assert.isNotEmpty(browserPids);
+          assert.isNull(killed.child.exitCode, killed.output());
+          const runPids = linux ? descendants(killed.child.pid!) : [];
+          if (linux) assert.isNotEmpty(runPids);
           killed.child.kill("SIGKILL");
           await killed.done;
-          for (const pid of browserPids)
-            assert.isTrue(await gone(pid), `browser process ${pid} survived`);
+          for (const pid of runPids) assert.isTrue(await gone(pid), `run process ${pid} survived`);
           assert.isTrue((await fetch(sandbox.facts.origin!)).ok);
 
           // The killed run's lock is taken over; the sandbox ends under the next run. Frozen
           // inside its stop's steps, its server and home are gone while its record stays.
-          const orphaned = onSandbox(sandbox, "S4");
+          const orphaned = onSandbox(sandbox, ["T19"]);
           await orphaned.line(/scenarios: ready/);
           process.kill(sandbox.pid, "SIGSTOP");
           frozen = true;
@@ -722,12 +741,14 @@ describe("sandbox", () => {
           ) as { readonly entries: ReadonlyArray<ManifestEntry> };
           killServerTree(entries[0]!);
           const { code, output } = await orphaned.done;
-          assert.strictEqual(code, 1);
+          assert.strictEqual(code, 1, output);
+          assert.match(output, /^FAIL\s+T19 /m);
           assert.include(
             output,
             `The sandbox ${sandbox.pid} ended during the run; no server is started in its place.`,
           );
-          assert.notInclude(output, "S4 server pid=");
+          assert.notMatch(output, /server pid=\d+ home=.* log=/);
+          assert.notMatch(output, /scenarios: T19 (second )?server pid=/);
           assert.match(output, /artifacts: \S+/);
         } finally {
           if (frozen) process.kill(sandbox.pid, "SIGCONT");
@@ -744,6 +765,7 @@ describe("sandbox", () => {
         Number(sandbox.facts["shell-host-pid"]),
         ...(await apiState(sandbox)).shells.map(({ pid }) => pid!),
       ];
+      const listed = scratch("scenario-list-");
       let next: Sandbox | undefined;
       try {
         for (const cleaner of ["suite", "sandbox"] as const) {
@@ -755,8 +777,17 @@ describe("sandbox", () => {
 
           let output: string;
           if (cleaner === "suite") {
-            // A suite start with an id it does not know cleans up first and then stops.
-            output = (await spawnScript(runnerBin, ["--only", "S99"]).done).output;
+            // A launcher run that only lists cleans up first, and starts no server or browser.
+            const run = await spawnScript(launcherBin, [
+              "--selftest",
+              "--only",
+              "T16",
+              "--list",
+              "--artifacts",
+              listed,
+            ]).done;
+            assert.strictEqual(run.code, 0, run.output);
+            output = run.output;
           } else {
             next = await startSandbox();
             output = next.spawned.output();
@@ -772,6 +803,7 @@ describe("sandbox", () => {
       } finally {
         await live.stop();
         await next?.stop();
+        NodeFS.rmSync(listed, { recursive: true, force: true });
       }
     }),
   );
