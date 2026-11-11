@@ -54,7 +54,7 @@ describe("sandbox rules", () => {
     }
     assert.deepStrictEqual(
       registered.filter((scenario) => sandboxRefusal(scenario) === undefined).map(({ id }) => id),
-      ["S4", "S5", "T2", "T5", "T6"],
+      ["S4", "S5", "T-041b", "T-041c", "T2", "T5", "T6", "T8", "T9"],
     );
     assert.deepStrictEqual(
       registered.filter(({ needs }) => needs === undefined).map(({ id }) => id),

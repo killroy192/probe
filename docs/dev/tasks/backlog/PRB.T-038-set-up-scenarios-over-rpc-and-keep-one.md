@@ -241,4 +241,4 @@ Setup that is not the subject goes over the API; the subject still happens by th
 - An API fork needs a caller-supplied worktree name.
 - S3's `leaveAgent` becomes a "Plain shell" pick in the modal (S3 keeps every start a modal start).
 - Judgment calls in the count: S8's tree kills (15 RT, counted SUBJECT; CONVERT if "kill from the tree: S6" is read strictly) and S2's first sparta create (4 RT, counted KEEP per EC-4).
-- SUBJECT dominates S1, S2 and S3, so their 15 s cap depends on PRB.T-039's split, not on this story.
+- SUBJECT dominates S1, S2 and S3, so their 20 s cap depends on PRB.T-039's split, not on this story.

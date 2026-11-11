@@ -90,6 +90,18 @@ const layoutErrorAtom = Atom.make<string | null>(null).pipe(
 const latestTabs = new Map<string, WorkspaceTabs>();
 const pendingSaves = new Map<string, Promise<unknown>>();
 
+// How many tab saves of each workspace this page has in flight; a workspace not listed has none.
+const savingAtom = Atom.make<Readonly<Record<string, number>>>({}).pipe(
+  Atom.keepAlive,
+  Atom.withLabel("web-workspace-layout-saving"),
+);
+
+// The workspaces whose last tab save from this page failed.
+const saveFailedAtom = Atom.make<Readonly<Record<string, true>>>({}).pipe(
+  Atom.keepAlive,
+  Atom.withLabel("web-workspace-layout-save-failed"),
+);
+
 // Whether this page already tried to show the workspace it showed before a reload.
 const restoredAtom = Atom.make<"no" | "pending" | "done">("no").pipe(
   Atom.keepAlive,
@@ -148,6 +160,11 @@ export interface WorkspacesView {
   readonly tabs: WorkspaceTabs;
   /** Why the open tabs are not being saved, or null while they are. */
   readonly layoutError: string | null;
+  /**
+   * The shown workspace's tabs as this page last changed them: still being saved, saved, or the
+   * last save failed. Saved until this page changes them; another client's change never counts.
+   */
+  readonly layoutSave: "pending" | "saved" | "failed";
   readonly create: (name: string) => WorkspaceActionResult;
   readonly open: (name: string) => WorkspaceActionResult;
   /** Reads the shown workspace again, so a project whose folder was deleted on disk is no longer preselected. */
@@ -225,6 +242,10 @@ export function useWorkspaces(): WorkspacesView {
   const saveTabsCommand = useAtomCommand(workspaceEnvironment.saveTabs, { reportFailure: false });
   const layoutError = useAtomValue(layoutErrorAtom);
   const setLayoutError = useAtomSet(layoutErrorAtom);
+  const saving = useAtomValue(savingAtom);
+  const setSaving = useAtomSet(savingAtom);
+  const saveFailed = useAtomValue(saveFailedAtom);
+  const setSaveFailed = useAtomSet(saveFailedAtom);
   const restored = useAtomValue(restoredAtom);
   const setRestored = useAtomSet(restoredAtom);
   const canChange = useAtomValue(workspaceEnvironment.create.permissionAtom(environmentId));
@@ -268,6 +289,23 @@ export function useWorkspaces(): WorkspacesView {
     const next = update(latestTabs.get(key) ?? allTabs[key] ?? NO_TABS);
     latestTabs.set(key, next);
     setAllTabs((all) => ({ ...all, [key]: next }));
+    const count = (delta: number) =>
+      setSaving((all) => {
+        const next = { ...all, [key]: (all[key] ?? 0) + delta };
+        if (next[key] === 0) delete next[key];
+        return next;
+      });
+    count(1);
+    const settle = (error: string | null) => {
+      setLayoutError(error);
+      setSaveFailed((all) => {
+        if ((all[key] === true) === (error !== null)) return all;
+        const next = { ...all };
+        if (error === null) delete next[key];
+        else next[key] = true;
+        return next;
+      });
+    };
     const save = (pendingSaves.get(key) ?? Promise.resolve())
       .then(() =>
         saveTabsCommand({
@@ -276,14 +314,15 @@ export function useWorkspaces(): WorkspacesView {
         }),
       )
       .then((result) =>
-        setLayoutError(
+        settle(
           result._tag === "Failure"
             ? `The layout is not being saved: ${formatEnvironmentQueryError(result.cause)}`
             : null,
         ),
       )
       // A save that throws must not stop the ones queued after it.
-      .catch((error: unknown) => setLayoutError(`The layout is not being saved: ${String(error)}`));
+      .catch((error: unknown) => settle(`The layout is not being saved: ${String(error)}`))
+      .finally(() => count(-1));
     pendingSaves.set(key, save);
   };
 
@@ -328,6 +367,14 @@ export function useWorkspaces(): WorkspacesView {
     shown,
     tabs,
     layoutError,
+    layoutSave:
+      shown === null || environmentId === null
+        ? "saved"
+        : saving[tabsKey(environmentId, shown.name)]
+          ? "pending"
+          : saveFailed[tabsKey(environmentId, shown.name)]
+            ? "failed"
+            : "saved",
     create: (name) =>
       run(
         (id) => createCommand({ environmentId: id, input: { name } }),

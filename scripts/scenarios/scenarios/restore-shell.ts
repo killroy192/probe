@@ -9,7 +9,7 @@ import type { ShellSummary } from "@t3tools/contracts";
 import { connectRpc } from "../rpc.ts";
 import type { PointerPage } from "../browser.ts";
 import type { Scenario } from "../scenario.ts";
-import { check, gone, pageFrames } from "../support.ts";
+import { check, pageFrames } from "../support.ts";
 import {
   addProject,
   endedRow,
@@ -19,11 +19,13 @@ import {
   leaveAgent,
   openFromTree,
   reloadShowing,
+  shellEnded,
   shellList,
   shellRow,
   shellTab,
   startShell,
   typeLine,
+  layoutSaved,
 } from "./workspaceUi.ts";
 
 const restoreButton = (page: PointerPage, shellId: string) =>
@@ -55,7 +57,7 @@ export const restoreShell: Scenario = {
       shells.current().find((entry) => entry.shellId === shell.shellId);
     const signal = async (shell: ShellSummary) => {
       NodeProcess.kill(shell.pid!, "SIGKILL");
-      check(await gone(shell.pid!), `Shell ${shell.shellId} survived SIGKILL.`);
+      await shellEnded(shells, shell);
       await endedRow(page, shell.shellId).waitFor();
     };
     let stage = "setup";
@@ -117,6 +119,7 @@ export const restoreShell: Scenario = {
       // A shell lost with the whole host (a reboot) is restorable the same way.
 
       stage = "restore after a restart";
+      await layoutSaved(page, "troy");
       await rpc.close();
       await server.stop();
       await server.stopShellHost();

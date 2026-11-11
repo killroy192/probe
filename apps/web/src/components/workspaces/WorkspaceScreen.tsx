@@ -1,3 +1,4 @@
+import { shellPromptState } from "@t3tools/client-runtime/state/terminal";
 import type { EnvironmentId, ShellSummary } from "@t3tools/contracts";
 import { ChevronDownIcon, FolderOpenIcon, PlusIcon, SquareTerminalIcon } from "lucide-react";
 import { useEffect, useEffectEvent, useState } from "react";
@@ -44,7 +45,12 @@ export function WorkspaceScreen() {
   }, []);
 
   return (
-    <SidebarInset className="h-dvh min-h-0" data-testid="workspace-screen">
+    <SidebarInset
+      className="h-dvh min-h-0"
+      data-testid="workspace-screen"
+      // Whether the shown workspace's tabs, as this page last changed them, reached the server.
+      data-layout-save={view.shown === null ? undefined : view.layoutSave}
+    >
       {view.shown === null && view.restoring ? null : view.shown === null ? (
         <div className="flex flex-1 flex-col items-center justify-center gap-3">
           <Menu>
@@ -154,6 +160,9 @@ function ShellTabs({
             key={shell.shellId}
             role="tabpanel"
             aria-label={label(shell)}
+            data-shell-id={shell.shellId}
+            // The surface inside says whether it is attached; this says whether the shell is ready.
+            data-shell-ready={shellPromptState(shell)}
             hidden={!active}
             data-testid={active ? "shell-view" : undefined}
             className="min-h-0 flex-1 p-2"

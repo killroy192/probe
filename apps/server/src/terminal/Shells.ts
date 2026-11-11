@@ -48,7 +48,12 @@ import * as ProcessRunner from "../processRunner.ts";
 import { ShellHost } from "./shellHost/client.ts";
 import { TerminalManager } from "./Manager.ts";
 import { killProcessTree, makeReadProcessTable } from "./processTree.ts";
-import { START_PROGRAM_ENV, type ShellOutputEvent, waitForPromptMark } from "./shellReady.ts";
+import {
+  START_PROGRAM_ENV,
+  type ShellOutputEvent,
+  makeReadyScanner,
+  waitForPromptMark,
+} from "./shellReady.ts";
 import { PROBE_COMMAND, SELF_KILL_PATH, SHELL_ENV, type ShellSelfKill } from "./shellEnv.ts";
 
 type Manager = TerminalManager["Service"];
@@ -65,6 +70,8 @@ interface ShellRecord {
   /** The home folder is gone from disk. */
   missing: boolean;
   restored: boolean;
+  /** The first prompt: still awaited, seen, or never coming (not wrapped, or none in time). */
+  prompt: "pending" | "ready" | "none";
 }
 
 const NO_RECORD: ShellRecord = {
@@ -76,6 +83,7 @@ const NO_RECORD: ShellRecord = {
   elsewhere: null,
   missing: false,
   restored: false,
+  prompt: "pending",
 };
 
 /** A shell as the registry keeps it across server restarts. */
@@ -91,6 +99,8 @@ const SavedShell = Schema.Struct({
   tokenHash: Schema.NullOr(Schema.String),
   /** Set once the user restored the shell after it ended. */
   restored: Schema.optionalKey(Schema.Boolean),
+  /** Set once the first-prompt scan ended, so a takeover does not scan again. */
+  prompt: Schema.optionalKey(Schema.Literals(["ready", "none"])),
   /** Set once the shell ended in a way that keeps it listed until it is removed. */
   ended: Schema.NullOr(
     Schema.Struct({
@@ -154,6 +164,8 @@ const toSummary = (
   ended: terminal.status === "exited" && signalOf(terminal.exitSignal) !== null ? "signal" : null,
   missing: record.missing,
   restored: record.restored,
+  promptReady:
+    record.prompt === "ready" && (terminal.status === "running" || terminal.status === "starting"),
   updatedAt: terminal.updatedAt,
 });
 
@@ -175,6 +187,7 @@ const endedSummary = (saved: SavedShell, record: ShellRecord): ShellSummary => (
   ended: saved.ended?.reason ?? "lost",
   missing: record.missing,
   restored: record.restored,
+  promptReady: false,
   updatedAt: saved.ended?.at ?? "",
 });
 
@@ -234,6 +247,8 @@ export const withoutShells = (
 };
 
 const DEFAULT_PROMPT_TIMEOUT = "15 seconds";
+// The terminal manager's kill grace: a killed shell's removal waits no longer for its process to end.
+const DEFAULT_KILL_WAIT = "1 second";
 
 interface ShellsOptions {
   /** How long a starting script waits for the shell's prompt; slow startup files need a long wait. */
@@ -243,6 +258,8 @@ interface ShellsOptions {
   readonly readCwds?: (pids: ReadonlyArray<number>) => Effect.Effect<ReadonlyMap<number, string>>;
   /** Force-ends a shell's process and everything it started. */
   readonly killTree?: (pid: number) => Effect.Effect<void>;
+  /** How long a kill waits for the shell's process to end before it removes the shell anyway. */
+  readonly killWait?: Duration.Input;
   /** A secret per shell that lets a command inside it kill it; see `selfKill`. */
   readonly newToken?: Effect.Effect<string>;
   /** Where `probe kill` reaches the server; null leaves shells without the command. */
@@ -335,6 +352,7 @@ export const makeShells = Effect.fn("Shells.make")(function* (
   const scope = yield* Effect.scope;
   const platform = options.platform ?? (yield* HostProcess.Platform);
   const promptTimeout = options.promptTimeout ?? DEFAULT_PROMPT_TIMEOUT;
+  const killWait = options.killWait ?? DEFAULT_KILL_WAIT;
   const host = options.host ?? null;
   const registryPath = options.registryPath ?? null;
   const session = (shellId: string) => ({
@@ -422,6 +440,65 @@ export const makeShells = Effect.fn("Shells.make")(function* (
     if (previous === undefined) return;
     saved.delete(shellId);
     yield* persist.pipe(Effect.tapError(() => Effect.sync(() => saved.set(shellId, previous))));
+  });
+
+  /** Settles a shell's first prompt once, saved so a takeover knows it; ready is sent to clients. */
+  const settlePrompt = Effect.fn("Shells.settlePrompt")(function* (
+    shellId: string,
+    prompt: "ready" | "none",
+  ) {
+    const record = records.get(shellId);
+    if (record === undefined || record.prompt !== "pending") return;
+    record.prompt = prompt;
+    yield* Effect.logDebug("shell first prompt", { shellId, prompt });
+    const entry = saved.get(shellId);
+    if (entry !== undefined) {
+      saved.set(shellId, { ...entry, prompt });
+      yield* persistOrWarn;
+    }
+    const shell = prompt === "ready" ? summaryOf(shellId) : null;
+    if (shell !== null) yield* emit({ type: "upsert", shell });
+  });
+
+  /** A shell's output from now on, so a first prompt printed right after cannot slip past. */
+  // Untraced: it only subscribes, inside the caller's span (open, restore or the takeover).
+  const watchOutput = Effect.fnUntraced(function* (shellId: string) {
+    const { threadId } = session(shellId);
+    const output = yield* Queue.unbounded<ShellOutputEvent>();
+    const stop = yield* manager.subscribe((event) =>
+      event.threadId !== threadId
+        ? Effect.void
+        : event.type === "output"
+          ? Queue.offer(output, { type: "output", data: event.data })
+          : event.type === "exited"
+            ? Queue.offer(output, { type: "exited" })
+            : Effect.void,
+    );
+    return { output, stop };
+  });
+
+  /**
+   * Scans a shell's output for its first prompt without holding up the caller. The scan ends at
+   * the mark, the shell's end or the timeout, so a shell costs nothing once it is settled.
+   */
+  const scanFirstPrompt = Effect.fn("Shells.scanFirstPrompt")(function* (
+    shellId: string,
+    watched: Effect.Success<ReturnType<typeof watchOutput>>,
+    wrapped: boolean,
+    onMark: Effect.Effect<void> = Effect.void,
+  ) {
+    // Known at once, so a start's own registry write carries it instead of a second write.
+    if (!wrapped) {
+      watched.stop();
+      return yield* settlePrompt(shellId, "none");
+    }
+    yield* Effect.gen(function* () {
+      const ready = yield* waitForPromptMark(Stream.fromQueue(watched.output), promptTimeout);
+      if (ready.outcome === "mark") {
+        yield* settlePrompt(shellId, "ready");
+        yield* onMark;
+      } else if (ready.outcome === "timeout") yield* settlePrompt(shellId, "none");
+    }).pipe(Effect.ensuring(Effect.sync(watched.stop)), Effect.forkIn(scope));
   });
 
   const readText = (file: string) => fs.readFileString(file).pipe(Effect.orElseSucceed(() => null));
@@ -613,7 +690,26 @@ export const makeShells = Effect.fn("Shells.make")(function* (
       terminal?.pid != null && (terminal.status === "running" || terminal.status === "starting");
     killing.add(shellId);
     yield* Effect.gen(function* () {
-      if (running) yield* killTree(terminal.pid!);
+      if (running) {
+        // The removal is sent once the process ended, so a client can rely on it (SU-3).
+        const ended = yield* Deferred.make<void>();
+        const { threadId } = session(shellId);
+        const stop = yield* manager.subscribe((event) =>
+          event.type === "exited" && event.threadId === threadId
+            ? Deferred.succeed(ended, undefined).pipe(Effect.asVoid)
+            : Effect.void,
+        );
+        const exited = yield* killTree(terminal.pid!).pipe(
+          Effect.andThen(Deferred.await(ended).pipe(Effect.timeoutOption(killWait))),
+          Effect.ensuring(Effect.sync(stop)),
+        );
+        if (exited._tag === "None") {
+          yield* Effect.logDebug("killed shell outlived the wait; removing it", {
+            shellId,
+            pid: terminal.pid,
+          });
+        }
+      }
       const known = terminal !== undefined || saved.has(shellId);
       const pid = terminal?.pid ?? saved.get(shellId)?.pid ?? null;
       const forgotten = yield* Effect.exit(unsave(shellId));
@@ -739,10 +835,18 @@ export const makeShells = Effect.fn("Shells.make")(function* (
         }),
       );
       const token = yield* newToken;
+      // A new process: not ready until its own first prompt.
+      const record = recordOf(shellId);
+      record.prompt = "pending";
+      const watched = yield* watchOutput(shellId);
       const snapshot = yield* manager
         .open({ ...owner, cwd: entry.cwd, ...optionalEnv(envOf(shellId, token, undefined)) })
-        .pipe(Effect.ensuring(Effect.sync(stop)));
+        .pipe(
+          Effect.ensuring(Effect.sync(stop)),
+          Effect.onError(() => Effect.sync(watched.stop)),
+        );
       if (snapshot.status === "error") {
+        watched.stop();
         // The shell stays listed as ended, so the user can try again or remove it.
         yield* manager.close({ ...owner, deleteHistory: false });
         return yield* failToStart(entry.cwd, reason);
@@ -750,10 +854,10 @@ export const makeShells = Effect.fn("Shells.make")(function* (
       forgetToken(shellId);
       const tokenHash = token === null ? null : hashToken(token);
       if (tokenHash !== null) tokens.set(tokenHash, shellId);
-      const record = recordOf(shellId);
       record.restored = true;
+      const { prompt: _earlierPrompt, ...earlier } = entry;
       saved.set(shellId, {
-        ...entry,
+        ...earlier,
         pid: snapshot.pid,
         label: snapshot.label,
         tokenHash,
@@ -768,6 +872,11 @@ export const makeShells = Effect.fn("Shells.make")(function* (
       });
       const summary = toSummary(shellId, snapshot, record);
       yield* emit({ type: "upsert", shell: summary });
+      yield* scanFirstPrompt(
+        shellId,
+        watched,
+        yield* manager.printsPromptMark(owner.threadId, owner.terminalId),
+      );
       return summary;
     }).pipe(Effect.ensuring(Effect.sync(() => restoring.delete(shellId))));
   });
@@ -788,7 +897,7 @@ export const makeShells = Effect.fn("Shells.make")(function* (
     for (const { folder, ...disk } of decoded.value.shells) {
       const entry: SavedShell = { ...disk, project: disk.project ?? folder ?? null };
       const home = entry.home;
-      records.set(entry.shellId, {
+      const record: ShellRecord = {
         title: entry.title,
         project: entry.project,
         worktree: entry.worktree,
@@ -797,7 +906,9 @@ export const makeShells = Effect.fn("Shells.make")(function* (
         elsewhere: null,
         missing: home !== null && !(yield* exists(home)),
         restored: entry.restored === true,
-      });
+        prompt: entry.prompt ?? "pending",
+      };
+      records.set(entry.shellId, record);
       if (entry.tokenHash !== null) tokens.set(entry.tokenHash, entry.shellId);
       const found = entry.pid === null ? undefined : byPid.get(entry.pid);
       if (entry.pid !== null) byPid.delete(entry.pid);
@@ -810,7 +921,15 @@ export const makeShells = Effect.fn("Shells.make")(function* (
         });
         yield* Effect.logInfo("shell lost", { shellId: entry.shellId, cwd: entry.cwd });
       } else if (found.session.exit === null) {
-        saved.set(entry.shellId, entry);
+        // A first prompt printed while no server watched is in the output the host kept.
+        if (record.prompt === "pending" && makeReadyScanner().feed(found.session.output)) {
+          record.prompt = "ready";
+        }
+        saved.set(
+          entry.shellId,
+          record.prompt === "pending" ? entry : { ...entry, prompt: record.prompt },
+        );
+        const watched = record.prompt === "pending" ? yield* watchOutput(entry.shellId) : null;
         const snapshot = yield* manager.adopt({
           ...session(entry.shellId),
           cwd: found.session.cwd,
@@ -825,6 +944,8 @@ export const makeShells = Effect.fn("Shells.make")(function* (
           cwd: snapshot.cwd,
           pid: snapshot.pid,
         });
+        // Whether an adopted process is wrapped is not known here; an unwrapped one times out.
+        if (watched !== null) yield* scanFirstPrompt(entry.shellId, watched, true);
       } else if (signalOf(found.session.exit.signal) === null) {
         records.delete(entry.shellId);
         forgetToken(entry.shellId);
@@ -891,6 +1012,7 @@ export const makeShells = Effect.fn("Shells.make")(function* (
         elsewhere: null,
         missing: false,
         restored: false,
+        prompt: "pending",
       });
       let reason = "The shell program could not be launched.";
       const stop = yield* manager.subscribe((event) =>
@@ -903,18 +1025,9 @@ export const makeShells = Effect.fn("Shells.make")(function* (
       if (tokenHash !== null) tokens.set(tokenHash, shellId);
       const base = envOf(shellId, token, input.env);
       const env = started === null ? base : { ...base, [START_PROGRAM_ENV]: started.program };
-      // Listens from before the shell starts, so its first prompt cannot slip past. The scan ends at
-      // the first prompt mark, so a shell costs nothing once it is ready.
-      const output = yield* Queue.unbounded<ShellOutputEvent>();
-      const stopOutput = yield* manager.subscribe((event) =>
-        event.threadId !== owner.threadId
-          ? Effect.void
-          : event.type === "output"
-            ? Queue.offer(output, { type: "output", data: event.data })
-            : event.type === "exited"
-              ? Queue.offer(output, { type: "exited" })
-              : Effect.void,
-      );
+      // One scan per shell serves both the script typing and the first-prompt state.
+      const watched = yield* watchOutput(shellId);
+      const { output, stop: stopOutput } = watched;
       // From the start request to the first prompt; the scenario harness records it (PRB.T-036).
       const logPromptReady = Effect.gen(function* () {
         const ms = (yield* Clock.currentTimeMillis) - requestedAt;
@@ -959,7 +1072,10 @@ export const makeShells = Effect.fn("Shells.make")(function* (
           yield* settle;
           return yield* failToStart(input.cwd, refusal, started);
         }
-        if (ready.outcome === "mark") yield* logPromptReady;
+        if (ready.outcome === "mark") {
+          yield* settlePrompt(shellId, "ready");
+          yield* logPromptReady;
+        } else yield* settlePrompt(shellId, "none");
         if (ready.outcome === "timeout") {
           yield* Effect.logWarning("shell printed no prompt mark; typing the starting script", {
             shellId,
@@ -970,12 +1086,13 @@ export const makeShells = Effect.fn("Shells.make")(function* (
           Effect.ensuring(settle),
         );
       } else {
-        // A plain shell is not held up: its first prompt is awaited in the background, only to log it.
-        yield* Effect.gen(function* () {
-          if (!(yield* manager.printsPromptMark(owner.threadId, owner.terminalId))) return;
-          const ready = yield* waitForPromptMark(Stream.fromQueue(output), promptTimeout);
-          if (ready.outcome === "mark") yield* logPromptReady;
-        }).pipe(Effect.ensuring(Effect.sync(stopOutput)), Effect.forkIn(scope));
+        // A plain shell is not held up: its first prompt is awaited in the background.
+        yield* scanFirstPrompt(
+          shellId,
+          watched,
+          yield* manager.printsPromptMark(owner.threadId, owner.terminalId),
+          logPromptReady,
+        );
       }
       const record = recordOf(shellId);
       saved.set(shellId, {
@@ -989,6 +1106,8 @@ export const makeShells = Effect.fn("Shells.make")(function* (
         home: record.home,
         tokenHash,
         ended: null,
+        // The scan may have settled already; one that settles later saves it then.
+        ...(record.prompt === "pending" ? {} : { prompt: record.prompt }),
       });
       yield* persistOrWarn;
       yield* Effect.logInfo(
@@ -1045,6 +1164,14 @@ export const makeShells = Effect.fn("Shells.make")(function* (
       listener: (event: ShellListStreamEvent) => Effect.Effect<void>,
     ) {
       const stop = yield* manager.subscribeMetadata((event) => {
+        // A killed shell's end is sent as its removal (or its kept-as-ended entry), not as an exit.
+        if (
+          event.type === "upsert" &&
+          event.terminal.status === "exited" &&
+          killing.has(shellIdFromOwnerId(event.terminal.threadId) ?? "")
+        ) {
+          return Effect.void;
+        }
         const mapped = listEvent(event, recordOf, endedOf, endedOnly, inStartOrder);
         return mapped === null ? Effect.void : listener(mapped);
       });

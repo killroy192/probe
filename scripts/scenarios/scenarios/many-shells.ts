@@ -8,7 +8,7 @@ import * as Effect from "effect/Effect";
 
 import { connectRpc } from "../rpc.ts";
 import type { Scenario } from "../scenario.ts";
-import { alive, check, gone, pageFrames } from "../support.ts";
+import { alive, check, pageFrames } from "../support.ts";
 import {
   addProject,
   closeTab,
@@ -16,8 +16,10 @@ import {
   gitOk,
   history,
   killFromTree,
+  layoutSaved,
   leaveAgent,
   openFromTree,
+  shellEnded,
   shellList,
   shellRow,
   shellTab,
@@ -149,13 +151,13 @@ export const manyShells: Scenario = {
       );
       const signalledFrom = shells.lists.mark();
       NodeProcess.kill(signalled.pid!, "SIGKILL");
-      check(await gone(signalled.pid!), "The shell killed by a signal is still running.");
       await shells.lists.until(
         "the signalled shell to be listed as ended",
         (list) =>
           list.some((shell) => shell.shellId === signalled.shellId && shell.ended === "signal"),
         signalledFrom,
       );
+      await shellEnded(shells, signalled);
       // A shell with no agent left in it (EC-3) shows output that arrives during the reload.
       await openFromTree(page, plainShell.shellId);
       await leaveAgent(page, rpc.client, plainShell.shellId);
@@ -170,6 +172,8 @@ export const manyShells: Scenario = {
 
       stage = "AC-32";
       const reloadedFrom = frames.mark();
+      // The tab changes above are saved before the reload, so the strip comes back as they left it.
+      await layoutSaved(page, "sparta");
       await page.reload();
       await page.getByRole("tree").getByRole("treeitem", { level: 1, name }).waitFor();
 

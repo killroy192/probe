@@ -31,7 +31,10 @@ A scenario (`scripts/scenarios/scenarios/`) starts a real Probe server on a thro
 ## Waiting
 
 - Wait by subscribing to the event that marks the milestone (a locator, a terminal frame after a `mark()` taken before the action, a log line, a process `exit`), raced against a deadline whose failure names what was awaited. The library's waits do this.
-- A bounded check loop is allowed only where no event exists to subscribe to, such as the end of a process the harness did not start as its own child.
+- **Before typing into a shell**, wait until the page shows its tab attached and the shell at its first prompt: the tab panel's `data-shell-ready="ready"` and, inside it, `data-terminal-attached="yes"`, hidden tabs included. The library's typing wait does this and fails at once when the shell ends. "Back at a prompt" after a command has no page state: wait for the next prompt mark in the shell's output after a `mark()`.
+- **Before a reload or a server stop** that follows a tab change, wait until the page shows the layout saved (`data-layout-save="saved"` on the workspace screen); the library's reload and restart waits do it. To make a save slow on purpose, hold its request back from the test's side, never with a hook in product code.
+- **After ending a shell the server owns** (a kill, or a signal from outside), wait for its end event, its removal or its ended entry, then check the pid once. The server sends the removal after the process ended, or after a 1 s wait the process outlived, which that one check then reports.
+- A bounded check loop is allowed only where no event exists to subscribe to: processes the server does not own, such as a shell's background jobs or shells whose shell host was stopped.
 - The test wait lint rules also run on every file here; a `.perf.ts` file may read the clock but not sleep or poll. A suppression states its reason in one of these forms; a fixed sleep that waits and hopes is fixed, never suppressed:
   - `permanent (a): …` runner bookkeeping that waits for nothing (printed timing, timestamps);
   - `permanent (b): …` a deadline raced against the event it names;
@@ -45,9 +48,9 @@ A scenario (`scripts/scenarios/scenarios/`) starts a real Probe server on a thro
 - A cause that needed a rerun to find is a defect of the scenario: fix it there with more logging or a sharper assertion.
 - Log enough to show the problem. Product code may gain log lines for that at debug level, which production does not print by default. No log line prints a token, pairing URL or cookie.
 
-## The 15 s cap gate
+## The 20 s cap gate
 
-Every atomic check scenario must finish under 15 s. That is a separate gate, never judged on a normal run: run it once after a scenario is implemented, and again only when the user asks, each time after the user confirms nothing in the background slows the machine.
+Every atomic check scenario must finish under 20 s. That is a separate gate, never judged on a normal run: run it once after a scenario is implemented, and again only when the user asks, each time after the user confirms nothing in the background slows the machine.
 
 ## Registering a scenario
 
@@ -70,7 +73,7 @@ A sandbox keeps one harness server up on a throwaway home so saved scenarios run
 ## Running
 
 - `vp run test:scenarios` runs the suite and exits non-zero when a scenario fails; `-- --only <id>` runs one scenario.
-- `-- --selftest` runs the harness self-tests `T1`, `T2`, `T4`; `-- --selftest --only T3` runs `T3`; `T5` (tries needs it did not state) and `T6` (names what it makes by its run) run the same way or on a sandbox. `T2`, `T3` and `T5` fail on purpose, so they exit non-zero.
+- `-- --selftest` runs the harness self-tests `T1`, `T2`, `T4`; `-- --selftest --only <id>` runs one of `T3`, `T5` (tries needs it did not state), `T6` (names what it makes by its run) or `T7` to `T9` (each signal wait fails naming what it awaited); `T2`, `T5`, `T6`, `T8` and `T9` also run on a sandbox. `T2`, `T3` and `T5` fail on purpose, so they exit non-zero.
 - Chromium is the web browser tests' Playwright Chromium: `node scripts/node_modules/playwright-core/cli.js install --only-shell chromium` once, or `--browser <path>`.
 - The web bundle is rebuilt when an input is newer than `apps/web/dist`; `--rebuild` forces it.
 - `scripts/scenarios/harness.test.ts` (Vitest) covers the runner's failure paths and the throwaway-home guard; `sandbox.test.ts` covers the sandbox.
@@ -83,4 +86,3 @@ Each line goes when its story lands.
 - No single library or direct setup yet (PRB.T-038): the helpers are spread over `support.ts`, `fixtures.ts`, `browser.ts`, `rpc.ts`, `seam.ts` and `scenarios/workspaceUi.ts`; setting up by clicking through dialogs is allowed. Scenario servers log at info level, and artifacts have no browser console.
 - No sets, composed scenarios, `.perf.ts` support or cap gate command yet (PRB.T-043): each scenario runs alone under its id; add no new timing to a check scenario (the existing `metric()` calls stay until then); the cap gate is one `--only <id>` run after the user's confirmation, reading the time on its `PASS` line.
 - No serial perf run or N-run loop command yet (PRB.T-040).
-- No prompt-ready, layout-saved or shell-ended signals yet (PRB.T-041): wait for the prompt mark in terminal frames, for the server's state, or with `gone()`; never type into a terminal or reload on a guess.

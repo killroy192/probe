@@ -19,7 +19,7 @@ import {
   unlessRoot,
 } from "../fixtures.ts";
 import { MOCK_AGENT_COMMAND } from "../server.ts";
-import { check, follow, gone, pageFrames, recorder } from "../support.ts";
+import { check, follow, pageFrames, recorder } from "../support.ts";
 import {
   addProject,
   addStartingScript,
@@ -37,6 +37,7 @@ import {
   modeButton,
   modeSwitch,
   selectedKey,
+  shellEnded,
   shellList,
   shellNodes,
   shellsIn,
@@ -44,6 +45,7 @@ import {
   tabs,
   typeLine,
   reloadShowing,
+  layoutSaved,
 } from "./workspaceUi.ts";
 
 const CONNECTION_LOST =
@@ -375,13 +377,13 @@ export const plusModal: Scenario = {
       check(killed.pid !== null, "The second shell has no pid.");
       const killedFrom = shells.lists.mark();
       NodeProcess.kill(killed.pid, "SIGKILL");
-      check(await gone(killed.pid), "The killed shell's process is still running.");
       await shells.lists.until(
         "the killed shell to end",
         (list) =>
           list.some((shell) => shell.shellId === killed.shellId && shell.status === "exited"),
         killedFrom,
       );
+      await shellEnded(shells, killed);
       await expectLogged(
         server,
         "The log has no start line with the shell id and cwd (AC-19).",
@@ -402,6 +404,7 @@ export const plusModal: Scenario = {
       for (const shell of shells.current()) {
         await Effect.runPromise(rpc.client["shell.kill"]({ shellId: shell.shellId }));
       }
+      await layoutSaved(page, "sparta");
       await rpc.close();
       await addStartingScript(server.home, {
         id: "unstartable",
@@ -447,6 +450,7 @@ export const plusModal: Scenario = {
         (await page.locator(`[data-project="${NodePath.join(folders, "broken")}"]`).count()) === 0,
         "A folder whose git init failed was added (AC-17).",
       );
+      await layoutSaved(page, "sparta");
       await rpc.close();
       await server.restart();
       await reopen(page);

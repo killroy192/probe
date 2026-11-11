@@ -10,14 +10,13 @@ import * as Effect from "effect/Effect";
 import { connectRpc, type WsClient } from "../rpc.ts";
 import type { PointerPage } from "../browser.ts";
 import type { Scenario } from "../scenario.ts";
-import { alive, check, gone, pageFrames } from "../support.ts";
+import { alive, check, pageFrames } from "../support.ts";
 import { expectLogged, unlessRoot } from "../fixtures.ts";
 import {
   addProject,
   alert,
   endedRow,
   agentReady,
-  allGone,
   answerConfirm,
   askToKill,
   closeTab,
@@ -28,14 +27,18 @@ import {
   gitOk,
   history,
   killFromTree,
+  layoutSaved,
+  layoutState,
   leaveAgent,
   openFromTree,
   openModal,
   openWorkspace,
+  shellEnded,
   shellList,
   shellRow,
   shellTab,
   startShell,
+  survivors,
   typeLine,
   modeButton,
 } from "./workspaceUi.ts";
@@ -96,6 +99,8 @@ export const restartSurvival: Scenario = {
     /** Restarts the server (optionally ending the shell host while it is down) and reloads. */
     let reloadedFrom = 0;
     const restart = async (endHost = false) => {
+      // A stop with a tab change still in flight would bring the old tab strip back.
+      await layoutSaved(page, "sparta");
       await rpc.close();
       await server.stop();
       if (endHost) await server.stopShellHost();
@@ -182,7 +187,6 @@ export const restartSurvival: Scenario = {
       const signalledFrom = shells.lists.mark();
       for (const shell of [inRemoved, inMoved]) {
         NodeProcess.kill(shell.pid!, "SIGKILL");
-        check(await gone(shell.pid!), `Shell ${shell.shellId} survived SIGKILL.`);
       }
       await shells.lists.until(
         "the signalled shells to be listed as ended",
@@ -192,6 +196,7 @@ export const restartSurvival: Scenario = {
           ),
         signalledFrom,
       );
+      for (const shell of [inRemoved, inMoved]) await shellEnded(shells, shell);
       await NodeFSP.rm(removed, { recursive: true });
       await NodeFSP.rename(moved, `${moved}-elsewhere`);
       await NodeFSP.rm(live, { recursive: true });
@@ -379,12 +384,15 @@ export const restartSurvival: Scenario = {
         try {
           await openFromTree(page, plainShell.shellId);
           await alert(page, "The layout is not being saved").waitFor();
+          // The page says the save failed, never that it is saved.
+          await layoutState(page, "failed").waitFor();
           check(isRunning(latest(plainShell)), "A layout save failure ended a shell (AC-21).");
         } finally {
           await NodeFSP.chmod(workspacesDir, 0o755);
         }
         await openFromTree(page, agent.shellId);
         await alert(page, "The layout is not being saved").waitFor({ state: "detached" });
+        await layoutState(page, "saved").waitFor();
       });
 
       // AC-19: a workspace whose file became unreadable says why and changes nothing.
@@ -422,7 +430,8 @@ export const restartSurvival: Scenario = {
       for (const shell of [agent, plainShell, hidden, inLive]) {
         await endedRow(page, shell.shellId, "lost").waitFor();
       }
-      check(await allGone([...pids.values()]), "A shell survived the end of its shell host.");
+      const left = await survivors([...pids.values()]);
+      check(left.length === 0, `Shells ${left.join(", ")} survived the end of their shell host.`);
       await removeFromTree(page, hidden.shellId);
 
       // AC-17, AC-12: removed and killed shells stay gone after another restart.

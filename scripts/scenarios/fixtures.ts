@@ -11,7 +11,13 @@ import { connectRpc, type WsClient } from "./rpc.ts";
 import { issueBearerToken } from "./seam.ts";
 import type { ServerEnv, ServerHandle } from "./server.ts";
 import { check } from "./support.ts";
-import { addProject, createWorkspace, gitOk, reloadShowing } from "./scenarios/workspaceUi.ts";
+import {
+  addProject,
+  createWorkspace,
+  gitOk,
+  layoutSaved,
+  reloadShowing,
+} from "./scenarios/workspaceUi.ts";
 
 /** Fixtures: a git project with a linked worktree, and a plain folder, in the server's home. */
 export async function projects(server: ServerHandle) {
@@ -26,10 +32,10 @@ export async function projects(server: ServerHandle) {
   return { repo, linked, plain };
 }
 
-/** Creates the workspace "sparta" in the UI and adds `folders` to it. */
-export async function setUp(page: PointerPage, folders: ReadonlyArray<string>) {
+/** Creates the workspace `name` in the UI and adds `folders` to it. */
+export async function setUp(page: PointerPage, folders: ReadonlyArray<string>, name = "sparta") {
   await page.setViewportSize({ width: 1200, height: 800 });
-  await createWorkspace(page, "sparta");
+  await createWorkspace(page, name);
   for (const folder of folders) {
     check((await addProject(page, { import: folder })) === null, `Adding ${folder} failed.`);
   }
@@ -44,6 +50,8 @@ export async function restartAndReload(
   rpc: RpcConnection,
   env?: ServerEnv,
 ): Promise<RpcConnection> {
+  // A stop with a tab change still in flight would bring the old tab strip back.
+  await layoutSaved(page, "sparta");
   await rpc.close();
   await server.restart(env === undefined ? undefined : { env });
   await reloadShowing(page, "sparta");

@@ -10,7 +10,7 @@ import type { PointerPage } from "../browser.ts";
 import { connectRpc } from "../rpc.ts";
 import type { Scenario } from "../scenario.ts";
 import { expectLogged, metric } from "../fixtures.ts";
-import { check, gone, pageFrames } from "../support.ts";
+import { check, pageFrames } from "../support.ts";
 import {
   addProject,
   addStartingScript,
@@ -27,6 +27,7 @@ import {
   pickItem,
   runningIn,
   selectedKey,
+  shellEnded,
   shellList,
   shellRow,
   startButton,
@@ -34,6 +35,7 @@ import {
   tabs,
   typeLine,
   reloadShowing,
+  layoutSaved,
 } from "./workspaceUi.ts";
 
 const NAME = /^probe-worktree-[0-9a-f]{6}$/;
@@ -112,13 +114,13 @@ export const worktrees: Scenario = {
       check(pid !== null, `The shell has no pid: ${JSON.stringify(latest)}.`);
       // A Probe kill removes the shell; one a signal ended would stay listed (PRB.T-007).
       await Effect.runPromise(rpc.client["shell.kill"]({ shellId: shell.shellId }));
-      check(await gone(pid), "The killed shell's process is still running.");
       // From the current list on; lists from before the shell started lack it too.
       await shells.lists.until(
         "the killed shell to leave the list",
         (list) => list.every((entry) => entry.shellId !== shell.shellId),
         Math.max(0, shells.lists.mark() - 1),
       );
+      await shellEnded(shells, { shellId: shell.shellId, pid });
     };
 
     try {
@@ -469,6 +471,7 @@ export const worktrees: Scenario = {
       // AC-22: the worktree is made but its shell cannot start; it is kept and offered again.
 
       stage = "AC-22";
+      await layoutSaved(page, "sparta");
       await rpc.close();
       await addStartingScript(server.home, {
         id: "unstartable",

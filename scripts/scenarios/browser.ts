@@ -76,3 +76,40 @@ export async function connectionCutter(page: PointerPage) {
       }),
   };
 }
+
+/**
+ * Routes the page's server websockets through the harness so a scenario can hold back the
+ * requests that contain a marker, such as one RPC method's name, and let them go later. Install
+ * it before the page connects. A held request whose page reloads is never sent.
+ */
+export async function frameHolder(page: PointerPage) {
+  let marker: string | null = null;
+  const held: Array<() => void> = [];
+  await page.routeWebSocket(/\/ws(\?|$)/, (socket) => {
+    const server = socket.connectToServer();
+    server.onMessage((message) => socket.send(message));
+    socket.onMessage((message) => {
+      if (marker !== null && typeof message === "string" && message.includes(marker)) {
+        held.push(() => server.send(message));
+        return;
+      }
+      server.send(message);
+    });
+  });
+  return {
+    /** Holds every request containing `next` from now on, until `release`. */
+    hold: (next: string) => {
+      marker = next;
+    },
+    /** Sends what was held, in order, and holds nothing more. */
+    release: () => {
+      marker = null;
+      for (const send of held.splice(0)) send();
+    },
+    /** Drops what was held, for a page that reloaded: its connection is gone. */
+    discard: () => {
+      marker = null;
+      held.length = 0;
+    },
+  };
+}
