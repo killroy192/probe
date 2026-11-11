@@ -1,6 +1,7 @@
 // @effect-diagnostics globalFetch:off - The scenario reads the server's public descriptor directly.
 
 import { ORCHESTRATION_PROTOCOL_VERSION, WsRpcGroup } from "@t3tools/contracts";
+import * as Cause from "effect/Cause";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Layer from "effect/Layer";
@@ -10,6 +11,8 @@ import { RpcClient, type RpcClientError, RpcSerialization } from "effect/rpc";
 import { Socket } from "effect/socket";
 
 import type { PointerPage } from "../browser.ts";
+import type { ServerHandle } from "../server.ts";
+import type { Trail } from "./trail.ts";
 
 const decodeTicket = Schema.decodeUnknownSync(Schema.Struct({ ticket: Schema.String }));
 const decodeDescriptor = Schema.decodeUnknownSync(Schema.Struct({ environmentId: Schema.String }));
@@ -83,4 +86,67 @@ export async function withClient<A, E>(
   } finally {
     await rpc.close();
   }
+}
+
+/** A connection to `server`, signed in as the browser `page` (its cookie) or with a bearer token. */
+export const connectApi = (server: ServerHandle, auth: RpcAuth) => connectRpc(server.origin, auth);
+
+/** A bearer token for `server`, minted by its own CLI the way a headless client gets one. */
+export async function issueBearerToken(server: ServerHandle): Promise<string> {
+  const output = await server.cli(["auth", "session", "issue", "--token-only"]);
+  const token = output.trim().split("\n").at(-1)?.trim();
+  if (!token) throw new Error("The server issued no bearer token.");
+  return token;
+}
+
+const tokens = new WeakMap<ServerHandle, Promise<string>>();
+
+/** `server`'s bearer token, minted once per server handle: each mint is a CLI start. */
+export function serverToken(server: ServerHandle): Promise<string> {
+  let token = tokens.get(server);
+  if (token === undefined) {
+    token = issueBearerToken(server);
+    token.catch(() => tokens.delete(server));
+    tokens.set(server, token);
+  }
+  return token;
+}
+
+/** A setup call the server refused or never answered; the message names the call and the reason. */
+export class SetupError extends Error {
+  readonly method: string;
+  readonly asked: unknown;
+  override readonly cause: unknown;
+
+  constructor(method: string, asked: unknown, cause: unknown) {
+    super(`setup call ${method} ${JSON.stringify(asked)} failed: ${reasonOf(cause)}`);
+    this.name = "SetupError";
+    this.method = method;
+    this.asked = asked;
+    this.cause = cause;
+  }
+}
+
+function reasonOf(cause: unknown): string {
+  if (typeof cause !== "object" || cause === null) return String(cause);
+  const tag = "_tag" in cause && typeof cause._tag === "string" ? cause._tag : "Error";
+  const message = cause instanceof Error ? cause.message : JSON.stringify(cause);
+  return `${tag}: ${message}`;
+}
+
+/** Runs one setup call, notes what it asked and got on the trail, and fails as a `SetupError`. */
+export async function call<A, E>(
+  trail: Trail,
+  method: string,
+  asked: unknown,
+  run: Effect.Effect<A, E>,
+): Promise<A> {
+  const exit = await Effect.runPromiseExit(run);
+  if (Exit.isFailure(exit)) {
+    const cause = Cause.squash(exit.cause);
+    trail.note({ call: method, asked, got: { failed: reasonOf(cause) } });
+    throw new SetupError(method, asked, cause);
+  }
+  trail.note({ call: method, asked, got: exit.value });
+  return exit.value;
 }

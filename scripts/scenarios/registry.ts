@@ -12,6 +12,12 @@ import { standaloneShell } from "./scenarios/standalone-shell.ts";
 import { worktrees } from "./scenarios/worktrees.ts";
 import { changedRerun } from "./selftest/changed-rerun.ts";
 import { deliberateFailure } from "./selftest/deliberate-failure.ts";
+import {
+  reachWorkspace,
+  setupCallFails,
+  twoSetups,
+  workspaceNotShown,
+} from "./selftest/direct-setup.ts";
 import { oneLogin } from "./selftest/one-login.ts";
 import { restartPersistence } from "./selftest/restart-persistence.ts";
 import { secondServerFailure } from "./selftest/second-server-failure.ts";
@@ -47,6 +53,8 @@ export const selftestScenarios: ReadonlyArray<Scenario> = [
   restartPersistence,
   deliberateFailure,
   oneLogin,
+  twoSetups,
+  reachWorkspace,
 ];
 
 /** Self-tests that run only when picked with `--only`, so one `--selftest` run stays short. */
@@ -57,4 +65,6 @@ export const pickedSelftestScenarios: ReadonlyArray<Scenario> = [
   typingWaitFails,
   layoutWaitFails,
   endCheckFails,
+  setupCallFails,
+  workspaceNotShown,
 ];
