@@ -1,8 +1,13 @@
 // @effect-diagnostics nodeBuiltinImport:off - Runs the harness's own entry points as real subprocesses, for its tests.
 
 import * as NodeChildProcess from "node:child_process";
+import * as NodeProcess from "node:process";
+
+import { onTestFinished } from "vite-plus/test";
 
 import { REPO_ROOT } from "./server.ts";
+
+const LAST_LINES = 50;
 
 export interface Spawned {
   readonly child: NodeChildProcess.ChildProcess;
@@ -12,7 +17,10 @@ export interface Spawned {
   readonly done: Promise<{ readonly code: number | null; readonly output: string }>;
 }
 
-/** Starts `node <script> <args>` from the checkout, reading stdout and stderr together. */
+/**
+ * Starts `node <script> <args>` from the checkout, reading stdout and stderr together. A child still
+ * running when the test ends gets SIGTERM, and its last lines are printed.
+ */
 export function spawnScript(
   script: string,
   args: ReadonlyArray<string>,
@@ -37,6 +45,19 @@ export function spawnScript(
   };
   child.stdout.on("data", onData);
   child.stderr.on("data", onData);
+  const exited = new Promise<{ readonly code: number | null; readonly output: string }>((resolve) =>
+    child.once("exit", (code) => resolve({ code, output })),
+  );
+  // Waits for the exit, so what the child started is stopped before the next test.
+  onTestFinished(async () => {
+    if (child.exitCode !== null || child.signalCode !== null) return;
+    const last = output.split("\n").slice(-LAST_LINES).join("\n");
+    NodeProcess.stderr.write(
+      `${script} ${args.join(" ")} was still running when the test ended; sent SIGTERM. Its last ${LAST_LINES} lines:\n${last}\n`,
+    );
+    child.kill("SIGTERM");
+    await exited;
+  });
   return {
     child,
     line: (pattern) =>
@@ -46,6 +67,6 @@ export function spawnScript(
         else waiters.push({ pattern, resolve });
       }),
     output: () => output,
-    done: new Promise((resolve) => child.once("exit", (code) => resolve({ code, output }))),
+    done: exited,
   };
 }
