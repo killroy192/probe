@@ -10,13 +10,18 @@ import * as Stream from "effect/Stream";
 
 import { connectionCutter } from "../browser.ts";
 import { watchRoutes } from "../lib/chatRoutes.ts";
-import { expected } from "../lib/expect.ts";
+import { expected, expectText } from "../lib/expect.ts";
 import { addStartingScript, git, revokeWrite } from "../lib/files.ts";
 import { showWorkspace } from "../lib/navigate.ts";
-import { pageFrames } from "../lib/network.ts";
 import { shellCountOf, shellsOf } from "../lib/scoped.ts";
 import { expectLogged } from "../lib/serverLog.ts";
-import { type FolderResult, projectPaths, setupOn } from "../lib/setup.ts";
+import {
+  type FolderResult,
+  framedPage,
+  projectPaths,
+  setupOn,
+  uncommittedRepo,
+} from "../lib/setup.ts";
 import {
   agentReady,
   agentTypedOnceAfterPrompt,
@@ -25,7 +30,6 @@ import {
   shellEnded,
   shellsIn,
 } from "../lib/shells.ts";
-import { expectText, uncommittedRepo } from "../lib/t039-2.ts";
 import { addProject, closeFolderList, folderList, openAddFolder } from "../lib/ui/addProject.ts";
 import { dialog } from "../lib/ui/dialog.ts";
 import {
@@ -54,10 +58,8 @@ const UI = ["S2 AC-20", "S2 AC-23"] as const;
 
 /** A signed-in page watched for chat routes, and a workspace of the scenario's own, not shown yet. */
 async function begin(ctx: ScenarioContext, label: string) {
-  const page = await ctx.openPage();
+  const { page, frames, setup } = await framedPage(ctx);
   const routes = watchRoutes(page);
-  const frames = pageFrames(page);
-  const setup = await setupOn(ctx, { as: page });
   const ws = await setup.workspace(label);
   return { page, routes, frames, setup, ws };
 }
@@ -859,6 +861,3 @@ export const successors = [
   unstartableScript,
   gitInitFails,
 ];
-
-// temporary: PRB.T-039 10A removes this alias.
-export const plusModal = noProject;

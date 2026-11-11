@@ -13,12 +13,13 @@ import type { ScenarioContext } from "../scenario.ts";
 import type { ServerHandle } from "../server.ts";
 import { call, connectApi, serverToken, type WsClient } from "./api.ts";
 import { gitOk } from "./files.ts";
-import { showWorkspace, type ShownPage } from "./navigate.ts";
+import { openTab, showWorkspace, type ShownPage } from "./navigate.ts";
 import { followShells, shellEnded, type ShellFollower } from "./shells.ts";
 import { createTrail, type Trail } from "./trail.ts";
 import { addProject } from "./ui/addProject.ts";
 import { createWorkspace } from "./ui/workspacesMenu.ts";
-import { check } from "./waits.ts";
+import { pageFrames } from "./network.ts";
+import { check, follow, recorder } from "./waits.ts";
 
 /** The names of the server's saved workspaces, sorted. */
 export const workspaceNames = (client: WsClient) =>
@@ -31,6 +32,15 @@ export const workspaceNames = (client: WsClient) =>
       }),
     ),
   );
+
+/** Follows the names of the server's saved workspaces over `client`, each list sorted. */
+export function followWorkspaces(client: WsClient) {
+  const names = recorder<ReadonlyArray<string>>("workspace names");
+  follow(client.subscribeWorkspaces({}), ({ workspaces }) =>
+    names.push(workspaces.map(({ name }) => name).toSorted()),
+  );
+  return names;
+}
 
 /** The project paths of the saved workspace `name`. */
 export const projectPaths = (client: WsClient, name: string) =>
@@ -379,6 +389,51 @@ export async function world(
     setup,
     ...(shown === undefined ? {} : { shown }),
   };
+}
+
+/** A folder with `git init` and no commit, as a user's new repository is. */
+export async function uncommittedRepo(setup: Setup, label = "repo"): Promise<FolderResult> {
+  const made = await setup.folder(label);
+  await gitOk(made.path, "init", "-q");
+  return made;
+}
+
+/** A signed-in page whose websocket frames are recorded from its first load, with setup signed in as it. */
+export async function framedPage(ctx: SetupContext & Pick<ScenarioContext, "openPage">) {
+  const page = await ctx.openPage();
+  const frames = pageFrames(page);
+  const setup = await setupOn(ctx, { as: page });
+  return { page, frames, setup };
+}
+
+/** `world` with a page whose websocket frames are recorded from its first load. */
+export async function framedWorld(
+  ctx: SetupContext & Pick<ScenarioContext, "openPage">,
+  spec: Omit<WorldSpec, "page">,
+): Promise<
+  WorldResult & {
+    readonly page: PointerPage;
+    readonly frames: ReturnType<typeof pageFrames>;
+    readonly shown: ShownPage;
+  }
+> {
+  const page = await ctx.openPage();
+  const frames = pageFrames(page);
+  const made = await world({ ...ctx, openPage: async () => page }, { ...spec, page: true });
+  return { ...made, page, frames, shown: { kind: "page", page, workspace: made.workspace } };
+}
+
+/** `framedWorld` with `count` plain shells in one folder, each with its tab opened from the tree. */
+export async function plainTabs(
+  ctx: SetupContext & Pick<ScenarioContext, "openPage">,
+  count: number,
+) {
+  const made = await framedWorld(ctx, {
+    projects: [{ kind: "folder", label: "plain" }],
+    shells: [{ project: 0, count }],
+  });
+  for (const shell of made.shells) await openTab(made.page, shell);
+  return made;
 }
 
 /**

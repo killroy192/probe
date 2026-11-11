@@ -48,8 +48,6 @@ export interface ScenarioNeeds {
   readonly secondServer?: true;
   /** It asserts on an empty home: nothing another run made may be there. */
   readonly pristineHome?: true;
-  /** Why it is not yet safe on a server other runs share, until PRB.T-039 converts it. */
-  readonly unshared?: string;
   /** Why it changes or depends on state every scenario on its server sees. */
   readonly serverWide?: string;
   /** Its server starts under this condition, so it gets one of its own. */

@@ -6,13 +6,18 @@ import * as NodeProcess from "node:process";
 
 import { expected } from "../lib/expect.ts";
 import { revokeWrite } from "../lib/files.ts";
-import { layoutSaved, layoutState, openTab, showWorkspace } from "../lib/navigate.ts";
+import {
+  layoutSaved,
+  layoutState,
+  openTab,
+  restartAndReload,
+  showWorkspace,
+} from "../lib/navigate.ts";
 import { pageFrames } from "../lib/network.ts";
 import { expectMenuOffers } from "../lib/scoped.ts";
 import { expectLogged } from "../lib/serverLog.ts";
 import { mockAgent, type Setup, setupOn, type ShellResult } from "../lib/setup.ts";
 import { agentReady, history, lastStartOf, running, shellEnded, survivors } from "../lib/shells.ts";
-import { restartListed } from "../lib/t039-6.ts";
 import { alert } from "../lib/ui/dialog.ts";
 import {
   cancelModal,
@@ -166,7 +171,7 @@ export const surviveRestart = defineCheck(import.meta.url, {
     let reloadedFrom = 0;
     await trail.stage("restart", async () => {
       reloadedFrom = frames.mark();
-      setup = await restartListed(ctx, page, sparta, setup);
+      setup = await restartAndReload(ctx, page, sparta, setup);
     });
 
     await trail.stage("AC-6", async () => {
@@ -355,7 +360,7 @@ export const endedAfterRestart = defineCheck(import.meta.url, {
     });
 
     await trail.stage("restart", async () => {
-      setup = await restartListed(ctx, page, made.sparta, setup);
+      setup = await restartAndReload(ctx, page, made.sparta, setup);
     });
 
     await trail.stage("AC-12", async () => {
@@ -454,7 +459,7 @@ export const removedStayGone = defineCheck(import.meta.url, {
     });
 
     await trail.stage("AC-17 after restart", async () => {
-      setup = await restartListed(ctx, page, made.sparta, setup);
+      setup = await restartAndReload(ctx, page, made.sparta, setup);
       unlistedAfterRestart(setup, made.gone, "removed shells listed after the restart");
       // The kept shell's row shows once the tree is back, so a removed project would show with it.
       await waitFor(
@@ -475,6 +480,7 @@ export const lostHost = defineCheck(import.meta.url, {
   title: "a restart that lost the shell host shows its shells as lost, and removed ones stay gone",
   // Two restarts (D10): the first loses the host, the second proves what was removed stays gone.
   needs: { restart: true },
+  // The lost host, then a second restart: the lost entries it removed stay gone (plan D10).
   covers: ["S7 AC-20", "S7 AC-17 after restart"],
   run: async (ctx) => {
     const { trail } = ctx;
@@ -492,7 +498,7 @@ export const lostHost = defineCheck(import.meta.url, {
     });
 
     await trail.stage("AC-20", async () => {
-      setup = await restartListed(ctx, page, made.sparta, setup, { lostHost: true });
+      setup = await restartAndReload(ctx, page, made.sparta, setup, { lostHost: true });
       for (const shell of [made.agent, made.plainShell]) {
         await waitFor(
           endedRow(page, shell.shellId, "lost"),
@@ -508,7 +514,7 @@ export const lostHost = defineCheck(import.meta.url, {
     });
 
     await trail.stage("AC-17 after restart", async () => {
-      setup = await restartListed(ctx, page, made.sparta, setup);
+      setup = await restartAndReload(ctx, page, made.sparta, setup);
       unlistedAfterRestart(
         setup,
         [made.plainShell],
@@ -725,6 +731,3 @@ export const successors = [
   removeUnsaveable,
   layoutUnsaveable,
 ];
-
-// temporary: PRB.T-039 10A removes this alias.
-export const restartSurvival = surviveRestart;

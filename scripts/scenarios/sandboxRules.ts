@@ -58,8 +58,6 @@ function refusedNeeds(needs: ScenarioNeeds): ReadonlyArray<string> {
     needs.restart && "it restarts the server, which every run on the sandbox shares",
     needs.secondServer && "it starts a second server, and a sandbox has one",
     needs.pristineHome && "it needs an empty home, and a sandbox keeps what earlier runs made",
-    needs.unshared !== undefined &&
-      `it is not yet safe on a shared server (${needs.unshared}); PRB.T-039 converts it`,
     needs.serverWide !== undefined &&
       `it changes or depends on state every run on the sandbox sees (${needs.serverWide})`,
     needs.condition !== undefined &&

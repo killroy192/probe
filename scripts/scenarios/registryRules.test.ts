@@ -285,7 +285,6 @@ describe("needs", () => {
     [{ pristineHome: true }, true],
     [{ serverWide: "kills its server" }, true],
     [{ condition }, true],
-    [{ unshared: "not converted" }, true],
   ])("freshServerNeeded(%j) is %s", (needs, fresh) => {
     expect(freshServerNeeded(needs)).toBe(fresh);
   });

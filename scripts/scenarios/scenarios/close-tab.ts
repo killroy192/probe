@@ -1,6 +1,6 @@
 import { expected } from "../lib/expect.ts";
-import { history, running, writeLine } from "../lib/shells.ts";
-import { plainTabs, printedAfter } from "../lib/t039-4.ts";
+import { history, printedAfter, running, writeLine } from "../lib/shells.ts";
+import { plainTabs } from "../lib/setup.ts";
 import { closeTab, tabIds } from "../lib/ui/tabs.ts";
 import { shellPanel, shellReady } from "../lib/ui/terminal.ts";
 import { openFromTree, shellRow } from "../lib/ui/tree.ts";
@@ -139,6 +139,3 @@ export const successors: ReadonlyArray<CheckScenario> = [
   reopenFromTree,
   closeAll,
 ];
-
-// temporary: PRB.T-039 10A removes this alias.
-export const closeTabScenario = closeTabCheck;

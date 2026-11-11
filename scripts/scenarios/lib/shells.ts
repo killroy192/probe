@@ -141,6 +141,27 @@ export async function writeLine(
   await Effect.runPromise(client["shell.write"]({ shellId, data: `${text}\r` }));
 }
 
+/** Writes `line` into the shell over the API and waits for its output to hold `printed`. */
+export async function printedAfter(
+  setup: { readonly client: WsClient; readonly shells: ShellFollower },
+  shellId: string,
+  line: string,
+  printed: string,
+) {
+  const { output, stop } = followOutput(setup.client, shellId);
+  try {
+    const from = output.mark();
+    await writeLine(setup.client, setup.shells, shellId, line);
+    await output.until(
+      `shell ${shellId} to print ${printed}`,
+      (event) => event.includes(printed),
+      from,
+    );
+  } finally {
+    await stop();
+  }
+}
+
 /**
  * The pids still running after the bounded wait, for processes the server does not own (a shell's background jobs,
  * shells whose host was stopped), which have no end event; see `gone`.

@@ -196,6 +196,3 @@ export const seam = defineCheck(import.meta.url, {
 });
 
 export const successors = [twoServers, seam];
-
-// temporary: PRB.T-039 10A removes this alias.
-export const secondServer = twoServers;

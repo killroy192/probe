@@ -257,14 +257,12 @@ export function composedNeeds(c: ComposedScenario): ScenarioNeeds {
     const reasons = [...new Set(all.flatMap((needs) => pick(needs) ?? []))];
     return reasons.length === 0 ? undefined : reasons.join("; ");
   };
-  const unshared = joined((needs) => needs.unshared);
   const serverWide = joined((needs) => needs.serverWide);
   const condition = all.find((needs) => needs.condition !== undefined)?.condition;
   return {
     ...(all.some((needs) => needs.restart) && { restart: true }),
     ...(all.some((needs) => needs.secondServer) && { secondServer: true }),
     ...(all.some((needs) => needs.pristineHome) && { pristineHome: true }),
-    ...(unshared !== undefined && { unshared }),
     ...(serverWide !== undefined && { serverWide }),
     ...(condition !== undefined && { condition }),
   };
@@ -279,8 +277,7 @@ export function freshServerNeeded(needs: ScenarioNeeds): boolean {
     needs.restart === true ||
     needs.pristineHome === true ||
     needs.serverWide !== undefined ||
-    needs.condition !== undefined ||
-    needs.unshared !== undefined
+    needs.condition !== undefined
   );
 }
 

@@ -4,8 +4,7 @@ import * as Effect from "effect/Effect";
 import type { PointerPage } from "../browser.ts";
 import { environmentId } from "../lib/api.ts";
 import { expected } from "../lib/expect.ts";
-import { pageFrames } from "../lib/network.ts";
-import { setupOn, type Setup } from "../lib/setup.ts";
+import { framedPage, setupOn, type Setup } from "../lib/setup.ts";
 import { openShell, writeLine } from "../lib/shells.ts";
 import { alive, follow, recorder, waitFor } from "../lib/waits.ts";
 import { defineCheck, type ScenarioContext } from "../scenario.ts";
@@ -58,9 +57,7 @@ const shellView = (page: PointerPage) => page.getByTestId("shell-view").locator(
  * waits until the page shows that earlier output.
  */
 async function viewed(ctx: ScenarioContext) {
-  const page = await ctx.openPage();
-  const frames = pageFrames(page);
-  const setup = await setupOn(ctx, { as: page });
+  const { page, frames, setup } = await framedPage(ctx);
   const shell = await opened(setup);
   const attach = attached(setup, shell.shellId);
   const marker = `before-${ctx.runId}`;
@@ -233,6 +230,3 @@ export const restart = defineCheck(import.meta.url, {
 });
 
 export const successors = [listed, view, reload, end, restart];
-
-// temporary: PRB.T-039 10A removes this alias.
-export const standaloneShell = listed;

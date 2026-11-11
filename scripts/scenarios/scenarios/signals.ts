@@ -94,9 +94,6 @@ export const afterRestart = defineCheck(import.meta.url, {
 
 export const successors = [hiddenAndReload, afterRestart];
 
-// temporary: PRB.T-039 10A removes this alias.
-export const tabSignals = hiddenAndReload;
-
 export const layoutSignal = defineCheck(import.meta.url, {
   id: "T-041b",
   title: "the page says saved only once the server holds its last tab change",

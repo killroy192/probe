@@ -7,7 +7,7 @@ import type { PointerPage } from "../browser.ts";
 import { expected } from "../lib/expect.ts";
 import { openTab, restartAndReload, showWorkspace } from "../lib/navigate.ts";
 import { pageFrames } from "../lib/network.ts";
-import { setupOn, type Setup, type ShellResult } from "../lib/setup.ts";
+import { framedPage, type Setup, type ShellResult } from "../lib/setup.ts";
 import { history, shellEnded } from "../lib/shells.ts";
 import { shellTab } from "../lib/ui/tabs.ts";
 import { typeLine } from "../lib/ui/terminal.ts";
@@ -30,10 +30,8 @@ async function prepare(
   folders: ReadonlyArray<string>,
   shells: ReadonlyArray<number>,
 ) {
-  const page = await ctx.openPage();
+  const { page, frames, setup } = await framedPage(ctx);
   await page.setViewportSize({ width: 1200, height: 900 });
-  const frames = pageFrames(page);
-  const setup = await setupOn(ctx, { as: page });
   const ws = await setup.workspace("s8");
   const projects = [];
   const paths = [];
@@ -257,17 +255,7 @@ export const restoreAfterLostHost = defineCheck(import.meta.url, {
     let setup = prepared.setup;
 
     await trail.stage("lost with the host", async () => {
-      const before = setup;
-      // The host ends while no server is connected, as in a reboot, so the shell is lost, not signalled.
-      setup = await restartAndReload(ctx, page, ws, {
-        close: async () => {
-          await before.close();
-          await ctx.server.stop();
-          await ctx.server.stopShellHost();
-        },
-      });
-      // A fresh subscription: its first list is the server's state after the restart.
-      await setup.shells.lists.until("the shell list after the restart", () => true, 0);
+      setup = await restartAndReload(ctx, page, ws, setup, { lostHost: true });
       await waitFor(
         endedRow(page, first.shellId, "lost"),
         `the row of shell ${first.shellId} as lost`,
@@ -310,6 +298,3 @@ export const successors = [
   removeRestored,
   restoreAfterLostHost,
 ];
-
-// temporary: PRB.T-039 10A removes this alias.
-export const restoreShell = restoreAfterSignal;

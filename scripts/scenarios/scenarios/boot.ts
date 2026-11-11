@@ -9,8 +9,8 @@ import { environmentId } from "../lib/api.ts";
 import { expected } from "../lib/expect.ts";
 import { revokeWrite, runtimePid } from "../lib/files.ts";
 import { closeWorkspacesMenu, expectMenuOffers } from "../lib/scoped.ts";
-import { setupOn, world } from "../lib/setup.ts";
-import { followWorkspaces, waitForPath } from "../lib/t039-1.ts";
+import { waitForPath } from "../lib/navigate.ts";
+import { followWorkspaces, setupOn, world } from "../lib/setup.ts";
 import { alert } from "../lib/ui/dialog.ts";
 import { workspaceShown } from "../lib/ui/tree.ts";
 import {
@@ -544,6 +544,3 @@ export const successors = [
   invalidWorkspace,
   folderUnwritable,
 ];
-
-// temporary: PRB.T-039 10A removes this alias.
-export const boot = startScreen;

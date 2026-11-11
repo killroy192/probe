@@ -14,8 +14,8 @@ import { pageFrames } from "../lib/network.ts";
 import { shellsOf, worktreeNodes } from "../lib/scoped.ts";
 import { expectLogged } from "../lib/serverLog.ts";
 import {
+  framedPage,
   projectPaths,
-  setupOn,
   type ProjectResult,
   type Setup,
   type ShellResult,
@@ -178,9 +178,7 @@ async function s3Page(
     readonly before?: (setup: Setup, ws: WorkspaceResult, git: GitFixture) => Promise<void>;
   } = {},
 ): Promise<S3Page> {
-  const page = await ctx.openPage();
-  const frames = pageFrames(page);
-  const setup = await setupOn(ctx, { as: page });
+  const { page, frames, setup } = await framedPage(ctx);
   const ws = await setup.workspace("worktrees");
   const git = await gitFixture(ctx, setup, { holdForks });
   await before(setup, ws, git);
@@ -946,6 +944,3 @@ export const successors = [
   forkDoubleClick,
   unstartableInWorktree,
 ];
-
-// temporary: PRB.T-039 10A removes this alias.
-export const worktrees = importLinked;

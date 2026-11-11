@@ -6,11 +6,10 @@ import * as NodeProcess from "node:process";
 import type { Deadline } from "../lib/deadlines.ts";
 import { expected } from "../lib/expect.ts";
 import { layoutSaved, openTab, showWorkspace } from "../lib/navigate.ts";
-import { pageFrames } from "../lib/network.ts";
+import { timesSeen } from "../lib/network.ts";
 import { holdOutput, type ReleaseTiming, reloadReleasing } from "../lib/reloadRelease.ts";
-import { setupOn } from "../lib/setup.ts";
-import { history, running, shellEnded, writeLine } from "../lib/shells.ts";
-import { plainTabs, printedAfter, timesSeen } from "../lib/t039-4.ts";
+import { framedPage, plainTabs } from "../lib/setup.ts";
+import { history, printedAfter, running, shellEnded, writeLine } from "../lib/shells.ts";
 import { closeTab, selectedShellTab, selectedTab, shellTab, tabIds } from "../lib/ui/tabs.ts";
 import { typeLine } from "../lib/ui/terminal.ts";
 import { endedRow, openFromTree, shellRow, workspaceShown } from "../lib/ui/tree.ts";
@@ -24,9 +23,7 @@ export const manyShellsCheck = defineCheck(import.meta.url, {
   covers: ["S4 AC-1"],
   run: async (ctx) => {
     const { server, trail } = ctx;
-    const page = await ctx.openPage();
-    const frames = pageFrames(page);
-    const setup = await setupOn(ctx, { as: page });
+    const { page, frames, setup } = await framedPage(ctx);
 
     // Two git projects, one plain project, an existing and a forked worktree of one project,
     // and a second shell in one worktree.
@@ -369,6 +366,3 @@ export const successors: ReadonlyArray<CheckScenario> = [
   reopenAfterReload,
   endedAfterReload,
 ];
-
-// temporary: PRB.T-039 10A removes this alias.
-export const manyShells = manyShellsCheck;

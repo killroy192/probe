@@ -47,7 +47,6 @@ describe("sandbox rules", () => {
       [{ restart: true }, "restarts the server"],
       [{ secondServer: true }, "starts a second server"],
       [{ pristineHome: true }, "needs an empty home"],
-      [{ unshared: "it matches every process" }, "it matches every process); PRB.T-039"],
     ] as const) {
       assert.include(sandboxRefusal({ ...base, needs }) ?? "", reason);
     }

@@ -91,23 +91,42 @@ export async function reloadShowing(page: PointerPage, name: string) {
 }
 
 /**
- * Restarts the server (a real restart) with `env`, reloads the page onto `ws` and sets up as the
- * page again on the new server; `previous` is the connection to close before the stop.
+ * Restarts the server with `env`, reloads the page onto `ws` and sets up as it again, once the
+ * first shell list after the restart arrived; `previous` is closed before the stop. `lostHost`
+ * stops the host while the server is down: under a running server its shells end signalled.
  */
 export async function restartAndReload(
   ctx: SetupContext,
   page: PointerPage,
   ws: string | WorkspaceResult,
   previous: { readonly close: () => Promise<void> },
-  env?: ServerEnv,
+  { env, lostHost = false }: { readonly env?: ServerEnv; readonly lostHost?: boolean } = {},
 ): Promise<Setup> {
   const name = typeof ws === "string" ? ws : ws.name;
   // A stop with a tab change still in flight would bring the old tab strip back.
   await layoutSaved(page, name);
   await previous.close();
+  if (lostHost) {
+    await ctx.server.stop();
+    await ctx.server.stopShellHost();
+  }
   await ctx.server.restart(env === undefined ? undefined : { env });
   await reloadShowing(page, name);
-  return setupOn(ctx, { as: page });
+  const setup = await setupOn(ctx, { as: page });
+  await setup.shells.lists.until("the shell list after the restart", () => true, 0);
+  return setup;
+}
+
+/** Waits until the page's address has the path `path`; a failure names `what` and the path it shows. */
+export async function waitForPath(page: PointerPage, path: string, what: string) {
+  try {
+    await page.waitForURL((url) => url.pathname === path, { timeout: ACTION_MS });
+  } catch (cause) {
+    throw new Error(
+      `Timed out after ${seconds(ACTION_MS)} waiting for ${what}; the page shows ${new URL(page.url()).pathname}.`,
+      { cause },
+    );
+  }
 }
 
 /** A page showing a workspace. */

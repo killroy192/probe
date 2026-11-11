@@ -11,3 +11,7 @@ export function pageFrames(page: PointerPage) {
   );
   return frames;
 }
+
+/** How many times `text` arrived in the recorded frames from offset `from` on. */
+export const timesSeen = (frames: ReturnType<typeof pageFrames>, text: string, from: number) =>
+  frames.seen.slice(from).reduce((sum, frame) => sum + frame.split(text).length - 1, 0);

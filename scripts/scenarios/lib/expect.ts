@@ -25,3 +25,15 @@ export function expected(spec: {
   const got = shown(spec.found);
   if (want !== got) throw new ExpectationError(spec.what, want, got);
 }
+
+/** Fails unless `found` holds `part` (starts with it with `atStart`), naming the text found. */
+export function expectText(
+  what: string,
+  found: string | null,
+  part: string,
+  { atStart = false }: { readonly atStart?: boolean } = {},
+) {
+  const want = `text ${atStart ? "starting with" : "containing"} "${part}"`;
+  const holds = found !== null && (atStart ? found.startsWith(part) : found.includes(part));
+  expected({ what, expected: want, found: holds ? want : (found ?? "no text") });
+}

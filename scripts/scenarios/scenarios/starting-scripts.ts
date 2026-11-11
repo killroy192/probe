@@ -10,7 +10,7 @@ import { restartAndReload, showWorkspace } from "../lib/navigate.ts";
 import { pageFrames } from "../lib/network.ts";
 import { shellCountOf } from "../lib/scoped.ts";
 import { expectLogged, logEntries } from "../lib/serverLog.ts";
-import { setupOn, type SetupContext, world } from "../lib/setup.ts";
+import { framedPage, type SetupContext, world } from "../lib/setup.ts";
 import {
   agentTypedOnceAfterPrompt,
   history,
@@ -19,17 +19,19 @@ import {
   shellsIn,
   stripOsc,
 } from "../lib/shells.ts";
-import { offeredScripts, preselectedScript, startScriptThroughModal } from "../lib/t039-8.ts";
 import { dialog } from "../lib/ui/dialog.ts";
 import {
   cancelModal,
+  offeredScripts,
   openModal,
   pickItem,
   pickScript,
   scriptDropdown,
   scriptItems,
+  preselectedScript,
   selectedScriptKey,
   startButton,
+  startScriptThroughModal,
   startFromModal,
 } from "../lib/ui/plusModal.ts";
 import { typeLine } from "../lib/ui/terminal.ts";
@@ -130,9 +132,7 @@ export const agentCommandIgnored = defineCheck(import.meta.url, {
   covers: ["E2-S3 AC-2a", "E2-S3 AC-13a", "E2-S3 AC-12"],
   run: async (ctx) => {
     const { server, trail } = ctx;
-    const page = await ctx.openPage();
-    const frames = pageFrames(page);
-    const setup = await setupOn(ctx, { as: page });
+    const { page, frames, setup } = await framedPage(ctx);
     const made = await setup.repo({ linkedWorktree: true });
     expected({ what: "the repository's linked worktrees", expected: 1, found: made.linked.length });
     const linked = made.linked[0]!.path;
@@ -467,7 +467,7 @@ export const seedOffThenOn = defineCheck(import.meta.url, {
       });
     });
     await trail.stage("AC-8 with the default on again", async () => {
-      await restartAndReload(ctx, made.page, made.workspace, made.setup, {});
+      await restartAndReload(ctx, made.page, made.workspace, made.setup, { env: {} });
       expected({
         what: "the starting scripts once the default is on again",
         expected: ["Plain shell", "mock agent"],
@@ -619,10 +619,3 @@ export const successors = [
   missingProgram,
   exitingCommand,
 ];
-
-// temporary: PRB.T-039 10A removes this alias.
-export const plainShell = plainPreselected;
-// temporary: PRB.T-039 10A removes this alias.
-export const userScripts = agentOnceAfterPrompt;
-// temporary: PRB.T-039 10A removes this alias.
-export const startFailures = missingProgram;

@@ -8,10 +8,17 @@ import type { PointerPage } from "../browser.ts";
 import { expected } from "../lib/expect.ts";
 import { jobMarkers, jobPids, otherRunMarker, startDecoys } from "../lib/jobs.ts";
 import { openTab, showWorkspace } from "../lib/navigate.ts";
-import { pageFrames } from "../lib/network.ts";
 import { expectMenuOffers, shellCountOf } from "../lib/scoped.ts";
 import { expectLogged } from "../lib/serverLog.ts";
-import { given, mockAgent, setupOn, world, type Setup, type ShellResult } from "../lib/setup.ts";
+import {
+  framedPage,
+  given,
+  mockAgent,
+  setupOn,
+  world,
+  type Setup,
+  type ShellResult,
+} from "../lib/setup.ts";
 import { agentReady, history, running, shellEnded, survivors } from "../lib/shells.ts";
 import { closeTab, shellTab } from "../lib/ui/tabs.ts";
 import { typeLine } from "../lib/ui/terminal.ts";
@@ -19,14 +26,6 @@ import { answerConfirm, askToKill, killFromTree, shellRow } from "../lib/ui/tree
 import { removeWorkspace } from "../lib/ui/workspacesMenu.ts";
 import { alive, waitFor } from "../lib/waits.ts";
 import { defineCheck, type ScenarioContext } from "../scenario.ts";
-
-/** A signed-in page that records its websocket frames, with setup signed in as it. */
-async function framedPage(ctx: ScenarioContext) {
-  const page = await ctx.openPage();
-  const frames = pageFrames(page);
-  const setup = await setupOn(ctx, { as: page });
-  return { page, frames, setup };
-}
 
 /** Runs `line` in a plain shell from its tab and waits for `echo`, which only its output spells. */
 async function runInShell(
@@ -433,6 +432,3 @@ export const successors = [
   removeProject,
   removeWorkspaceScenario,
 ];
-
-// temporary: PRB.T-039 10A removes this alias.
-export const killShell = cancelKill;
