@@ -43,6 +43,10 @@ The page-typed lines go through `typeLine` in `scripts/scenarios/lib/ui/terminal
 `shell.write`. How the S5 line was sent in that run is not recorded; today's
 `S5.output-while-closed` writes it with one `shell.write` over the API.
 
+- Manual try (2026-11-11, dev server, by the user): pasting and fast-typing a long line into a new
+  shell right after its prompt, after a reload and after showing a hidden tab, never lost a piece.
+  Parked by the user until a scenario run shows it again.
+
 ## Expected
 
 Every character typed into a ready tab reaches the shell, in order (`shells/FR-2`, `shells/FR-4`,
