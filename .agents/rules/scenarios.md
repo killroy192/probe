@@ -13,9 +13,12 @@ A scenario (`scripts/scenarios/scenarios/`) drives the built web app in headless
 ## Shape
 
 - **Check or perf.** Every scenario is one kind, never both ([Kinds](#kinds)).
-- **Atomic.** A check scenario checks one behavior and fails naming it. It holds several criteria only when they follow from one action (one reload, one restart, one refused start), and says why in a one-line comment above its `covers`. It sets up its own state instead of relying on what another scenario left. Bigger flows are composed from atomic scenarios ([Sets and composed scenarios](#sets-and-composed-scenarios)).
+- **Atomic.** A check scenario checks one behavior and fails naming it. It verifies several requirements only when they follow from one action (one reload, one restart, one refused start), and says why in a one-line comment above its `verifies`. It sets up its own state instead of relying on what another scenario left. Bigger flows are composed from atomic scenarios ([Sets and composed scenarios](#sets-and-composed-scenarios)).
 - **Ids.** A check that came from a long scenario is `<old id>.<part>`, the part in kebab case (`S7.survive-restart`); a composed scenario is `composed.<name>`, a perf scenario `perf-<name>`, a self-test `T<n>` and a self-test set `T-<name>`. A new check outside those families takes its story's id the same way.
 - **What it leaves behind.** A scenario does not clean up at its end: what it made stays on the server. It never counts, kills or removes what it did not make or was not handed: counts are scoped to its own workspace, projects or shell ids, and a process is found by its exact command line, never a pattern another run's processes could match. It asserts an absence only after the event that settles it (a row detached, a list change after a mark, a present row after a reload), never on one early sample. A change beyond its own names and folders is undone at step end ([below](#sets-and-composed-scenarios)).
+- **Verifies requirements.** Every check, composed and perf scenario declares `verifies`: refs to the requirements in [`docs/scenarios`](../../docs/scenarios/README.md), as `"shells/FR-3"` or `"worktrees/NFR-1"` (the doc's file name, then an `FR-<n>` or `NFR-<n>` row of its `## Requirements` table). How to write those docs: [scenario-docs](scenario-docs.md). Self-tests verify the harness and declare none.
+- **No ticket references.** Scenario code and the harness never cite a ticket, an acceptance criterion or an old criterion (`AC-<n>`, `EC-<n>`, `SA-<n>`, `PRB.T-<n>`, `PRB.E-<n>`, `"S7 AC-6"`), in code, strings, stage names or comments. A ticket maps its ACs to scenario ids; a scenario never maps back.
+- **Refused at load.** The registry refuses, before anything runs, a product scenario with no `verifies`, a ref of the wrong shape, a ref to a missing doc or to an id its Requirements table does not hold, a self-test with `verifies`, and a product scenario file or harness file that holds a ticket reference.
 - **Saved, never throwaway.** Every scripted check that drives a harness or sandbox server is a saved scenario, registered under an id in `registry.ts`; harness self-tests go in `selftest/`. Do not write a one-off driver script or offer evidence from one; register the scenario first and iterate on it. The manual checks AGENTS.md asks for (a `test-t3-app` pass, before/after captures, a runtime transcript) are not scripted scenarios and are unaffected.
 - **Shared library.** Every reusable setup, UI step, wait and logging helper lives in the library ([below](#the-library)); add to it rather than writing a helper in a scenario file. A scenario file holds only its own steps and assertions.
 - **Direct setup.** A scenario builds its world over the server API unless the UI path is its subject ([coverage map](#direct-setup-and-the-coverage-map)).
@@ -23,9 +26,9 @@ A scenario (`scripts/scenarios/scenarios/`) drives the built web app in headless
 ## Kinds
 
 - **Check.** A check scenario asserts behavior and never records a duration: its file reads no clock and declares no measure.
-- **Perf.** A perf scenario, id `perf-<name>`, lives in a file named `<name>.perf.ts`, measures one value and asserts nothing itself: it declares one measure with its limit and the criterion that sets it (`PRB.T-004 AC-3`), and the harness judges the value it returns, failing on a miss with the measure, the value and the limit. A product limit is used as written and never changed to make a run pass; a miss goes to the ticket that owns it. A budget a story sets itself is one a single isolated perf run meets every time: set it with headroom over the value seen, never as a median or best of several runs.
+- **Perf.** A perf scenario, id `perf-<name>`, lives in a file named `<name>.perf.ts`, measures one value and asserts nothing itself: it declares one measure with its limit and `verifies` exactly one NFR, the requirement that states that limit (`verifies: ["worktrees/NFR-1"]`), and the harness judges the value it returns, failing on a miss with the measure, the value, the limit and its NFR (`limit 3000 ms (worktrees/NFR-1)`). The `limitMs` is the limit the NFR states, used as written and never changed to make a run pass; a miss goes to the ticket that owns the work. A budget a story sets itself is one a single isolated perf run meets every time: set it with headroom over the value seen, never as a median or best of several runs.
 - **Where perf runs.** Only in the serial perf run. The default suite, every set, the cap gate and the sandbox never run a perf scenario, and naming one there is refused, saying so.
-- **Mixes are refused** when the registry loads, before anything runs, naming the scenario and the mix: a check file that reads the clock or declares a measure, a perf file that asserts, or declares other than one measure with its limit and owner, and a file name that does not match its kind.
+- **Mixes are refused** when the registry loads, before anything runs, naming the scenario and the mix: a check file that reads the clock or declares a measure, a perf file that asserts, or declares other than one measure with its limit, and a file name that does not match its kind.
 
 ## Writing
 
@@ -59,19 +62,19 @@ The library is `scripts/scenarios/lib/`, one module per concern and no index mod
 
 A scenario creates its workspaces, adds its projects and starts its shells over the API, then brings the page to the workspace and opens each tab it needs from the tree by a click: a shell started over the API gets no tab of its own. The UI path stays only where it is the subject, and each action family has one owner. A new scenario does not repeat a path another scenario owns.
 
-| Action family                                                                                 | Owner                                                          |
-| --------------------------------------------------------------------------------------------- | -------------------------------------------------------------- |
-| Create a workspace by the Workspaces menu and by the start screen's button                    | S1 (from an empty server)                                      |
-| Add a project (import, create a new folder, refusals)                                         | S2 (from a workspace with no project)                          |
-| Import a linked worktree through the Add project dialog, and its notice                       | S3.import-linked                                               |
-| Start from the "+" modal, with worktree choices, the double click and the grid size (S2 AC-6) | S2 and S3 (every S3 start)                                     |
-| The starting-script dropdown and starts through it                                            | E2-S1, E2-S3, E2-S4, S2.agent-echo                             |
-| The modal's remembered choice                                                                 | S3; S7.survive-restart's last start before the restart (AC-31) |
-| Kill from the tree with a confirmation, and cancel                                            | S6                                                             |
-| Restore an ended shell                                                                        | S8                                                             |
-| Open and remove a workspace by the Workspaces menu                                            | S7 (and S6's own workspace removal)                            |
-| Remove a project by its row's hover action and a confirmation                                 | S6                                                             |
-| Close a tab                                                                                   | S5, and S4 and S7 where closing is their subject               |
+| Action family                                                                       | Owner                                                  |
+| ----------------------------------------------------------------------------------- | ------------------------------------------------------ |
+| Create a workspace by the Workspaces menu and by the start screen's button          | S1 (from an empty server)                              |
+| Add a project (import, create a new folder, refusals)                               | S2 (from a workspace with no project)                  |
+| Import a linked worktree through the Add project dialog, and its notice             | S3.import-linked                                       |
+| Start from the "+" modal, with worktree choices, the double click and the grid size | S2 and S3 (every S3 start)                             |
+| The starting-script dropdown and starts through it                                  | E2-S1, E2-S3, E2-S4, S2.agent-echo                     |
+| The modal's remembered choice                                                       | S3; S7.survive-restart's last start before the restart |
+| Kill from the tree with a confirmation, and cancel                                  | S6                                                     |
+| Restore an ended shell                                                              | S8                                                     |
+| Open and remove a workspace by the Workspaces menu                                  | S7 (and S6's own workspace removal)                    |
+| Remove a project by its row's hover action and a confirmation                       | S6                                                     |
+| Close a tab                                                                         | S5, and S4 and S7 where closing is their subject       |
 
 - **Plain shells.** A scenario that needs a plain shell starts one over the API with no starting script; the server types nothing into it, and setup returns once the shell list reports it at its first prompt. It does not leave a mock agent to get one.
 - **Remembered choice.** The page updates its copy of a project's last start only for starts it made, so a stage that asserts the remembered choice starts the shell it compares against through the modal.
@@ -89,11 +92,11 @@ A scenario creates its workspaces, adds its projects and starts its shells over 
   - `permanent (a): …` runner bookkeeping that waits for nothing (printed timing, timestamps);
   - `permanent (b): …` a deadline raced against the event it names;
   - `permanent (c): …` a bounded check loop, naming the missing event;
-  - `temporary: PRB.T-0NN …` code a named PRB.E-005 story removes.
+  - `temporary: …` code a planned change removes, named in words, not by ticket.
 
 ## Sets and composed scenarios
 
-- **Old ids are sets.** Each long scenario PRB.T-039 split (`S1` to `S8`, `T-002`, `R1`, `E2-S1`, `E2-S3`, `E2-S4`, `T-041a`) keeps its id as a set name, so `--only S7` runs every check that covers an S7 criterion. The members come from each check's `covers`, never from a hand-kept list; a check is a member because it covers one of the old id's criteria. `T-041b` and `T-041c` were atomic already and keep their ids as checks. The set `shared` holds every check a sandbox accepts.
+- **Old ids are sets.** Each long scenario split into atomic checks (`S1` to `S8`, `T-002`, `R1`, `E2-S1`, `E2-S3`, `E2-S4`, `T-041a`) keeps its id as a set name, so `--only S7` runs every check whose id starts `S7.`. The members come from the check ids, never from a hand-kept list. `T-041b` and `T-041c` were atomic already and keep their ids as checks. The set `shared` holds every check a sandbox accepts.
 - **Sets.** A set is a named list, in `registry.ts`, of check or composed scenarios. Running it runs exactly its members, each as it would run alone. A set names no perf scenario and no other set, ids and set names share one namespace, and a `T-` name is a self-test set. The registry is refused at load when a set names an unknown id, a perf scenario or a set, or has the name of an id.
 - **Composed scenarios.** A composed scenario is a saved check made of atomic check scenarios as steps, in order, on one server, under the union of its steps' needs. A step states the kind of value it takes and the kind it returns (a workspace, a shell, a world, a shell with its tab closed). The composed scenario hands a step the value an earlier step returned; the step uses it and builds the rest itself, and run alone it builds everything itself. Each step gets its own run id, so a scenario used twice makes distinct names. Refused at load: a step that is not an atomic check, an input from a step that is not earlier, an input of the wrong kind (naming the step, what it takes and what the other returns), and two steps under different conditions.
 - **Composed output.** A pass prints `(composed, <n> steps, <t>)` and one time line per step. A failure names the composed scenario, the failing step, its stage, expected and found, and lists each later step as `not run: step <n> <id>`; the later steps do not run. Artifacts go under `<id>/step-<n>-<stepId>`. A composed scenario is not timed against the cap; its steps are.
@@ -132,7 +135,7 @@ Every atomic check scenario must finish under 20 s. That is a separate gate, nev
   - `condition` when its server must start under a condition (an environment variable, a faulty git config): a reason and the variables for the server's home. A condition is met by starting a server under it, never by restarting into it.
 - A scenario that needs a restart, an empty home, server-wide state or a condition gets a server of its own; `secondServer` alone does not ([The runner](#the-runner)). The sandbox refuses the same scenarios, plus `secondServer`.
 - A self-test that must run on a shared server but would break one others share (`T32` SIGKILLs it) states `needs: {}` and says why in `offSandbox`; the sandbox refuses it with that reason.
-- A check that is not a self-test lists the criteria it proves in `covers`, as `"S7 AC-6"`. The sets of the old ids are derived from it, and a registry test fails when a criterion of an old id is covered by no check.
+- Declare its `verifies` ([Shape](#shape)); the registry refuses a product scenario without one.
 
 ## The sandbox
 

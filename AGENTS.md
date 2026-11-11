@@ -54,6 +54,7 @@ Pick the place by asking: is it shipped, is it shared, is it durable?
 | `docs/user/`                | How to use shipped features                                                                      | yes           | implementation, plans                                          |
 | `docs/operations/`          | Maintainer procedures: dev setup, release, debugging                                             | yes           | user how-tos, plans                                            |
 | `docs/internals/`           | Architecture decisions, cross-component constraints and traps, for built code                    | yes           | anything not built yet                                         |
+| `docs/scenarios/`           | User scenarios of built behavior: workflows, and the FR/NFR requirements scenario tests cite     | yes           | plans, ACs, test ids, how-tos                                  |
 | `docs/dev/roadmap.md`       | Every settled product and scope decision, and the phase order                                    | yes           | per-ticket detail                                              |
 | `docs/dev/questions.md`     | Open questions and unverified claims that span tickets                                           | yes           | copies of a ticket's assumption table                          |
 | `docs/dev/epics/`, `tasks/` | One ticket each: spec, assumptions, verification notes, and the handoff a later session needs    | yes, via `tm` | step-by-step working plans                                     |
@@ -204,7 +205,7 @@ An empty database is a bad test. Seed your worktree's `.t3` with a copy of real 
   });
   ```
 
-- Terminal-first behavior is proven by scenarios (`scripts/scenarios`), and a new user-facing behavior adds or extends one. Read [the scenario rules](.agents/rules/scenarios.md) before writing or running a scenario.
+- Terminal-first behavior is proven by scenarios (`scripts/scenarios`), and a new user-facing behavior adds or extends one. Read [the scenario rules](.agents/rules/scenarios.md) before writing or running a scenario. Each scenario cites the [`docs/scenarios`](docs/scenarios/README.md) requirements it verifies, never a ticket or AC.
 - User-visible frontend changes should get one integrated pass in a real client with `test-t3-app`. The primary agent does this once after integrating. Subagents do not launch their own dev servers.
 
 - Real agent runs cost money. Use the mock agent in shells. Run a real CLI (Claude Code in a shell) only when the change depends on its behavior, and then pick its cheapest model, such as Haiku. The `Replay (dev)` provider that `vp run dev` registers only matters for chat code; [test-t3-app](.agents/skills/test-t3-app/SKILL.md) shows how to start one.

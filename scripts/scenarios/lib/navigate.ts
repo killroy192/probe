@@ -72,7 +72,7 @@ export async function layoutSaved(
 
 /**
  * Reloads the page and waits for `name` to show. A page that showed a workspace brings it back
- * by itself (PRB.T-007); a page that never did opens it from the start screen.
+ * by itself; a page that never did opens it from the start screen.
  */
 export async function reloadShowing(page: PointerPage, name: string) {
   await layoutSaved(page, name);

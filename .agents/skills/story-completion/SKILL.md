@@ -37,11 +37,11 @@ documentation.
 
 Score each chunk on each dimension: **0** none, **1** some, **2** a lot.
 
-| Dimension                 | Ask                                                                              | 2 means                                                                                   |
-| ------------------------- | -------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
-| **History**               | Would someone later need to know what we decided, why, or what we ruled out?     | A decision with its reason, a rejected option, a user ruling with its date, a trap hit    |
-| **Project**               | Is it true of the built system and does a maintainer, user or agent need it?     | A constraint, behavior or procedure that code, types and tests do not show                |
-| **Implementation / plan** | Did it only help build, review or verify this story?                             | Step lists, file and symbol inventories, test plans, AC tables, probing notes, scratch    |
+| Dimension                 | Ask                                                                          | 2 means                                                                                |
+| ------------------------- | ---------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
+| **History**               | Would someone later need to know what we decided, why, or what we ruled out? | A decision with its reason, a rejected option, a user ruling with its date, a trap hit |
+| **Project**               | Is it true of the built system and does a maintainer, user or agent need it? | A constraint, behavior or procedure that code, types and tests do not show             |
+| **Implementation / plan** | Did it only help build, review or verify this story?                         | Step lists, file and symbol inventories, test plans, AC tables, probing notes, scratch |
 
 A chunk can score high on several. Judge "project" strictly: if reading the code answers it, it is
 a 0. A restated acceptance criterion is implementation, not history.
@@ -50,16 +50,18 @@ a 0. A restated acceptance criterion is implementation, not history.
 
 Apply the first row that matches.
 
-| Scores                  | Action                                                                                           |
-| ----------------------- | ------------------------------------------------------------------------------------------------ |
-| Project 1 or 2          | **Docs.** Compose it as the shortest text that stays true, in the right place (below). Already there: delete. |
-| and History 1 or 2      | Also keep one line in the ticket's History pointing at the doc.                                  |
-| History 1 or 2          | **Keep in the ticket**, condensed to the decision and its reason, with dates and PR or commit.   |
-| Only Implementation     | **Delete.** No summary, no pointer.                                                              |
-| All 0                   | **Delete.**                                                                                      |
+| Scores              | Action                                                                                                        |
+| ------------------- | ------------------------------------------------------------------------------------------------------------- |
+| Project 1 or 2      | **Docs.** Compose it as the shortest text that stays true, in the right place (below). Already there: delete. |
+| and History 1 or 2  | Also keep one line in the ticket's History pointing at the doc.                                               |
+| History 1 or 2      | **Keep in the ticket**, condensed to the decision and its reason, with dates and PR or commit.                |
+| Only Implementation | **Delete.** No summary, no pointer.                                                                           |
+| All 0               | **Delete.**                                                                                                   |
 
 Where project text goes (from AGENTS.md): architecture, cross-component constraints and traps to
 `docs/internals/`; procedures to `docs/operations/`; how to use a shipped feature to `docs/user/`;
+requirements of built behavior to the FR/NFR tables in `docs/scenarios/` (the AC to scenario-id
+mapping stays in the ticket's Delivered);
 a product or scope decision to `docs/dev/roadmap.md`; an unverified claim that spans tickets stays in
 `docs/dev/questions.md`. Follow the documentation rules there: no field lists, no control flow, no
 PR summaries; a local reason the code cannot show is a code comment, not a doc.

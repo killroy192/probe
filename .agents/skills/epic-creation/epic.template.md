@@ -90,7 +90,8 @@ Created later with the story skill; this list is a sketch. -->
 | FR-1        |                                                          |       |
 
 - **KPI measurement:**
-- **Automated scenarios** (scenario tests, epic PRB.E-012): which of the scenarios above
+- **Automated scenarios** (scenario tests, epic PRB.E-012): which of the scenarios above, by
+  scenario id. Scenarios verify `docs/scenarios` requirements, never this epic's FRs.
 - **Manual checks:** what, by whom
 - **Sign-off:** who says it is done
 

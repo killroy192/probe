@@ -86,7 +86,7 @@ describe("runComposed", () => {
     expect(outcome).toMatchObject({ ok: false, message: "step 1 T18: boom", notRunLines: [] });
   });
 
-  // AC-8: started with a wrong handover, nothing runs.
+  // Started with a wrong handover, nothing runs.
   it("runs no step of a composed scenario the registry rejects", async () => {
     const c = defineComposed(file, {
       id: "T21",

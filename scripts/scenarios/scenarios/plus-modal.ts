@@ -46,6 +46,7 @@ import {
 import { shellTab, tabs } from "../lib/ui/tabs.ts";
 import { typeLine } from "../lib/ui/terminal.ts";
 import { projectMissing, shellNodes } from "../lib/ui/tree.ts";
+import { gridAtSizeLine } from "../lib/grid.ts";
 import { follow, recorder, waitFor } from "../lib/waits.ts";
 import { defineCheck, type ScenarioContext } from "../scenario.ts";
 import { MOCK_AGENT_COMMAND } from "../server.ts";
@@ -53,8 +54,8 @@ import { MOCK_AGENT_COMMAND } from "../server.ts";
 const CONNECTION_LOST =
   "The shell did not start: the connection to the server was lost. Try again.";
 
-// Every successor that drives the page holds AC-20 (a PointerPage) and checks AC-23 last.
-const UI = ["S2 AC-20", "S2 AC-23"] as const;
+// Each check that drives the page uses a pointer alone and ends by checking no chat route opened.
+const UI = ["workspaces/FR-23", "workspaces/FR-25"] as const;
 
 /** A signed-in page watched for chat routes, and a workspace of the scenario's own, not shown yet. */
 async function begin(ctx: ScenarioContext, label: string) {
@@ -91,11 +92,11 @@ export const noProject = defineCheck(import.meta.url, {
   id: "S2.no-project",
   title: "a workspace with no project offers no start, and adding starts at the server's home",
   needs: {},
-  covers: ["S2 AC-11", ...UI],
+  verifies: ["projects/FR-1", "projects/FR-2", "projects/FR-3", "projects/FR-4", ...UI],
   run: async (ctx) => {
     const { page, routes, ws } = await begin(ctx, "no-project");
     await showWorkspace(page, ws);
-    await ctx.trail.stage("AC-11", async () => {
+    await ctx.trail.stage("no project", async () => {
       expected({
         what: "the tree's Create shell buttons in a workspace with no project",
         expected: 0,
@@ -122,7 +123,7 @@ export const noProject = defineCheck(import.meta.url, {
         found: await dialog(page).count(),
       });
     });
-    await ctx.trail.stage("AC-23", async () => routes.expectNoChatRoute("S2.no-project"));
+    await ctx.trail.stage("no chat route", async () => routes.expectNoChatRoute("S2.no-project"));
   },
 });
 
@@ -130,7 +131,7 @@ export const addRefusals = defineCheck(import.meta.url, {
   id: "S2.add-refusals",
   title: "adding a file, or a folder that may not be created, is refused with its reason",
   needs: {},
-  covers: ["S2 AC-17", ...UI],
+  verifies: ["projects/FR-7", "projects/FR-8", ...UI],
   run: async (ctx) => {
     const { page, routes, setup, ws } = await begin(ctx, "add-refusals");
     const files = await setup.folder("files");
@@ -138,15 +139,15 @@ export const addRefusals = defineCheck(import.meta.url, {
     await NodeFSP.writeFile(notes, "not a folder");
     const locked = await setup.folder("locked");
     await showWorkspace(page, ws);
-    await ctx.trail.stage("AC-17 file", async () => {
+    await ctx.trail.stage("file", async () => {
       expectText(
         "the refusal to add a file",
         await addProject(page, { import: notes }),
         "not a folder",
       );
     });
-    await ctx.trail.stage("AC-17 denied create", () =>
-      revokeWrite(ctx, locked.path, "AC-17 denied create", async () => {
+    await ctx.trail.stage("denied create", () =>
+      revokeWrite(ctx, locked.path, "denied create", async () => {
         expectText(
           "the refusal to create a folder inside a read-only one",
           await addProject(page, { parent: locked.path, name: "app" }),
@@ -154,7 +155,7 @@ export const addRefusals = defineCheck(import.meta.url, {
         );
       }),
     );
-    await ctx.trail.stage("AC-17 nothing added", async () => {
+    await ctx.trail.stage("nothing added", async () => {
       await cancelModal(page);
       expected({
         what: `the projects of ${ws.name} after the refusals`,
@@ -167,7 +168,7 @@ export const addRefusals = defineCheck(import.meta.url, {
         found: await page.locator("[data-project]").count(),
       });
     });
-    await ctx.trail.stage("AC-23", async () => routes.expectNoChatRoute("S2.add-refusals"));
+    await ctx.trail.stage("no chat route", async () => routes.expectNoChatRoute("S2.add-refusals"));
   },
 });
 
@@ -176,12 +177,12 @@ export const importGit = defineCheck(import.meta.url, {
   title: "an imported git folder starts nothing and its + offers its own checkout",
   needs: {},
   // One import: the folder picked in the server's folder browser, then what its "+" offers.
-  covers: ["S2 AC-1", "S2 AC-8", ...UI],
+  verifies: ["projects/FR-5", "projects/FR-6", "worktrees/FR-26", "worktrees/FR-2", ...UI],
   run: async (ctx) => {
     const { page, routes, setup, ws } = await begin(ctx, "import-git");
     const repo = await uncommittedRepo(setup);
     await showWorkspace(page, ws);
-    await ctx.trail.stage("AC-1", async () => {
+    await ctx.trail.stage("import from folder browser", async () => {
       expected({
         what: "the refusal to import a git folder picked in the folder browser",
         expected: null,
@@ -191,7 +192,7 @@ export const importGit = defineCheck(import.meta.url, {
         }),
       });
     });
-    await ctx.trail.stage("AC-8", async () => {
+    await ctx.trail.stage("own checkout offered", async () => {
       await openModal(page, repo.path);
       expected({
         what: "the imported folder's preselected start",
@@ -210,7 +211,7 @@ export const importGit = defineCheck(import.meta.url, {
       });
       await cancelModal(page);
     });
-    await ctx.trail.stage("AC-23", async () => routes.expectNoChatRoute("S2.import-git"));
+    await ctx.trail.stage("no chat route", async () => routes.expectNoChatRoute("S2.import-git"));
   },
 });
 
@@ -219,14 +220,14 @@ export const oneClickStart = defineCheck(import.meta.url, {
   title: "one click starts a running shell with one tab, named by number, folder and program",
   needs: {},
   // One click on Create shell: its node, its single tab and its names all follow from that start.
-  covers: ["S2 AC-2", "S2 AC-3", "S2 AC-21", ...UI],
+  verifies: ["shells/FR-16", "shells/FR-17", ...UI],
   run: async (ctx) => {
     const { page, routes, frames, setup, ws } = await begin(ctx, "one-click");
     const repo = await uncommittedRepo(setup);
     await setup.project(ws, repo);
     await showWorkspace(page, ws);
     const base = NodePath.basename(repo.path);
-    await ctx.trail.stage("AC-2", async () => {
+    await ctx.trail.stage("one click", async () => {
       await openModal(page, repo.path);
       const from = frames.mark();
       await startButton(page).click();
@@ -254,13 +255,15 @@ export const oneClickStart = defineCheck(import.meta.url, {
       );
       expected({ what: "tabs after one start", expected: 1, found: await tabs(page).count() });
     });
-    await ctx.trail.stage("AC-3", () =>
+    await ctx.trail.stage("tree node name", () =>
       waitFor(
         shellNodes(page, repo.path).filter({ hasText: /^Shell 1 · node$/ }),
         'the tree node "Shell 1 · node"',
       ),
     );
-    await ctx.trail.stage("AC-23", async () => routes.expectNoChatRoute("S2.one-click-start"));
+    await ctx.trail.stage("no chat route", async () =>
+      routes.expectNoChatRoute("S2.one-click-start"),
+    );
   },
 });
 
@@ -268,7 +271,7 @@ export const noChatChrome = defineCheck(import.meta.url, {
   id: "S2.no-chat-chrome",
   title: "a started shell makes no chat thread and its tab shows no composer",
   needs: {},
-  covers: ["S2 AC-4", ...UI],
+  verifies: ["workspaces/FR-24", ...UI],
   run: async (ctx) => {
     const begun = await begin(ctx, "no-chat");
     const { page, routes, setup, ws } = begun;
@@ -276,7 +279,7 @@ export const noChatChrome = defineCheck(import.meta.url, {
     await setup.project(ws, repo);
     await showWorkspace(page, ws);
     const shell = await ctx.trail.stage("start", () => startThroughModal(begun, repo));
-    await ctx.trail.stage("AC-4", async () => {
+    await ctx.trail.stage("no chat thread or composer", async () => {
       const [item] = await Effect.runPromise(
         setup.client["orchestration.subscribeShell"]({}).pipe(
           Stream.filter((entry) => entry.kind === "snapshot"),
@@ -304,7 +307,9 @@ export const noChatChrome = defineCheck(import.meta.url, {
         found: await page.getByRole("button", { name: /^Send/ }).count(),
       });
     });
-    await ctx.trail.stage("AC-23", async () => routes.expectNoChatRoute("S2.no-chat-chrome"));
+    await ctx.trail.stage("no chat route", async () =>
+      routes.expectNoChatRoute("S2.no-chat-chrome"),
+    );
   },
 });
 
@@ -312,7 +317,7 @@ export const agentEcho = defineCheck(import.meta.url, {
   id: "S2.agent-echo",
   title: "a line typed into a mock agent started from the modal is echoed",
   needs: {},
-  covers: ["S2 AC-5", ...UI],
+  verifies: ["starting-scripts/FR-24", ...UI],
   run: async (ctx) => {
     const begun = await begin(ctx, "agent-echo");
     const { page, routes, frames, setup, ws } = begun;
@@ -320,14 +325,14 @@ export const agentEcho = defineCheck(import.meta.url, {
     await setup.project(ws, repo);
     await showWorkspace(page, ws);
     const shell = await ctx.trail.stage("start", () => startThroughModal(begun, repo));
-    await ctx.trail.stage("AC-5", async () => {
+    await ctx.trail.stage("agent echo", async () => {
       await agentReady(setup.client, shell.shellId);
       const line = `hello-${ctx.runId}`;
       const typed = frames.mark();
       await typeLine(page, line);
       await frames.until("the echoed line", (frame) => frame.includes(`echo: ${line}`), typed);
     });
-    await ctx.trail.stage("AC-23", async () => routes.expectNoChatRoute("S2.agent-echo"));
+    await ctx.trail.stage("no chat route", async () => routes.expectNoChatRoute("S2.agent-echo"));
   },
 });
 
@@ -335,17 +340,17 @@ export const gridSize = defineCheck(import.meta.url, {
   id: "S2.grid-size",
   title: "a shell started from the modal has the columns its view reports",
   needs: {},
-  covers: ["S2 AC-6", ...UI],
+  verifies: ["shells/FR-14", ...UI],
   run: async (ctx) => {
     const begun = await begin(ctx, "grid-size");
-    const { page, routes, frames, setup, ws } = begun;
+    const { page, routes, setup, ws } = begun;
     const repo = await uncommittedRepo(setup);
     await setup.project(ws, repo);
     await showWorkspace(page, ws);
     const shell = await ctx.trail.stage("start a plain shell", () =>
       startThroughModal(begun, repo, "Plain shell"),
     );
-    await ctx.trail.stage("AC-6", async () => {
+    await ctx.trail.stage("grid size", async () => {
       const events = recorder<TerminalAttachStreamEvent>("attach events");
       follow(setup.client["shell.attach"]({ shellId: shell.shellId }), events.push);
       const resized = events.mark();
@@ -355,20 +360,21 @@ export const gridSize = defineCheck(import.meta.url, {
         (event) => event.type === "activity" && event.cols !== undefined,
         resized,
       );
-      const typed = frames.mark();
+      const typed = events.mark();
       await typeLine(page, "echo sz:$(stty size)");
-      const size = await frames.until(
-        "the shell's size",
-        (frame) => /sz:\d+ \d+/.test(frame),
+      await events.until(
+        "the shell's size line",
+        () => gridAtSizeLine(events.seen, typed) !== undefined,
         typed,
       );
+      const size = gridAtSizeLine(events.seen, typed);
       expected({
-        what: "the shell's columns against the view's grid",
-        expected: grid.type === "activity" ? grid.cols : "an activity event",
-        found: Number(/sz:\d+ (\d+)/.exec(size)?.[1]),
+        what: "the shell's columns against the grid the server set before it printed them",
+        expected: size?.gridCols ?? (grid.type === "activity" ? grid.cols : "an activity event"),
+        found: size?.printedCols,
       });
     });
-    await ctx.trail.stage("AC-23", async () => routes.expectNoChatRoute("S2.grid-size"));
+    await ctx.trail.stage("no chat route", async () => routes.expectNoChatRoute("S2.grid-size"));
   },
 });
 
@@ -377,7 +383,7 @@ export const repeatStart = defineCheck(import.meta.url, {
   title: "a second start preselects the last choice and a double click starts exactly one shell",
   needs: {},
   // One second start: its preselection, its single shell and its own output follow from it.
-  covers: ["S2 AC-7", "S2 AC-12", "S2 AC-24", ...UI],
+  verifies: ["worktrees/FR-7", "shells/FR-18", "shells/FR-2", "starting-scripts/FR-5", ...UI],
   run: async (ctx) => {
     const begun = await begin(ctx, "repeat-start");
     const { page, routes, frames, setup, ws } = begun;
@@ -393,7 +399,7 @@ export const repeatStart = defineCheck(import.meta.url, {
       await frames.until("the echoed line", (frame) => frame.includes(`echo: ${line}`), typed);
       return started;
     });
-    await ctx.trail.stage("AC-7", async () => {
+    await ctx.trail.stage("preselected again", async () => {
       await openModal(page, repo.path);
       expected({
         what: "the preselected Start in of the second start",
@@ -401,7 +407,7 @@ export const repeatStart = defineCheck(import.meta.url, {
         found: await selectedKey(page, "Start in"),
       });
     });
-    const second = await ctx.trail.stage("AC-24", async () => {
+    const second = await ctx.trail.stage("double click", async () => {
       const from = frames.mark();
       await startButton(page).dblclick();
       await waitFor(dialog(page), '"Create shell" to close on the double click', {
@@ -427,7 +433,7 @@ export const repeatStart = defineCheck(import.meta.url, {
       });
       return started;
     });
-    await ctx.trail.stage("AC-12", async () => {
+    await ctx.trail.stage("output per shell", async () => {
       expected({
         what: "the typed line in each shell's history",
         expected: { first: true, second: false },
@@ -437,7 +443,7 @@ export const repeatStart = defineCheck(import.meta.url, {
         },
       });
     });
-    await ctx.trail.stage("PRB.T-011", async () => {
+    await ctx.trail.stage("agent typed once", async () => {
       // The output runs on through the typed line above, so a second typing would show by now.
       const once = "once, after the first prompt";
       const problem = agentTypedOnceAfterPrompt(
@@ -451,7 +457,7 @@ export const repeatStart = defineCheck(import.meta.url, {
         found: problem ?? once,
       });
     });
-    await ctx.trail.stage("AC-23", async () => routes.expectNoChatRoute("S2.repeat-start"));
+    await ctx.trail.stage("no chat route", async () => routes.expectNoChatRoute("S2.repeat-start"));
   },
 });
 
@@ -459,13 +465,13 @@ export const newFolderGit = defineCheck(import.meta.url, {
   id: "S2.new-folder-git",
   title: "a new folder gets git with no commit and a shell starts in its own checkout",
   needs: {},
-  covers: ["S2 AC-9", ...UI],
+  verifies: ["projects/FR-9", "projects/FR-11", ...UI],
   run: async (ctx) => {
     const { page, routes, setup, ws } = await begin(ctx, "new-folder");
     const parent = await setup.folder("parent");
     const fresh = NodePath.join(parent.path, "fresh");
     await showWorkspace(page, ws);
-    await ctx.trail.stage("AC-9 create", async () => {
+    await ctx.trail.stage("create", async () => {
       expected({
         what: "the refusal to create a new folder",
         expected: null,
@@ -480,7 +486,7 @@ export const newFolderGit = defineCheck(import.meta.url, {
         },
       });
     });
-    await ctx.trail.stage("AC-9 start", async () => {
+    await ctx.trail.stage("start", async () => {
       await openModal(page, fresh);
       expected({ what: "the start's refusal", expected: null, found: await startFromModal(page) });
       await waitFor(shellNodes(page, fresh).first(), "the shell's node under the new folder");
@@ -492,7 +498,9 @@ export const newFolderGit = defineCheck(import.meta.url, {
         found: worktrees.stdout.split("\n").filter((entry) => entry.startsWith("worktree ")).length,
       });
     });
-    await ctx.trail.stage("AC-23", async () => routes.expectNoChatRoute("S2.new-folder-git"));
+    await ctx.trail.stage("no chat route", async () =>
+      routes.expectNoChatRoute("S2.new-folder-git"),
+    );
   },
 });
 
@@ -500,12 +508,12 @@ export const plainFolder = defineCheck(import.meta.url, {
   id: "S2.plain-folder",
   title: "a plain folder offers no worktree choice and starts under its node",
   needs: {},
-  covers: ["S2 AC-10", ...UI],
+  verifies: ["worktrees/FR-27", ...UI],
   run: async (ctx) => {
     const { page, routes, setup, ws } = await begin(ctx, "plain-folder");
     const plain = await setup.folder("plain");
     await showWorkspace(page, ws);
-    await ctx.trail.stage("AC-10", async () => {
+    await ctx.trail.stage("plain folder", async () => {
       expected({
         what: "the refusal to import a plain folder",
         expected: null,
@@ -524,7 +532,7 @@ export const plainFolder = defineCheck(import.meta.url, {
       );
       await shellsIn(setup.shells.lists, plain.path, 1);
     });
-    await ctx.trail.stage("AC-23", async () => routes.expectNoChatRoute("S2.plain-folder"));
+    await ctx.trail.stage("no chat route", async () => routes.expectNoChatRoute("S2.plain-folder"));
   },
 });
 
@@ -532,13 +540,13 @@ export const cancelWithoutStart = defineCheck(import.meta.url, {
   id: "S2.cancel-modal",
   title: "closing the modal without starting changes no shell or tab",
   needs: {},
-  covers: ["S2 AC-13", ...UI],
+  verifies: ["shells/FR-19", ...UI],
   run: async (ctx) => {
     const { page, routes, setup, ws } = await begin(ctx, "cancel-modal");
     const repo = await uncommittedRepo(setup);
     await setup.project(ws, repo);
     await showWorkspace(page, ws);
-    await ctx.trail.stage("AC-13", async () => {
+    await ctx.trail.stage("cancel", async () => {
       const counts = async () => ({
         shells: shellsOf(setup.shells.current(), mine(repo)).length,
         tabs: await tabs(page).count(),
@@ -548,7 +556,7 @@ export const cancelWithoutStart = defineCheck(import.meta.url, {
       await cancelModal(page);
       expected({ what: "shells and tabs after Cancel", expected: before, found: await counts() });
     });
-    await ctx.trail.stage("AC-23", async () => routes.expectNoChatRoute("S2.cancel-modal"));
+    await ctx.trail.stage("no chat route", async () => routes.expectNoChatRoute("S2.cancel-modal"));
   },
 });
 
@@ -557,7 +565,7 @@ export const deletedFolder = defineCheck(import.meta.url, {
   title: "a folder deleted on disk refuses a start and is marked without a +",
   needs: {},
   // One deletion: the refused start in the open modal, then the mark the next read shows.
-  covers: ["S2 AC-14", "S2 AC-15", ...UI],
+  verifies: ["projects/FR-15", "projects/FR-16", ...UI],
   run: async (ctx) => {
     const { page, routes, setup, ws } = await begin(ctx, "deleted-folder");
     const plain = await setup.folder("plain");
@@ -566,7 +574,7 @@ export const deletedFolder = defineCheck(import.meta.url, {
     await setup.shell(await setup.project(ws, plain));
     await setup.project(ws, other);
     await showWorkspace(page, ws);
-    await ctx.trail.stage("AC-15", async () => {
+    await ctx.trail.stage("refused start", async () => {
       const counts = async () => ({
         shells: shellsOf(setup.shells.current(), mine(plain, other)).length,
         tabs: await tabs(page).count(),
@@ -586,7 +594,7 @@ export const deletedFolder = defineCheck(import.meta.url, {
         found: await counts(),
       });
     });
-    await ctx.trail.stage("AC-14", async () => {
+    await ctx.trail.stage("marked missing", async () => {
       // Opening the modal reads the workspace again; the deleted folder is then marked.
       await openModal(page, other.path);
       await cancelModal(page);
@@ -597,7 +605,9 @@ export const deletedFolder = defineCheck(import.meta.url, {
         found: await createShellButton(page, plain.path).count(),
       });
     });
-    await ctx.trail.stage("AC-23", async () => routes.expectNoChatRoute("S2.deleted-folder"));
+    await ctx.trail.stage("no chat route", async () =>
+      routes.expectNoChatRoute("S2.deleted-folder"),
+    );
   },
 });
 
@@ -605,7 +615,7 @@ export const removedFolderLastStart = defineCheck(import.meta.url, {
   id: "S2.removed-folder-last-start",
   title: "a last start in a folder removed from the workspace is not applied to another",
   needs: {},
-  covers: ["S2 AC-14b", ...UI],
+  verifies: ["projects/FR-17", "projects/FR-18", ...UI],
   run: async (ctx) => {
     const { page, routes, setup, ws } = await begin(ctx, "removed-last-start");
     const removed = await uncommittedRepo(setup, "removed");
@@ -613,7 +623,7 @@ export const removedFolderLastStart = defineCheck(import.meta.url, {
     await setup.project(ws, removed);
     await setup.project(ws, kept);
     await showWorkspace(page, ws);
-    await ctx.trail.stage("AC-14b", async () => {
+    await ctx.trail.stage("removed folder", async () => {
       // An edit outside Probe: the workspace keeps only `kept`, with `removed` as its last start.
       const file = NodePath.join(ctx.server.home, "userdata", "workspaces", `${ws.name}.json`);
       await NodeFSP.writeFile(
@@ -633,7 +643,7 @@ export const removedFolderLastStart = defineCheck(import.meta.url, {
         { state: "detached" },
       );
     });
-    await ctx.trail.stage("AC-23", async () =>
+    await ctx.trail.stage("no chat route", async () =>
       routes.expectNoChatRoute("S2.removed-folder-last-start"),
     );
   },
@@ -643,13 +653,13 @@ export const startEndLines = defineCheck(import.meta.url, {
   id: "S2.start-end-lines",
   title: "the log has a start line and an end line for a shell killed from outside",
   needs: {},
-  covers: ["S2 AC-19"],
+  verifies: ["shells/FR-22", "shells/FR-23"],
   run: async (ctx) => {
     const setup = await setupOn(ctx);
     const ws = await setup.workspace("start-end");
     const folder = await setup.folder("lines");
     const shell = await setup.shell(await setup.project(ws, folder));
-    await ctx.trail.stage("AC-19", async () => {
+    await ctx.trail.stage("start and end lines", async () => {
       expected({
         what: "whether the started shell has a pid",
         expected: true,
@@ -678,7 +688,7 @@ export const connectionDrop = defineCheck(import.meta.url, {
   id: "S2.connection-drop",
   title: "a start whose connection drops shows why, leaves nothing, and a retry works",
   needs: {},
-  covers: ["S2 AC-18", ...UI],
+  verifies: ["shells/FR-20", "shells/FR-21", ...UI],
   run: async (ctx) => {
     const { page, routes, setup, ws } = await begin(ctx, "connection-drop");
     const repo = await uncommittedRepo(setup);
@@ -687,7 +697,7 @@ export const connectionDrop = defineCheck(import.meta.url, {
     const cutter = await connectionCutter(page);
     await page.reload();
     await showWorkspace(page, ws);
-    const servedAtDrop = await ctx.trail.stage("AC-18 drop", async () => {
+    const servedAtDrop = await ctx.trail.stage("drop", async () => {
       await openModal(page, repo.path);
       const dropped = cutter.dropOn("workspace.startShell");
       await startButton(page).click();
@@ -707,7 +717,7 @@ export const connectionDrop = defineCheck(import.meta.url, {
       });
       return served;
     });
-    await ctx.trail.stage("AC-18 retry", async () => {
+    await ctx.trail.stage("retry", async () => {
       // A retry works once the page has reconnected on its own and the server answered it.
       await cutter.servedMoreThan(servedAtDrop);
       expected({ what: "the retry's refusal", expected: null, found: await startFromModal(page) });
@@ -715,7 +725,9 @@ export const connectionDrop = defineCheck(import.meta.url, {
       await waitFor(tabs(page).first(), "the retried shell's tab");
       expected({ what: "tabs after the retry", expected: 1, found: await tabs(page).count() });
     });
-    await ctx.trail.stage("AC-23", async () => routes.expectNoChatRoute("S2.connection-drop"));
+    await ctx.trail.stage("no chat route", async () =>
+      routes.expectNoChatRoute("S2.connection-drop"),
+    );
   },
 });
 
@@ -723,7 +735,7 @@ export const otherWorkspace = defineCheck(import.meta.url, {
   id: "S2.other-workspace",
   title: "another workspace starts with no folder and without the first one's last start",
   needs: {},
-  covers: ["S2 AC-25", ...UI],
+  verifies: ["projects/FR-1", "projects/FR-14", "worktrees/FR-8", ...UI],
   run: async (ctx) => {
     const begun = await begin(ctx, "first-ws");
     const { page, routes, setup, ws } = begun;
@@ -732,7 +744,7 @@ export const otherWorkspace = defineCheck(import.meta.url, {
     const other = await setup.workspace("other-ws");
     await showWorkspace(page, ws);
     await ctx.trail.stage("the first workspace's start", () => startThroughModal(begun, repo));
-    await ctx.trail.stage("AC-25", async () => {
+    await ctx.trail.stage("other workspace", async () => {
       await showWorkspace(page, other);
       expected({
         what: `Create shell buttons in ${other.name} with no folder`,
@@ -752,7 +764,9 @@ export const otherWorkspace = defineCheck(import.meta.url, {
       });
       await cancelModal(page);
     });
-    await ctx.trail.stage("AC-23", async () => routes.expectNoChatRoute("S2.other-workspace"));
+    await ctx.trail.stage("no chat route", async () =>
+      routes.expectNoChatRoute("S2.other-workspace"),
+    );
   },
 });
 
@@ -760,7 +774,7 @@ export const unstartableScript = defineCheck(import.meta.url, {
   id: "S2.unstartable-script",
   title: "a starting script whose program is missing is refused and leaves no shell",
   needs: { serverWide: "adds a starting script" },
-  covers: ["S2 AC-16", ...UI],
+  verifies: ["starting-scripts/FR-18", "starting-scripts/FR-20", "starting-scripts/FR-21", ...UI],
   run: async (ctx) => {
     const name = `unstartable-${ctx.runId}`;
     await addStartingScript(ctx.server.home, {
@@ -772,7 +786,7 @@ export const unstartableScript = defineCheck(import.meta.url, {
     const repo = await uncommittedRepo(setup);
     await setup.project(ws, repo);
     await showWorkspace(page, ws);
-    await ctx.trail.stage("AC-16", async () => {
+    await ctx.trail.stage("refused script", async () => {
       await openModal(page, repo.path, { script: name });
       expectText(
         "the refusal of the unstartable script",
@@ -794,7 +808,9 @@ export const unstartableScript = defineCheck(import.meta.url, {
         (entry) => entry.includes("shell failed to start") && entry.includes(repo.path),
       );
     });
-    await ctx.trail.stage("AC-23", async () => routes.expectNoChatRoute("S2.unstartable-script"));
+    await ctx.trail.stage("no chat route", async () =>
+      routes.expectNoChatRoute("S2.unstartable-script"),
+    );
   },
 });
 
@@ -812,13 +828,13 @@ export const gitInitFails = defineCheck(import.meta.url, {
       },
     },
   },
-  covers: ["S2 AC-17 git init", ...UI],
+  verifies: ["projects/FR-10", ...UI],
   run: async (ctx) => {
     const { page, routes, setup, ws } = await begin(ctx, "git-init");
     const parent = await setup.folder("parent");
     const broken = NodePath.join(parent.path, "broken");
     await showWorkspace(page, ws);
-    await ctx.trail.stage("AC-17 git init", async () => {
+    await ctx.trail.stage("git init fails", async () => {
       expectText(
         "the refusal to create a folder whose git init fails",
         await addProject(page, { parent: parent.path, name: "broken" }),
@@ -837,7 +853,9 @@ export const gitInitFails = defineCheck(import.meta.url, {
         found: await projectsOf(setup, ws.name),
       });
     });
-    await ctx.trail.stage("AC-23", async () => routes.expectNoChatRoute("S2.git-init-fails"));
+    await ctx.trail.stage("no chat route", async () =>
+      routes.expectNoChatRoute("S2.git-init-fails"),
+    );
   },
 });
 

@@ -20,14 +20,20 @@ export const closeTabCheck = defineCheck(import.meta.url, {
   id: "S5.close-tab",
   title: "closing a tab hides its terminal while the shell runs on in the tree",
   needs: {},
-  covers: ["S5 AC-3"],
+  // One close proves them: the tab and terminal go, the shell runs on in the tree.
+  verifies: [
+    "close-and-reopen/FR-1",
+    "close-and-reopen/FR-2",
+    "close-and-reopen/FR-3",
+    "workspaces/FR-25",
+  ],
   returns: "closedTabShell",
   run: async (ctx) => {
     const { page, shown, setup, first, second } = await ctx.trail.stage("setup", () =>
       twoOpenTabs(ctx),
     );
 
-    await ctx.trail.stage("AC-3", async () => {
+    await ctx.trail.stage("close a tab", async () => {
       await closeTab(page, first.shellId);
       await waitFor(shellPanel(page, first.shellId), `the terminal of shell ${first.shellId}`, {
         state: "detached",
@@ -49,12 +55,12 @@ export const outputWhileClosed = defineCheck(import.meta.url, {
   id: "S5.output-while-closed",
   title: "output a shell makes while its tab is closed shows when the tab reopens",
   needs: {},
-  covers: ["S5 AC-6"],
+  verifies: ["close-and-reopen/FR-5"],
   run: async (ctx) => {
     const made = await ctx.trail.stage("setup", () => twoOpenTabs(ctx));
     const { page, frames, setup, first } = made;
 
-    await ctx.trail.stage("AC-6", async () => {
+    await ctx.trail.stage("output while closed", async () => {
       await writeLine(setup.client, setup.shells, first.shellId, "read word; echo after-$word-s5");
       await closeTab(page, first.shellId);
       // The page may keep its attach while the tab is closed and send no new snapshot on reopen,
@@ -81,12 +87,13 @@ export const reopenFromTree = defineCheck(import.meta.url, {
   id: "S5.reopen-from-tree",
   title: "selecting a shell in the tree opens its tab again with the running shell",
   needs: {},
-  covers: ["S5 AC-4"],
+  // One reopen from the tree proves them, by pointer alone.
+  verifies: ["close-and-reopen/FR-4", "workspaces/FR-25"],
   run: async (ctx) => {
     const made = await ctx.trail.stage("setup", () => twoOpenTabs(ctx));
     const { page, setup, first } = made;
 
-    await ctx.trail.stage("AC-4", async () => {
+    await ctx.trail.stage("reopen from the tree", async () => {
       // The criterion is the tab and the running shell. The terminal draws no DOM text, and a
       // quick reopen may keep the page's attach, so no frame can show what the reopened tab draws.
       await closeTab(page, first.shellId);
@@ -105,11 +112,12 @@ export const closeAll = defineCheck(import.meta.url, {
   id: "S5.close-all",
   title: "closing every tab leaves no terminal and no error while the shells stay listed",
   needs: {},
-  covers: ["S5 AC-5"],
+  // One close of every tab proves them: the notice shows, the shells run on in the tree.
+  verifies: ["close-and-reopen/FR-6", "close-and-reopen/FR-2", "close-and-reopen/FR-3"],
   run: async (ctx) => {
     const { page, setup, first, second } = await ctx.trail.stage("setup", () => twoOpenTabs(ctx));
 
-    await ctx.trail.stage("AC-5", async () => {
+    await ctx.trail.stage("close every tab", async () => {
       await closeTab(page, first.shellId);
       await closeTab(page, second.shellId);
       await waitFor(page.getByText("No open shells"), "the empty tab strip's notice");

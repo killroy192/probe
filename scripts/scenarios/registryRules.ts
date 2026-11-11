@@ -67,22 +67,140 @@ const kindName = (kind: ResultKind | undefined) =>
 const stepName = (c: ComposedScenario, n: number) =>
   `${c.id} step ${n} (${c.steps[n - 1]?.scenario.id ?? "?"})`;
 
+export interface RequirementDoc {
+  /** The file name in `docs/scenarios`, as `"shells.md"`; its slug is the name without `.md`. */
+  readonly name: string;
+  readonly text: string;
+}
+
+export interface RegistryInputs {
+  readonly readSource: (file: string) => string;
+  /** Every file in `docs/scenarios`: the requirements a `verifies` ref may name. */
+  readonly docs: ReadonlyArray<RequirementDoc>;
+  /** The registry's self-tests: they verify the harness, not the product, and carry no `verifies`. */
+  readonly selftests?: ReadonlyArray<AnyScenario>;
+  /** The harness's own files, held to the same ban on ticket references as a product scenario's. */
+  readonly harnessFiles?: ReadonlyArray<string>;
+}
+
+const REF = /^([a-z0-9]+(?:-[a-z0-9]+)*)\/((?:N?FR)-[1-9]\d*)$/;
+const REQUIREMENT_ROW = /^\|\s*(N?FR-[1-9]\d*)\s*\|/;
+// A ticket, acceptance criterion, edge case or story assumption; matched in comments too.
+const TICKET_REFERENCE = /\b(?:AC|EC|SA)-\d+|\bPRB\.[TE]-\d+/;
+const CITE_REQUIREMENTS =
+  "scenario code cites docs/scenarios requirements, and only a ticket maps its criteria to scenario ids";
+
+/** The FR and NFR ids in the `## Requirements` table of a `docs/scenarios` file, in table order. */
+export function requirementIds(markdown: string): ReadonlyArray<string> {
+  const ids: Array<string> = [];
+  let inTable = false;
+  for (const line of markdown.split("\n")) {
+    if (/^##\s/.test(line)) inTable = /^##\s+Requirements\s*$/.test(line);
+    const row = inTable ? REQUIREMENT_ROW.exec(line) : null;
+    if (row !== null) ids.push(row[1]!);
+  }
+  return ids;
+}
+
+/** The first ticket or acceptance-criterion reference in `source`, comments included. */
+export function ticketReference(source: string): string | undefined {
+  return TICKET_REFERENCE.exec(source)?.[0];
+}
+
+/** Why `scenario`'s `verifies` is unfit, against the requirements `known` holds per doc slug. */
+function verifiesRejections(
+  scenario: AnyScenario,
+  known: ReadonlyMap<string, ReadonlySet<string>>,
+): ReadonlyArray<string> {
+  const refs = scenario.verifies ?? [];
+  if (refs.length === 0) {
+    return [
+      `it is a ${scenario.kind} scenario with no verifies; it lists the docs/scenarios requirements it proves, as "shells/FR-3" (${REGISTERING})`,
+    ];
+  }
+  const reasons: Array<string> = [];
+  for (const ref of refs) {
+    const shape = REF.exec(ref);
+    if (shape === null) {
+      reasons.push(`its verifies ref "${ref}" is not "<slug>/FR-<n>" or "<slug>/NFR-<n>"`);
+      continue;
+    }
+    const [, slug, id] = shape;
+    const ids = known.get(slug!);
+    if (ids === undefined) {
+      reasons.push(
+        `its verifies ref "${ref}" names docs/scenarios/${slug}.md, which does not exist`,
+      );
+    } else if (!ids.has(id!)) {
+      reasons.push(
+        `its verifies ref "${ref}" names ${id}, which the Requirements table of docs/scenarios/${slug}.md does not hold`,
+      );
+    }
+  }
+  if (scenario.kind === "perf" && (refs.length !== 1 || !refs[0]!.includes("/NFR-"))) {
+    reasons.push(
+      `a perf scenario verifies exactly one NFR, the requirement that states its limit; it verifies ${refs.join(", ")}`,
+    );
+  }
+  return reasons;
+}
+
 /** Every reason the registry is unfit to run, checked before anything runs; empty when it is fit. */
 export function validateRegistry(
   registry: Registry,
-  readSource: (file: string) => string,
+  inputs: RegistryInputs,
 ): ReadonlyArray<Rejection> {
+  const { readSource } = inputs;
   const rejections: Array<Rejection> = [];
   const reject = (name: string, reason: string) => rejections.push({ name, reason });
+  const raw = new Map<string, string>();
+  const rawSource = (file: string) => {
+    let text = raw.get(file);
+    if (text === undefined) {
+      text = readSource(file);
+      raw.set(file, text);
+    }
+    return text;
+  };
   const sources = new Map<string, string>();
   const source = (file: string) => {
     let text = sources.get(file);
     if (text === undefined) {
-      text = withoutComments(readSource(file));
+      text = withoutComments(rawSource(file));
       sources.set(file, text);
     }
     return text;
   };
+
+  const known = new Map(
+    inputs.docs
+      .filter((doc) => doc.name.endsWith(".md") && doc.name !== "README.md")
+      .map((doc) => [doc.name.slice(0, -".md".length), new Set(requirementIds(doc.text))]),
+  );
+  const selftests = new Set(inputs.selftests ?? []);
+  const scanned = new Set<string>();
+  const scan = (file: string, whose: string) => {
+    if (scanned.has(file)) return;
+    scanned.add(file);
+    const found = ticketReference(rawSource(file));
+    if (found !== undefined) {
+      reject(
+        file,
+        `${whose} cites a ticket or acceptance criterion (${found}); ${CITE_REQUIREMENTS}`,
+      );
+    }
+  };
+  for (const scenario of [...registry.checks, ...registry.composed, ...registry.perfScenarios]) {
+    if (selftests.has(scenario)) {
+      if (scenario.verifies !== undefined) {
+        reject(scenario.id, "it is a self-test: it verifies the harness and carries no verifies");
+      }
+      continue;
+    }
+    for (const reason of verifiesRejections(scenario, known)) reject(scenario.id, reason);
+    scan(scenario.file, "the product scenario file");
+  }
+  for (const file of inputs.harnessFiles ?? []) scan(file, "the harness file");
 
   for (const scenario of [...registry.checks, ...registry.composed]) {
     if (scenario.file.endsWith(PERF_SUFFIX)) {
@@ -124,11 +242,11 @@ export function validateRegistry(
       );
     }
     const declared = measures(text);
-    const { limitMs, limitFrom } = perf.measure;
-    if (declared !== 1 || !(limitMs > 0) || limitFrom.trim() === "") {
+    const { limitMs } = perf.measure;
+    if (declared !== 1 || !(limitMs > 0)) {
       reject(
         perf.id,
-        `a perf scenario declares exactly one measure with a limit and the criterion that sets it; its file declares ${declared}, limit ${limitMs} ms from "${limitFrom}"`,
+        `a perf scenario declares exactly one measure with a limit; its file declares ${declared}, limit ${limitMs} ms`,
       );
     }
   }
@@ -286,10 +404,11 @@ export function perfVerdict(
   p: PerfScenario,
   ms: number,
 ): { readonly pass: boolean; readonly line: string } {
-  const { name, limitMs, limitFrom } = p.measure;
+  const { name, limitMs } = p.measure;
   const pass = ms <= limitMs;
+  const from = p.verifies?.[0];
   return {
     pass,
-    line: `PERF ${pass ? "PASS" : "FAIL"} ${p.id} ${name} ${Math.round(ms)} ms, limit ${limitMs} ms (${limitFrom})`,
+    line: `PERF ${pass ? "PASS" : "FAIL"} ${p.id} ${name} ${Math.round(ms)} ms, limit ${limitMs} ms${from === undefined ? "" : ` (${from})`}`,
   };
 }

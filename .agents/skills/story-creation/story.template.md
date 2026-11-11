@@ -85,7 +85,8 @@ the plan; cite the epic NFR when one applies. Do not describe the design. -->
 <!-- How this story is validated. Each criterion is independently testable, specific, and free of
 implementation detail. Use Given / When / Then. Mark how it is checked: `auto` (scenario test) or
 `manual` (and by whom). Map each to the epic requirement it satisfies. Together they must cover the
-Expected Behavior, every edge case, and every error case. -->
+Expected Behavior, every edge case, and every error case. An `auto` criterion names the scenario
+ids that check it; those scenarios verify `docs/scenarios` requirements, never the AC. -->
 
 | ID   | Criterion (Given / When / Then) | Check (auto / manual) | Covers (FR / NFR / EC / ER) |
 | ---- | ------------------------------- | --------------------- | --------------------------- |

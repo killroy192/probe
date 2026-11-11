@@ -6,7 +6,8 @@ export const promptServerPerf = definePerf(import.meta.url, {
   id: "perf-prompt-server",
   title: "the server's time from a plain start request to the first prompt",
   needs: {},
-  measure: { name: "start-to-prompt", limitMs: 700, limitFrom: "PRB.E-002 NFR-1" },
+  measure: { name: "start-to-prompt", limitMs: 700 },
+  verifies: ["starting-scripts/NFR-1"],
   run: async (ctx) => {
     const setup = await setupOn(ctx);
     const ws = await setup.workspace("perf-prompt-server");

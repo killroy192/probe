@@ -5,7 +5,7 @@ export const withinBudget = definePerf(import.meta.url, {
   id: "T33",
   title: "a perf self-test within its budget",
   needs: {},
-  measure: { name: "open-a-page", limitMs: 60_000, limitFrom: "PRB.T-040 AC-11" },
+  measure: { name: "open-a-page", limitMs: 60_000 },
   run: async (ctx) => {
     const from = performance.now();
     await ctx.openPage();

@@ -29,8 +29,14 @@ export const twoServers = defineCheck(import.meta.url, {
   title:
     "a second server runs apart from the default one, with its own home, workspaces and shells",
   needs: { secondServer: true },
-  // One second server answers all four: its process and home, its workspaces, and its shells.
-  covers: ["R1 AC-1", "R1 AC-2", "R1 EC-4", "R1 a shell on the second server"],
+  // One second server answers all of them: its process and home, its workspaces, and its shells.
+  verifies: [
+    "second-server/FR-1",
+    "second-server/FR-2",
+    "second-server/FR-3",
+    "second-server/FR-4",
+    "second-server/FR-5",
+  ],
   run: async (ctx) => {
     const { server, trail, runId } = ctx;
     const second = await ctx.startSecondServer();
@@ -39,7 +45,7 @@ export const twoServers = defineCheck(import.meta.url, {
       NodeFSP.realpath(second.home),
     ]);
 
-    await trail.stage("AC-1", async () => {
+    await trail.stage("separate processes and homes", async () => {
       expected({
         what: "both servers on one origin",
         expected: false,
@@ -73,8 +79,8 @@ export const twoServers = defineCheck(import.meta.url, {
     const alpha = `alpha-${runId}`;
     const shared = `shared-${runId}`;
 
-    // EC-4: one name on both servers, each with a project in its own home.
-    await trail.stage("AC-2", async () => {
+    // One name on both servers, each with a project in its own home.
+    await trail.stage("separate workspaces", async () => {
       for (const [setup, name] of [
         [onSecondSetup, alpha],
         [onSecondSetup, shared],
@@ -147,15 +153,15 @@ export const seam = defineCheck(import.meta.url, {
   id: "R1.seam",
   title: "the browser connects to a saved second server without sending its credential elsewhere",
   needs: { secondServer: true },
-  // The seam save is one action: the UI connecting (AC-3) and where the credential went (EC-1).
-  covers: ["R1 AC-3", "R1 EC-1"],
+  // The seam save is one action: the UI connecting, the label listed, where the credential went.
+  verifies: ["second-server/FR-6", "second-server/FR-7", "second-server/FR-8"],
   run: async (ctx) => {
     const { server, trail } = ctx;
     const second = await ctx.startSecondServer();
     const onSecondSetup = await setupOn({ ...ctx, server: second });
     const ws = await onSecondSetup.workspace("seam");
 
-    await trail.stage("AC-3", async () => {
+    await trail.stage("connect to the saved server", async () => {
       const page = await ctx.openPage();
       const secondPort = new URL(second.origin).port;
       const answered = recorder<string>("second server sockets");
@@ -184,7 +190,7 @@ export const seam = defineCheck(import.meta.url, {
         page.getByText(LABEL, { exact: true }).first(),
         "the second server in the connections list",
       );
-      // EC-1: judged once the connections list shows the second server.
+      // Judged once the connections list shows the second server.
       expected({
         what: "requests to the default server carrying the second server's credential",
         expected: 0,

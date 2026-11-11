@@ -1,5 +1,5 @@
-// Test-only seam (PRB.T-021): the browser learns a second server without the connect flow.
-// PRB.T-023 replaces it with the real connect flow.
+// Test-only seam: the browser learns a second server without the connect flow, until the real
+// connect flow replaces it.
 
 import { deriveWsBaseUrl, normalizeHttpBaseUrl } from "@t3tools/shared/advertisedEndpoint";
 

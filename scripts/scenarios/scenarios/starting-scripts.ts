@@ -74,10 +74,10 @@ export const plainPreselected = defineCheck(import.meta.url, {
   id: "E2-S3.plain-preselected",
   title: "Plain shell is preselected and starts a shell at its prompt",
   needs: {},
-  covers: ["E2-S3 AC-2b"],
+  verifies: ["starting-scripts/FR-3"],
   run: async (ctx) => {
     const { page, frames, setup, repo } = await shownWorld(ctx, "plain-preselected");
-    await ctx.trail.stage("AC-2b", async () => {
+    await ctx.trail.stage("plain preselected", async () => {
       await openModal(page, repo.path, { script: null });
       expected({
         what: "the preselected starting script",
@@ -98,10 +98,11 @@ export const freshList = defineCheck(import.meta.url, {
   id: "E2-S3.fresh-list",
   title: "a fresh state folder offers Plain shell and the mock agent",
   needs: { serverWide: "depends on the list a fresh state folder offers" },
-  covers: ["E2-S3 AC-1"],
+  // One fresh state folder: the list it offers is the default it was seeded with.
+  verifies: ["starting-scripts/FR-1", "starting-scripts/FR-15"],
   run: async (ctx) => {
     const { page, repo } = await shownWorld(ctx, "fresh-list");
-    await ctx.trail.stage("AC-1", async () => {
+    await ctx.trail.stage("fresh list offered", async () => {
       await openModal(page, repo.path, { script: null });
       expected({
         what: "whether the Starting script dropdown is enabled",
@@ -126,8 +127,8 @@ export const agentCommandIgnored = defineCheck(import.meta.url, {
       env: () => ({ PROBE_AGENT_COMMAND: MOCK_AGENT_COMMAND }),
     },
   },
-  // One plain start in a worktree: what it types (AC-2a, AC-13a) and how it is logged (AC-12).
-  covers: ["E2-S3 AC-2a", "E2-S3 AC-13a", "E2-S3 AC-12"],
+  // One plain start in a worktree: what it types and how it is logged.
+  verifies: ["starting-scripts/FR-4", "starting-scripts/FR-16"],
   run: async (ctx) => {
     const { server, trail } = ctx;
     const { page, frames, setup } = await framedPage(ctx);
@@ -138,7 +139,7 @@ export const agentCommandIgnored = defineCheck(import.meta.url, {
     const repo = (await setup.project(ws, made)).path;
     await showWorkspace(page, ws);
 
-    const shell = await trail.stage("AC-2a, AC-13a", async () => {
+    const shell = await trail.stage("plain start types nothing", async () => {
       await openModal(page, repo, { script: "Plain shell" });
       await pickItem(page, "Start in", linked);
       expected({
@@ -167,10 +168,10 @@ export const agentCommandIgnored = defineCheck(import.meta.url, {
       return started!;
     });
 
-    await trail.stage("AC-12", async () => {
+    await trail.stage("logged as plain", async () => {
       await expectLogged(
         server,
-        `The plain start is not logged as plain (E2-S3 AC-12): ${startLines(server).join("\n")}`,
+        `The plain start is not logged as plain: ${startLines(server).join("\n")}`,
         (line) =>
           line.includes("shell started") &&
           line.includes(shell.shellId) &&
@@ -184,11 +185,10 @@ export const agentOnceAfterPrompt = defineCheck(import.meta.url, {
   id: "E2-S1.agent-once-after-prompt",
   title: "a starting script started from the modal is typed once, after the first prompt",
   needs: {},
-  // One modal start of the mock agent: it starts (AC-3) and is typed once after the prompt (AC-10).
-  covers: ["E2-S1 AC-3", "E2-S1 AC-10"],
+  verifies: ["starting-scripts/FR-5"],
   run: async (ctx) => {
     const { page, frames, setup, repo } = await shownWorld(ctx, "agent-once");
-    await ctx.trail.stage("AC-3, AC-10", async () => {
+    await ctx.trail.stage("typed once after the prompt", async () => {
       const from = frames.mark();
       const started = await startScriptThroughModal(page, setup.shells, repo.path, "mock agent");
       await frames.until(
@@ -199,7 +199,7 @@ export const agentOnceAfterPrompt = defineCheck(import.meta.url, {
       const raw = ctx.server.rawOutput(started.shellId);
       const problem = agentTypedOnceAfterPrompt(raw, MOCK_AGENT_COMMAND, MOCK_AGENT_LINES);
       expected({
-        what: "how the mock agent was typed into its shell (PRB.T-011)",
+        what: "how the mock agent was typed into its shell",
         expected: null,
         found: problem === null ? null : `${problem}: ${JSON.stringify(raw.slice(0, 400))}`,
       });
@@ -211,7 +211,8 @@ export const listOffered = defineCheck(import.meta.url, {
   id: "E2-S1.list-offered",
   title: "the modal offers the user's list in order, an unnamed entry by its program",
   needs: { serverWide: "writes the list" },
-  covers: ["E2-S1 AC-21"],
+  // One written list, read once from the modal: its order and its unnamed entry.
+  verifies: ["starting-scripts/FR-1", "starting-scripts/FR-2"],
   run: async (ctx) => {
     const mock = await seededMock(ctx.server);
     await writeStartingScripts(ctx.server.home, [
@@ -221,7 +222,7 @@ export const listOffered = defineCheck(import.meta.url, {
       { id: "echo-again", name: "echo agent", command: "echo again" },
     ]);
     const { page, repo } = await shownWorld(ctx, "list-offered");
-    await ctx.trail.stage("AC-21", async () => {
+    await ctx.trail.stage("list offered", async () => {
       expected({
         what: "the starting scripts the modal offers",
         expected: ["Plain shell", "mock agent", "echo agent", "printf", "echo agent"],
@@ -235,14 +236,14 @@ export const secondScript = defineCheck(import.meta.url, {
   id: "E2-S1.second-script",
   title: "a second script runs once after the prompt and is logged by name only",
   needs: { serverWide: "writes the list" },
-  // One start of the echo script: it runs once (AC-4) and its start line names it (AC-12).
-  covers: ["E2-S1 AC-4", "E2-S1 AC-12"],
+  // One start of the echo script: it runs once and its start line names it and nothing more.
+  verifies: ["starting-scripts/FR-5", "starting-scripts/FR-16", "starting-scripts/FR-17"],
   run: async (ctx) => {
     const { server, trail } = ctx;
     await writeStartingScripts(server.home, [await seededMock(server), echo]);
     const { page, frames, setup, plain } = await shownWorld(ctx, "second-script");
 
-    const started = await trail.stage("AC-4", async () => {
+    const started = await trail.stage("runs once", async () => {
       const from = frames.mark();
       const shell = await startScriptThroughModal(page, setup.shells, plain.path, "echo agent");
       await frames.until("the echo script's output", (frame) => frame.includes("probe-42"), from);
@@ -255,10 +256,10 @@ export const secondScript = defineCheck(import.meta.url, {
       return shell;
     });
 
-    await trail.stage("AC-12", async () => {
+    await trail.stage("logged by name", async () => {
       await expectLogged(
         server,
-        "The echo script's start line lacks the script name (E2-S1 AC-12).",
+        "The echo script's start line lacks the script name.",
         (line) =>
           line.includes("shell started") &&
           line.includes(started.shellId) &&
@@ -279,7 +280,8 @@ export const renamedPreselected = defineCheck(import.meta.url, {
   id: "E2-S1.renamed-preselected",
   title: "a renamed script stays preselected",
   needs: { serverWide: "writes the list" },
-  covers: ["E2-S1 AC-22"],
+  // One start, then a rename: the last start is preselected and stays so.
+  verifies: ["starting-scripts/FR-6", "starting-scripts/FR-7"],
   run: async (ctx) => {
     const { server, trail } = ctx;
     const mock = await seededMock(server);
@@ -288,7 +290,7 @@ export const renamedPreselected = defineCheck(import.meta.url, {
     await trail.stage("start the echo script", () =>
       startScriptThroughModal(page, setup.shells, plain.path, "echo agent"),
     );
-    await trail.stage("AC-22", async () => {
+    await trail.stage("renamed stays preselected", async () => {
       await writeStartingScripts(server.home, [mock, { ...echo, name: "renamed" }]);
       expected({
         what: "the script preselected after its rename",
@@ -303,7 +305,7 @@ export const removedFallsBack = defineCheck(import.meta.url, {
   id: "E2-S1.removed-falls-back",
   title: "a removed script falls back to Plain shell without an error",
   needs: { serverWide: "writes the list" },
-  covers: ["E2-S1 AC-7"],
+  verifies: ["starting-scripts/FR-8"],
   run: async (ctx) => {
     const { server, trail } = ctx;
     const mock = await seededMock(server);
@@ -312,7 +314,7 @@ export const removedFallsBack = defineCheck(import.meta.url, {
     await trail.stage("start the echo script", () =>
       startScriptThroughModal(page, setup.shells, plain.path, "echo agent"),
     );
-    await trail.stage("AC-7", async () => {
+    await trail.stage("removed falls back", async () => {
       await writeStartingScripts(server.home, [mock]);
       await openModal(page, plain.path, { script: null });
       expected({
@@ -334,7 +336,8 @@ export const preselectAfterRestart = defineCheck(import.meta.url, {
   id: "E2-S1.preselect-after-restart",
   title: "each project preselects its last script after a restart, and the list is unchanged",
   needs: { restart: true, serverWide: "writes the list" },
-  covers: ["E2-S1 AC-5"],
+  // One restart: each project's preselection and the list file are judged after it.
+  verifies: ["starting-scripts/FR-6", "starting-scripts/FR-9", "starting-scripts/FR-10"],
   run: async (ctx) => {
     const { server, trail } = ctx;
     const mock = await seededMock(server);
@@ -359,7 +362,7 @@ export const preselectAfterRestart = defineCheck(import.meta.url, {
       );
     });
 
-    await trail.stage("AC-5", async () => {
+    await trail.stage("preselected after restart", async () => {
       const listBefore = await NodeFSP.readFile(startingScriptsFile(server.home), "utf8");
       await restartAndReload(ctx, page, made.workspace, setup);
       expected({
@@ -383,11 +386,12 @@ export const emptiedNotSeeded = defineCheck(import.meta.url, {
   id: "E2-S1.emptied-not-seeded",
   title: "an emptied list is not seeded again on a restart",
   needs: { restart: true, serverWide: "writes the list" },
-  covers: ["E2-S1 AC-23"],
+  // One restart of an emptied list: what it offers and the file it leaves.
+  verifies: ["starting-scripts/FR-10", "starting-scripts/FR-11"],
   run: async (ctx) => {
     const { server } = ctx;
     const made = await shownWorld(ctx, "emptied-not-seeded");
-    await ctx.trail.stage("AC-23", async () => {
+    await ctx.trail.stage("emptied list kept", async () => {
       await writeStartingScripts(server.home, []);
       await restartAndReload(ctx, made.page, made.workspace, made.setup);
       expected({
@@ -408,11 +412,12 @@ export const damagedKept = defineCheck(import.meta.url, {
   id: "E2-S1.damaged-kept",
   title: "a damaged list offers Plain shell only, is logged, and is kept",
   needs: { restart: true, serverWide: "writes the list" },
-  covers: ["E2-S1 AC-9"],
+  // One restart of a damaged list: what it offers, its log line and the file it leaves.
+  verifies: ["starting-scripts/FR-10", "starting-scripts/FR-12", "starting-scripts/FR-13"],
   run: async (ctx) => {
     const { server } = ctx;
     const made = await shownWorld(ctx, "damaged-kept");
-    await ctx.trail.stage("AC-9", async () => {
+    await ctx.trail.stage("damaged list kept", async () => {
       await NodeFSP.writeFile(startingScriptsFile(server.home), "{ damaged");
       await restartAndReload(ctx, made.page, made.workspace, made.setup);
       expected({
@@ -420,10 +425,8 @@ export const damagedKept = defineCheck(import.meta.url, {
         expected: ["Plain shell"],
         found: await offeredScripts(made.page, made.repo.path),
       });
-      await expectLogged(
-        server,
-        "The damaged list is not in the server log (E2-S1 AC-9).",
-        (line) => line.includes("the starting scripts could not be read"),
+      await expectLogged(server, "The damaged list is not in the server log.", (line) =>
+        line.includes("the starting scripts could not be read"),
       );
       expected({
         what: "the damaged list file after the restart",
@@ -445,11 +448,12 @@ export const seedOffThenOn = defineCheck(import.meta.url, {
       env: () => ({ PROBE_SEED_MOCK_AGENT: undefined }),
     },
   },
-  covers: ["E2-S1 AC-8"],
+  // One state folder with no list, read with the default off and then on.
+  verifies: ["starting-scripts/FR-14", "starting-scripts/FR-15"],
   run: async (ctx) => {
     const { server, trail } = ctx;
     const made = await shownWorld(ctx, "seed-off-then-on");
-    await trail.stage("AC-8", async () => {
+    await trail.stage("no default, no list", async () => {
       expected({
         what: "the starting scripts a server with no default offers",
         expected: ["Plain shell"],
@@ -461,7 +465,7 @@ export const seedOffThenOn = defineCheck(import.meta.url, {
         found: (await NodeFSP.stat(startingScriptsFile(server.home)).catch(() => null)) !== null,
       });
     });
-    await trail.stage("AC-8 with the default on again", async () => {
+    await trail.stage("default on again", async () => {
       await restartAndReload(ctx, made.page, made.workspace, made.setup, { env: {} });
       expected({
         what: "the starting scripts once the default is on again",
@@ -481,9 +485,17 @@ export const missingProgram = defineCheck(import.meta.url, {
   id: "E2-S4.missing-program",
   title: "a start whose program is missing is refused naming the program, and leaves no shell",
   needs: { serverWide: "writes the list" },
-  // One refused start: its alert (AC-1, AC-12 by clicks only), the shell it removes (AC-2), its
-  // log line (AC-5) and the modal left open for another try (AC-4).
-  covers: ["E2-S4 AC-1", "E2-S4 AC-12", "E2-S4 AC-2", "E2-S4 AC-5", "E2-S4 AC-4"],
+  // One refused start: its alert by clicks only, the shell it removes, its log lines and the
+  // modal left open for another try.
+  verifies: [
+    "starting-scripts/FR-17",
+    "starting-scripts/FR-18",
+    "starting-scripts/FR-19",
+    "starting-scripts/FR-20",
+    "starting-scripts/FR-21",
+    "starting-scripts/FR-22",
+    "workspaces/FR-25",
+  ],
   run: async (ctx) => {
     const { server, trail } = ctx;
     await writeStartingScripts(server.home, [
@@ -493,7 +505,7 @@ export const missingProgram = defineCheck(import.meta.url, {
     const { page, setup, repo } = await shownWorld(ctx, "missing-program");
     const listedFrom = setup.shells.lists.mark();
 
-    await trail.stage("AC-1", async () => {
+    await trail.stage("refusal names the program", async () => {
       await openModal(page, repo.path, { script: "missing agent" });
       const refusal = (await startFromModal(page)) ?? "";
       expected({
@@ -503,7 +515,7 @@ export const missingProgram = defineCheck(import.meta.url, {
       });
     });
 
-    await trail.stage("AC-2", async () => {
+    await trail.stage("refused shell leaves", async () => {
       // A list from before the start also has no shell there: the refused one must come, then go.
       const { lists } = setup.shells;
       const added = await lists.until(
@@ -526,10 +538,10 @@ export const missingProgram = defineCheck(import.meta.url, {
       });
     });
 
-    await trail.stage("AC-5", async () => {
+    await trail.stage("refusal logged", async () => {
       await expectLogged(
         server,
-        "The log has no refusal line with the script, the program and the folder (E2-S4 AC-5).",
+        "The log has no refusal line with the script, the program and the folder.",
         (line) =>
           line.includes("shell failed to start") &&
           line.includes("missing agent") &&
@@ -545,7 +557,7 @@ export const missingProgram = defineCheck(import.meta.url, {
       });
     });
 
-    await trail.stage("AC-4", async () => {
+    await trail.stage("another start from the modal", async () => {
       await pickScript(page, "Plain shell");
       expected({
         what: "the refusal of the start after the refusal",
@@ -566,9 +578,7 @@ export const exitingCommand = defineCheck(import.meta.url, {
   id: "E2-S4.exiting-command",
   title: "a command that exits leaves its shell running and taking input",
   needs: { serverWide: "writes the list" },
-  // One start of an exiting command: the shell stays (AC-9), takes a typed line (AC-10) and stays
-  // listed as running (AC-11).
-  covers: ["E2-S4 AC-9", "E2-S4 AC-10", "E2-S4 AC-11"],
+  verifies: ["starting-scripts/FR-23"],
   run: async (ctx) => {
     const { server, trail } = ctx;
     await writeStartingScripts(server.home, [
@@ -577,7 +587,7 @@ export const exitingCommand = defineCheck(import.meta.url, {
     ]);
     const { page, frames, setup, repo } = await shownWorld(ctx, "exiting-command");
 
-    const quick = await trail.stage("AC-9", async () => {
+    const quick = await trail.stage("shell stays", async () => {
       const from = frames.mark();
       const started = await startScriptThroughModal(page, setup.shells, repo.path, "quick exit");
       await waitFor(shellRow(page, started.shellId), `the tree row of shell ${started.shellId}`);
@@ -590,7 +600,7 @@ export const exitingCommand = defineCheck(import.meta.url, {
       return started;
     });
 
-    await trail.stage("AC-10, AC-11", async () => {
+    await trail.stage("takes input and stays running", async () => {
       const typedFrom = frames.mark();
       await typeLine(page, "echo typed-$((40+2))");
       await frames.until(

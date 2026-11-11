@@ -25,7 +25,9 @@ Rules for writing tests, and for asking for them in review. AGENTS.md carries th
 
 ## Scenario tests
 
-Scenarios have their own rules, in [the scenario rules](../../.agents/rules/scenarios.md).
+Scenarios have their own rules, in [the scenario rules](../../.agents/rules/scenarios.md). Each
+scenario cites the [`docs/scenarios`](../scenarios/README.md) requirements it verifies, never a
+ticket or AC.
 
 ## Web browser tests
 

@@ -9,7 +9,8 @@ export const treeNodePerf = definePerf(import.meta.url, {
   id: "perf-tree-node",
   title: "a started shell's tree node appears after the click",
   needs: {},
-  measure: { name: "click-to-tree-node", limitMs: 1000, limitFrom: "PRB.T-004 AC-3" },
+  measure: { name: "click-to-tree-node", limitMs: 1000 },
+  verifies: ["worktrees/NFR-1"],
   run: async (ctx) => {
     const page = await ctx.openPage();
     const setup = await setupOn(ctx, { as: page });

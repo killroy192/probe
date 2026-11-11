@@ -18,7 +18,7 @@ export const oneLogin = defineCheck(import.meta.url, {
     await anonymous.waitForURL((url) => url.pathname.startsWith("/pair"));
     check(server.pairings() === 1, "An anonymous page minted a login.");
 
-    // A restart keeps the session (SA-3); a page opened after it needs no new login.
+    // A restart keeps the session; a page opened after it needs no new login.
     await server.restart();
     const afterRestart = await openPage();
     await afterRestart.getByTestId("workspace-screen").waitFor();

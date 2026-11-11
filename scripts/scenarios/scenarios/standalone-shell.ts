@@ -81,11 +81,11 @@ export const listed = defineCheck(import.meta.url, {
   id: "T-002.listed",
   title: "a shell opens with no chat thread and is listed with its id, folder and status",
   needs: {},
-  // One open proves both: the shell starts outside any thread (AC-1) and is listed (AC-3).
-  covers: ["T-002 AC-1", "T-002 AC-3"],
+  // One open proves both: the shell starts in its folder and is listed with its id, folder and status.
+  verifies: ["shells/FR-11", "shells/FR-12"],
   run: async (ctx) => {
     const setup = await setupOn(ctx);
-    await ctx.trail.stage("AC-1", () => opened(setup));
+    await ctx.trail.stage("open and list", () => opened(setup));
   },
 });
 
@@ -93,14 +93,14 @@ export const view = defineCheck(import.meta.url, {
   id: "T-002.view",
   title: "the shell view opens a shell by its identity and sizes it to its pane",
   needs: {},
-  // The view that shows the shell (AC-15) is the one whose pane sets its size (AC-16).
-  covers: ["T-002 AC-15", "T-002 AC-16"],
+  // The view that shows the shell is the one whose pane sets its size.
+  verifies: ["shells/FR-13", "shells/FR-14"],
   run: async (ctx) => {
-    const { page, setup, shell, attach, gridFrom } = await ctx.trail.stage("AC-15", () =>
+    const { page, setup, shell, attach, gridFrom } = await ctx.trail.stage("shell view", () =>
       viewed(ctx),
     );
 
-    await ctx.trail.stage("AC-16", async () => {
+    await ctx.trail.stage("pane size", async () => {
       const { output, text, waitForText } = attach;
       await output.until(
         "the page's grid",
@@ -145,11 +145,11 @@ export const reload = defineCheck(import.meta.url, {
   id: "T-002.reload",
   title: "a reload of the shell view reattaches and shows the earlier output again",
   needs: {},
-  covers: ["T-002 AC-5"],
+  verifies: ["shells/FR-15"],
   run: async (ctx) => {
     const { page, frames, shell, earlier } = await ctx.trail.stage("setup", () => viewed(ctx));
 
-    await ctx.trail.stage("AC-5", async () => {
+    await ctx.trail.stage("reload the view", async () => {
       const reloadedFrom = frames.mark();
       await page.reload();
       await waitFor(shellView(page), "the shell view's terminal after the reload");
@@ -171,12 +171,12 @@ export const end = defineCheck(import.meta.url, {
   id: "T-002.end",
   title: "ending a standalone shell removes it and its process",
   needs: {},
-  covers: ["T-002 AC-7"],
+  verifies: ["kill-shell/FR-8"],
   run: async (ctx) => {
     const setup = await setupOn(ctx);
     const shell = await opened(setup);
 
-    await ctx.trail.stage("AC-7", async () => {
+    await ctx.trail.stage("end the shell", async () => {
       const killedFrom = setup.shells.lists.mark();
       await Effect.runPromise(setup.client["shell.kill"]({ shellId: shell.shellId }));
       await setup.shells.lists.until(
@@ -198,13 +198,13 @@ export const restart = defineCheck(import.meta.url, {
   id: "T-002.restart",
   title: "a server restart leaves a running standalone shell running and lists it again",
   needs: { restart: true },
-  covers: ["T-002 A-14"],
+  verifies: ["reload-and-restart/FR-1"],
   run: async (ctx) => {
     const page = await ctx.openPage();
     const setup = await setupOn(ctx, { as: page });
     const survivor = await opened(setup);
 
-    await ctx.trail.stage("A-14", async () => {
+    await ctx.trail.stage("survive the restart", async () => {
       await setup.close();
       await ctx.server.restart();
       expected({

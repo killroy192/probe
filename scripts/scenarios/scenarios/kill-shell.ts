@@ -67,7 +67,8 @@ export const cancelKill = defineCheck(import.meta.url, {
   id: "S6.cancel-kill",
   title: "cancelling a kill's confirmation keeps the shell",
   needs: {},
-  covers: ["S6 AC-18"],
+  // One cancelled confirmation proves them: it was asked, and the shell stays.
+  verifies: ["kill-shell/FR-1", "kill-shell/FR-2", "workspaces/FR-25"],
   run: async (ctx) => {
     const made = await world(ctx, {
       workspace: "s6-cancel",
@@ -77,10 +78,10 @@ export const cancelKill = defineCheck(import.meta.url, {
     });
     const page = made.shown!.page;
     const shell = made.shells[0]!;
-    await ctx.trail.stage("AC-18", async () => {
+    await ctx.trail.stage("cancel the kill", async () => {
       await askToKill(page, shell.shellId);
       await answerConfirm(page, "Cancel");
-      expectRunning(made.setup, shell, `shell ${shell.shellId} running after Cancel (AC-18)`);
+      expectRunning(made.setup, shell, `shell ${shell.shellId} running after Cancel`);
       await waitFor(shellRow(page, shell.shellId), `the row of shell ${shell.shellId} to stay`);
     });
   },
@@ -91,7 +92,15 @@ export const killFromTreeScenario = defineCheck(import.meta.url, {
   title: "a kill from the tree ends the shell, its own jobs only, and its tab",
   needs: {},
   // One kill: the shell, its jobs, its tab and its log line all end with it; the decoys must not.
-  covers: ["S6 AC-7", "S6 AC-8", "S6 AC-9", "S6 AC-20", "S6 AC-28"],
+  verifies: [
+    "kill-shell/FR-1",
+    "kill-shell/FR-3",
+    "kill-shell/FR-4",
+    "kill-shell/FR-5",
+    "kill-shell/FR-6",
+    "kill-shell/FR-10",
+    "workspaces/FR-25",
+  ],
   run: async (ctx) => {
     const framed = await framedPage(ctx);
     const { page, setup } = framed;
@@ -101,7 +110,7 @@ export const killFromTreeScenario = defineCheck(import.meta.url, {
     await showWorkspace(page, ws);
     const [bg, detached] = jobMarkers(ctx.runId, 2) as [number, number];
 
-    const { jobs, decoys } = await ctx.trail.stage("AC-28", async () => {
+    const { jobs, decoys } = await ctx.trail.stage("jobs and decoys", async () => {
       const decoys = await startDecoys(ctx, [1601, otherRunMarker(ctx.runId, [bg, detached])]);
       // No `$!`: zsh would read its `!` as a history expansion.
       await runInShell(
@@ -118,41 +127,41 @@ export const killFromTreeScenario = defineCheck(import.meta.url, {
         found: jobs.filter(alive).length,
       });
       expected({
-        what: "decoys matched as the shell's jobs (AC-28)",
+        what: "decoys matched as the shell's jobs",
         expected: [],
         found: decoys.filter((pid) => jobs.includes(pid)),
       });
       return { jobs, decoys };
     });
 
-    await ctx.trail.stage("AC-7", async () => {
+    await ctx.trail.stage("kill from the tree", async () => {
       await killFromTree(page, shell.shellId);
       await shellCountOf(setup.shells, [plain], 0);
       await shellEnded(setup.shells, shell);
     });
 
-    await ctx.trail.stage("AC-9", async () => {
+    await ctx.trail.stage("jobs end, decoys run", async () => {
       // The jobs are not the server's to report on, so only a bounded check can see them end.
       expected({
-        what: "the shell's jobs left running (AC-9)",
+        what: "the shell's jobs left running",
         expected: [],
         found: await survivors(jobs),
       });
       expected({
-        what: "decoys running after the kill (AC-28)",
+        what: "decoys running after the kill",
         expected: decoys,
         found: decoys.filter(alive),
       });
     });
 
-    await ctx.trail.stage("AC-8", () =>
+    await ctx.trail.stage("tab closes", () =>
       waitFor(shellTab(page, shell.shellId), `the tab of shell ${shell.shellId} to close`, {
         state: "detached",
       }),
     );
 
-    await ctx.trail.stage("AC-20", () =>
-      endedLogged(ctx, shell, "The log has no end line with the id and folder (AC-20)."),
+    await ctx.trail.stage("end logged", () =>
+      endedLogged(ctx, shell, "The log has no end line with the id and folder."),
     );
   },
 });
@@ -161,7 +170,8 @@ export const killClosedTab = defineCheck(import.meta.url, {
   id: "S6.kill-closed-tab",
   title: "killing a shell whose tab is closed only removes its row",
   needs: {},
-  covers: ["S6 AC-8"],
+  // One kill of a shell with its tab closed proves them: its row goes and no tab comes.
+  verifies: ["kill-shell/FR-3", "kill-shell/FR-7"],
   takes: "closedTabShell",
   run: async (ctx, handed) => {
     const built: { setup?: Setup } = {};
@@ -184,11 +194,11 @@ export const killClosedTab = defineCheck(import.meta.url, {
     const { page } = closed.shown;
     const setup = built.setup ?? (await setupOn(ctx, { as: page }));
 
-    await ctx.trail.stage("AC-8", async () => {
+    await ctx.trail.stage("kill with the tab closed", async () => {
       await killFromTree(page, closed.shell.shellId);
       await shellEnded(setup.shells, closed.shell);
       expected({
-        what: `tabs of shell ${closed.shell.shellId} after its kill (AC-8)`,
+        what: `tabs of shell ${closed.shell.shellId} after its kill`,
         expected: 0,
         found: await shellTab(page, closed.shell.shellId).count(),
       });
@@ -201,7 +211,13 @@ export const probeKill = defineCheck(import.meta.url, {
   title: "probe kill ends its own shell only and keeps the worktree",
   needs: {},
   // One `probe kill` in a shared worktree: its shell ends, the neighbour and the worktree stay.
-  covers: ["S6 AC-12", "S6 AC-13", "S6 AC-10", "S6 AC-11"],
+  verifies: [
+    "kill-shell/FR-12",
+    "kill-shell/FR-13",
+    "kill-shell/FR-9",
+    "kill-shell/FR-10",
+    "kill-shell/FR-3",
+  ],
   run: async (ctx) => {
     const framed = await framedPage(ctx);
     const { page, frames, setup } = framed;
@@ -211,7 +227,7 @@ export const probeKill = defineCheck(import.meta.url, {
     const repo = await setup.project(ws, await setup.repo());
     await showWorkspace(page, ws);
 
-    const { worktree, neighbour } = await ctx.trail.stage("AC-12", async () => {
+    const { worktree, neighbour } = await ctx.trail.stage("probe kill", async () => {
       const forked = await setup.shell(repo, {
         worktree: { fork: { from: { kind: "branch", name: "main" } } },
       });
@@ -234,21 +250,21 @@ export const probeKill = defineCheck(import.meta.url, {
           cause: error,
         });
       });
-      await endedLogged(ctx, forked, "The log has no end line for probe kill (AC-20).");
+      await endedLogged(ctx, forked, "The log has no end line for probe kill.");
       return { worktree, neighbour };
     });
 
-    await ctx.trail.stage("AC-13", async () => {
-      expectRunning(setup, neighbour, "the other shell running after probe kill (AC-13)");
+    await ctx.trail.stage("the other shell runs on", async () => {
+      expectRunning(setup, neighbour, "the other shell running after probe kill");
       expected({
-        what: "the other shell's history holds its line (AC-11)",
+        what: "the other shell's history holds its line",
         expected: true,
         found: (await history(client, neighbour.shellId)).includes("echo: neighbour-line-s6"),
       });
       await NodeFSP.access(worktree);
     });
 
-    await ctx.trail.stage("AC-10", async () => {
+    await ctx.trail.stage("worktree kept", async () => {
       await killFromTree(page, neighbour.shellId);
       await shellEnded(setup.shells, neighbour);
       await NodeFSP.access(worktree);
@@ -260,7 +276,8 @@ export const killUnreachable = defineCheck(import.meta.url, {
   id: "S6.kill-unreachable",
   title: "a kill command that cannot reach the server says so and the shell runs on",
   needs: {},
-  covers: ["S6 AC-14"],
+  // One unreachable `probe kill` proves them: it says why and exits 1, and its shell runs on.
+  verifies: ["kill-shell/FR-14", "kill-shell/FR-15"],
   run: async (ctx) => {
     const framed = await framedPage(ctx);
     const { page, setup } = framed;
@@ -269,7 +286,7 @@ export const killUnreachable = defineCheck(import.meta.url, {
     const shell = await setup.shell(plain);
     await showWorkspace(page, ws);
 
-    await ctx.trail.stage("AC-14", async () => {
+    await ctx.trail.stage("kill unreachable", async () => {
       await runInShell(
         ctx,
         framed,
@@ -278,11 +295,11 @@ export const killUnreachable = defineCheck(import.meta.url, {
         "exit-1-s6",
       );
       expected({
-        what: "the kill command's reason in the shell (AC-14)",
+        what: "the kill command's reason in the shell",
         expected: true,
         found: (await history(setup.client, shell.shellId)).includes("could not reach Probe"),
       });
-      expectRunning(setup, shell, "the shell running after the unreachable kill (AC-14)");
+      expectRunning(setup, shell, "the shell running after the unreachable kill");
     });
   },
 });
@@ -291,7 +308,7 @@ export const endedDuringConfirm = defineCheck(import.meta.url, {
   id: "S6.ended-during-confirm",
   title: "a shell that ended while its confirmation was open leaves without an error",
   needs: {},
-  covers: ["S6 AC-17"],
+  verifies: ["kill-shell/FR-11"],
   run: async (ctx) => {
     const made = await world(ctx, {
       workspace: "s6-vanished",
@@ -302,7 +319,7 @@ export const endedDuringConfirm = defineCheck(import.meta.url, {
     const page = made.shown!.page;
     const vanished = made.shells[0]!;
 
-    await ctx.trail.stage("AC-17", async () => {
+    await ctx.trail.stage("ended during the confirmation", async () => {
       await askToKill(page, vanished.shellId);
       NodeProcess.kill(vanished.pid!, "SIGKILL");
       await shellEnded(made.setup.shells, vanished);
@@ -313,7 +330,7 @@ export const endedDuringConfirm = defineCheck(import.meta.url, {
         { state: "detached" },
       );
       expected({
-        what: "alerts after killing an ended shell (AC-17)",
+        what: "alerts after killing an ended shell",
         expected: 0,
         found: await page.getByRole("alert").count(),
       });
@@ -338,7 +355,8 @@ export const removeProject = defineCheck(import.meta.url, {
   id: "S6.remove-project",
   title: "removing a project kills its shells and keeps its folder and the other project's shell",
   needs: {},
-  covers: ["S6 remove project"],
+  // One project removal proves them: it asks, kills its shells, keeps its folder and the others.
+  verifies: ["kill-shell/FR-16", "kill-shell/FR-17", "kill-shell/FR-18", "kill-shell/FR-19"],
   run: async (ctx) => {
     const made = await world(ctx, {
       workspace: "s6-project",
@@ -367,8 +385,8 @@ export const removeWorkspaceScenario = defineCheck(import.meta.url, {
   id: "S6.remove-workspace",
   title: "removing a workspace kills its running shells and keeps its folders",
   needs: {},
-  // One removal: its shells end (AC-15) and its folders, the worktree's included, stay (AC-16).
-  covers: ["S6 AC-15", "S6 AC-16"],
+  // One removal: its shells end, its folders, the worktree's included, stay, the start screen shows.
+  verifies: ["kill-shell/FR-20", "kill-shell/FR-21", "workspaces/FR-11", "workspaces/FR-12"],
   run: async (ctx) => {
     const made = await world(ctx, {
       workspace: "s6-remove",
@@ -390,7 +408,7 @@ export const removeWorkspaceScenario = defineCheck(import.meta.url, {
     const { setup } = made;
     const kept = await setup.workspace("s6-kept");
 
-    await ctx.trail.stage("AC-15", async () => {
+    await ctx.trail.stage("remove the workspace", async () => {
       expected({
         what: "shells of the workspace running before its removal",
         expected: made.shells.length,
@@ -408,7 +426,7 @@ export const removeWorkspaceScenario = defineCheck(import.meta.url, {
       });
     });
 
-    await ctx.trail.stage("AC-16", async () => {
+    await ctx.trail.stage("folders kept", async () => {
       const folders = new Set([
         ...made.projects.map(({ path }) => path),
         ...made.shells.map(({ cwd }) => cwd),
