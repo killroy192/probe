@@ -3,9 +3,11 @@
 import * as NodeFSP from "node:fs/promises";
 import * as NodeProcess from "node:process";
 
-import { layoutSaved, openTab, reloadShowing, showWorkspace } from "../lib/navigate.ts";
+import type { PointerPage } from "../browser.ts";
+import { expected } from "../lib/expect.ts";
+import { openTab, restartAndReload, showWorkspace } from "../lib/navigate.ts";
 import { pageFrames } from "../lib/network.ts";
-import { setupOn, type ShellResult } from "../lib/setup.ts";
+import { setupOn, type Setup, type ShellResult } from "../lib/setup.ts";
 import { history, shellEnded } from "../lib/shells.ts";
 import { shellTab } from "../lib/ui/tabs.ts";
 import { typeLine } from "../lib/ui/terminal.ts";
@@ -16,183 +18,298 @@ import {
   restoreFromTree,
   shellRow,
 } from "../lib/ui/tree.ts";
-import { check, waitFor } from "../lib/waits.ts";
-import { defineCheck } from "../scenario.ts";
+import { waitFor } from "../lib/waits.ts";
+import { defineCheck, type ScenarioContext } from "../scenario.ts";
 
-export const restoreShell = defineCheck(import.meta.url, {
-  id: "S8",
-  title: "restore an ended shell in place, only when the user asks",
-  needs: { restart: true },
-  covers: ["S8 PRB.E-001 FR-17", "S8 PRB.E-001 FR-19"],
+/**
+ * A page showing a new workspace with one folder project per label and `shells[i]` plain shells
+ * in project `i`, started before the page shows the workspace so each row is there.
+ */
+async function prepare(
+  ctx: ScenarioContext,
+  folders: ReadonlyArray<string>,
+  shells: ReadonlyArray<number>,
+) {
+  const page = await ctx.openPage();
+  await page.setViewportSize({ width: 1200, height: 900 });
+  const frames = pageFrames(page);
+  const setup = await setupOn(ctx, { as: page });
+  const ws = await setup.workspace("s8");
+  const projects = [];
+  const paths = [];
+  for (const label of folders) {
+    const folder = await setup.folder(label);
+    paths.push(folder.path);
+    projects.push(await setup.project(ws, folder));
+  }
+  const started: Array<ShellResult> = [];
+  for (const [index, count] of shells.entries()) {
+    for (let n = 0; n < count; n++) started.push(await setup.shell(projects[index]!));
+  }
+  await showWorkspace(page, ws);
+  return { page, frames, setup, ws, projects, paths, shells: started };
+}
+
+const latest = (setup: Setup, shell: Pick<ShellResult, "shellId">) =>
+  setup.shells.current().find((entry) => entry.shellId === shell.shellId);
+
+/** Ends the shell's process with SIGKILL from outside and waits for its ended row. */
+async function signal(page: PointerPage, setup: Setup, shell: ShellResult) {
+  NodeProcess.kill(shell.pid!, "SIGKILL");
+  await shellEnded(setup.shells, shell);
+  await waitFor(endedRow(page, shell.shellId), `the row of shell ${shell.shellId} as ended`);
+}
+
+/** Restores the shell from its row and returns its entry once the list shows it running again. */
+async function restore(page: PointerPage, setup: Setup, shell: ShellResult) {
+  // Lists from before the signal show it running too; only lists after the restore count.
+  const from = setup.shells.lists.mark();
+  await restoreFromTree(page, shell.shellId);
+  const list = await setup.shells.lists.until(
+    `shell ${shell.shellId} to run again as restored`,
+    (entries) =>
+      entries.some(
+        (entry) => entry.shellId === shell.shellId && entry.status === "running" && entry.restored,
+      ),
+    from,
+  );
+  return list.find((entry) => entry.shellId === shell.shellId)!;
+}
+
+/** Waits until a list from `from` on no longer holds the shell, then for its row to leave. */
+async function left(page: PointerPage, setup: Setup, shell: ShellResult, from: number) {
+  await setup.shells.lists.until(
+    `shell ${shell.shellId} to leave the list`,
+    (entries) => entries.every((entry) => entry.shellId !== shell.shellId),
+    from,
+  );
+  await waitFor(shellRow(page, shell.shellId), `the row of shell ${shell.shellId} to leave`, {
+    state: "detached",
+  });
+}
+
+/** Types an echo whose output, `<label>-<runId>-42`, the typed line never spells. */
+async function echoes(
+  ctx: ScenarioContext,
+  page: PointerPage,
+  frames: ReturnType<typeof pageFrames>,
+  label: string,
+) {
+  const marker = `${label}-${ctx.runId}`;
+  const from = frames.mark();
+  await typeLine(page, `echo ${marker}-$((40+2))`);
+  await frames.until(`the line ${marker}-42`, (frame) => frame.includes(`${marker}-42`), from);
+  return `${marker}-42`;
+}
+
+export const restoreAfterSignal = defineCheck(import.meta.url, {
+  id: "S8.restore-after-signal",
+  title: "a shell a signal ended stays listed and runs again only on the user's Restore",
+  needs: {},
+  // The S8 behavior is the E-001 requirement: the restore is the user's, never automatic.
+  covers: ["S8 restore after a signal", "S8 PRB.E-001 FR-17"],
   run: async (ctx) => {
-    const { server, trail } = ctx;
-    const page = await ctx.openPage();
-    await page.setViewportSize({ width: 1200, height: 900 });
-    const frames = pageFrames(page);
-    let setup = await setupOn(ctx, { as: page });
-    const latest = (shell: Pick<ShellResult, "shellId">) =>
-      setup.shells.current().find((entry) => entry.shellId === shell.shellId);
-    const rowShown = (shell: ShellResult) =>
-      waitFor(shellRow(page, shell.shellId), `the tree row of shell ${shell.shellId}`);
-    const signal = async (shell: ShellResult) => {
-      NodeProcess.kill(shell.pid!, "SIGKILL");
-      await shellEnded(setup.shells, shell);
-      await waitFor(endedRow(page, shell.shellId), `the row of shell ${shell.shellId} as ended`);
-    };
-    // A kill over the API; S6 owns the kill from the tree.
-    const removed = async (shell: ShellResult) => {
-      // A restore starts a new process, so the pid to see end is the one listed now.
-      await setup.killShell({ ...shell, pid: latest(shell)?.pid ?? null });
-      await waitFor(shellRow(page, shell.shellId), `the row of shell ${shell.shellId} to leave`, {
+    const { trail } = ctx;
+    const { page, frames, setup, shells } = await prepare(ctx, ["plain"], [1]);
+    const shell = shells[0]!;
+
+    const earlier = await trail.stage("ended by a signal", async () => {
+      await openTab(page, shell);
+      const earlier = await echoes(ctx, page, frames, "before");
+      await signal(page, setup, shell);
+      await waitFor(shellTab(page, shell.shellId), `the tab of shell ${shell.shellId} to close`, {
         state: "detached",
       });
-    };
-
-    const { ws, plain, moved } = await trail.stage("setup", async () => {
-      const ws = await setup.workspace("s8");
-      const plainFolder = await setup.folder("plain");
-      const movedFolder = await setup.folder("moved");
-      const plain = await setup.project(ws, plainFolder);
-      const moved = await setup.project(ws, movedFolder);
-      await showWorkspace(page, ws);
-      return { ws, plain, moved: { project: moved, path: movedFolder.path } };
+      expected({
+        what: `shell ${shell.shellId} after the signal`,
+        expected: { ended: "signal", restored: false },
+        found: {
+          ended: latest(setup, shell)?.ended ?? null,
+          restored: latest(setup, shell)?.restored ?? null,
+        },
+      });
+      return earlier;
     });
 
-    // A signal ends a shell: it stays listed, and only the user's Restore starts it again.
-
-    const first = await trail.stage("restore after a signal", async () => {
-      const first = await setup.shell(plain);
-      await openTab(page, first);
-      const typedFirst = frames.mark();
-      await typeLine(page, "echo before-s8-$((40+2))");
-      await frames.until("the first line", (frame) => frame.includes("before-s8-42"), typedFirst);
-      await signal(first);
-      check(
-        latest(first)?.restored === false && (await shellTab(page, first.shellId).count()) === 0,
-        "An ended shell restored itself or kept its tab.",
-      );
-      // Lists from before the signal show it running too; only lists after the restore count.
-      const restoredFrom = setup.shells.lists.mark();
-      await restoreFromTree(page, first.shellId);
-      const again = await setup.shells.lists.until(
-        "the shell to run again",
-        (list) =>
-          list.some(
-            (entry) =>
-              entry.shellId === first.shellId && entry.status === "running" && entry.restored,
-          ),
-        restoredFrom,
-      );
-      const restored = again.find((entry) => entry.shellId === first.shellId)!;
-      check(
-        restored.restored && restored.pid !== first.pid,
-        "The restore did not start a new shell.",
-      );
-      check(restored.cwd === first.cwd, "The restored shell is in another folder.");
+    await trail.stage("restore after a signal", async () => {
+      const restored = await restore(page, setup, shell);
+      expected({
+        what: `shell ${shell.shellId} after the restore`,
+        expected: { newProcess: true, cwd: shell.cwd },
+        found: {
+          newProcess: restored.pid !== null && restored.pid !== shell.pid,
+          cwd: restored.cwd,
+        },
+      });
       await waitFor(
-        page.locator(`[data-shell-row="${first.shellId}"] [data-restored]`),
-        `the row of shell ${first.shellId} as restored`,
+        page.locator(`[data-shell-row="${shell.shellId}"] [data-restored]`),
+        `the row of shell ${shell.shellId} as restored`,
       );
       // Its tab was open when it ended, so it comes back; a closed tab would stay closed.
-      await waitFor(shellTab(page, first.shellId), `the tab of shell ${first.shellId} to return`);
-      check(
-        !(await history(setup.client, first.shellId)).includes("before-s8-42"),
-        "The restored shell shows the earlier output.",
-      );
-      await openFromTree(page, first.shellId);
-      const typedAfter = frames.mark();
-      await typeLine(page, "echo after-s8-$((40+2))");
-      await frames.until(
-        "the restored shell's line",
-        (frame) => frame.includes("after-s8-42"),
-        typedAfter,
-      );
-      return first;
-    });
-
-    // A shell lost with the whole host (a reboot) is restorable the same way.
-
-    await trail.stage("restore after a restart", async () => {
-      await layoutSaved(page, ws.name);
-      await setup.close();
-      await server.stop();
-      await server.stopShellHost();
-      await server.restart();
-      await reloadShowing(page, ws.name);
-      setup = await setupOn(ctx, { as: page });
-      // A fresh subscription: its first list is the server's state after the restart.
-      await setup.shells.lists.until("the shell list after the restart", () => true, 0);
-      await waitFor(endedRow(page, first.shellId), `the row of shell ${first.shellId} as ended`);
-      // The ended shell keeps its number, so a new one does not take it (PRB.T-015).
-      const next = await setup.shell(plain);
-      await rowShown(next);
-      const titles = new Map(
-        [first, next].map((shell) => [shell.shellId, latest(shell)?.title] as const),
-      );
-      check(
-        titles.get(first.shellId) === "Shell 1" && titles.get(next.shellId) === "Shell 2",
-        `A shell started after the restart is "${titles.get(next.shellId)}", next to "${titles.get(first.shellId)}".`,
-      );
-      await restoreFromTree(page, first.shellId);
-      for (const shell of [first, next]) {
-        const title = titles.get(shell.shellId)!;
-        const row = (await shellRow(page, shell.shellId).textContent()) ?? "";
-        check(row.includes(title), `The tree shows "${row}" for ${title}.`);
-      }
-      await openFromTree(page, first.shellId);
-      const typedRebooted = frames.mark();
-      await typeLine(page, "echo rebooted-s8-$((40+2))");
-      await frames.until(
-        "the shell after the restart",
-        (frame) => frame.includes("rebooted-s8-42"),
-        typedRebooted,
-      );
-    });
-
-    // Shells that leave for good offer nothing to restore.
-
-    await trail.stage("no restore for exit or kill", async () => {
-      const exited = await setup.shell(plain);
-      await openTab(page, exited);
-      await typeLine(page, "false; exit");
-      await waitFor(shellRow(page, exited.shellId), `the row of shell ${exited.shellId} to leave`, {
-        state: "detached",
+      await waitFor(shellTab(page, shell.shellId), `the tab of shell ${shell.shellId} to return`);
+      expected({
+        what: "the restored shell's history holds the line from before the signal",
+        expected: false,
+        found: (await history(setup.client, shell.shellId)).includes(earlier),
       });
-      const killed = await setup.shell(plain);
-      await rowShown(killed);
-      await removed(killed);
-    });
-
-    // A shell whose folder is gone is unavailable, not restorable.
-
-    const inMoved = await trail.stage("no restore for a moved folder", async () => {
-      const inMoved = await setup.shell(moved.project);
-      await rowShown(inMoved);
-      await signal(inMoved);
-      await NodeFSP.rename(moved.path, `${moved.path}-elsewhere`);
-      await waitFor(
-        page.locator(`[data-shell-row="${inMoved.shellId}"] [data-missing]`),
-        `the row of shell ${inMoved.shellId} as missing its folder`,
-      );
-      await page.locator(`[data-shell-row="${inMoved.shellId}"]`).hover();
-      check(
-        (await restoreButton(page, inMoved.shellId).count()) === 0,
-        "A shell in a moved folder offers Restore.",
-      );
-      return inMoved;
-    });
-
-    // Removing a restored shell still works.
-
-    await trail.stage("remove after restore", async () => {
-      await removed(first);
-      await removed(inMoved);
-      const ids = [first.shellId, inMoved.shellId];
-      await setup.shells.lists.until(
-        "the removed shells to leave the list",
-        (list) => list.every((entry) => !ids.includes(entry.shellId)),
-        Math.max(0, setup.shells.lists.mark() - 1),
-      );
+      await openFromTree(page, shell.shellId);
+      await echoes(ctx, page, frames, "after");
     });
   },
 });
+
+export const noRestoreExitKill = defineCheck(import.meta.url, {
+  id: "S8.no-restore-exit-kill",
+  title: "a shell that exits or is killed leaves the list and offers nothing to restore",
+  needs: {},
+  // An exit and a kill are the two ways a shell leaves for good, which FR-19 names.
+  covers: ["S8 no restore for exit or kill", "S8 PRB.E-001 FR-19"],
+  run: async (ctx) => {
+    const { trail } = ctx;
+    const { page, setup, shells } = await prepare(ctx, ["plain"], [2]);
+    const [exited, killed] = shells as [ShellResult, ShellResult];
+
+    await trail.stage("no restore after an exit", async () => {
+      await openTab(page, exited);
+      const from = setup.shells.lists.mark();
+      await typeLine(page, "false; exit");
+      await left(page, setup, exited, from);
+    });
+
+    await trail.stage("no restore after a kill", async () => {
+      const from = setup.shells.lists.mark();
+      await setup.killShell(killed);
+      await left(page, setup, killed, from);
+    });
+  },
+});
+
+export const noRestoreMovedFolder = defineCheck(import.meta.url, {
+  id: "S8.no-restore-moved-folder",
+  title: "an ended shell whose folder is gone offers no Restore and can be removed",
+  needs: {},
+  // A missing folder is the other case FR-19 rules out of a restore.
+  covers: ["S8 no restore for a moved folder", "S8 PRB.E-001 FR-19"],
+  run: async (ctx) => {
+    const { trail } = ctx;
+    const { page, setup, paths, shells } = await prepare(ctx, ["moved"], [1]);
+    const shell = shells[0]!;
+    const path = paths[0]!;
+
+    await trail.stage("no restore for a moved folder", async () => {
+      await signal(page, setup, shell);
+      await NodeFSP.rename(path, `${path}-elsewhere`);
+      await waitFor(
+        page.locator(`[data-shell-row="${shell.shellId}"] [data-missing]`),
+        `the row of shell ${shell.shellId} as missing its folder`,
+      );
+      await page.locator(`[data-shell-row="${shell.shellId}"]`).hover();
+      expected({
+        what: `the Restore buttons the row of shell ${shell.shellId} offers with its folder gone`,
+        expected: 0,
+        found: await restoreButton(page, shell.shellId).count(),
+      });
+    });
+
+    await trail.stage("remove a shell missing its folder", async () => {
+      const from = setup.shells.lists.mark();
+      await setup.killShell({ ...shell, pid: latest(setup, shell)?.pid ?? null });
+      await left(page, setup, shell, from);
+    });
+  },
+});
+
+export const removeRestored = defineCheck(import.meta.url, {
+  id: "S8.remove-restored",
+  title: "a restored shell can be removed",
+  needs: {},
+  covers: ["S8 remove after restore"],
+  run: async (ctx) => {
+    const { trail } = ctx;
+    const { page, setup, shells } = await prepare(ctx, ["plain"], [1]);
+    const shell = shells[0]!;
+
+    const restored = await trail.stage("restored", async () => {
+      await signal(page, setup, shell);
+      return restore(page, setup, shell);
+    });
+
+    await trail.stage("remove after restore", async () => {
+      const from = setup.shells.lists.mark();
+      // A restore starts a new process, so the pid to see end is the restored one.
+      await setup.killShell({ ...shell, pid: restored.pid });
+      await left(page, setup, shell, from);
+    });
+  },
+});
+
+export const restoreAfterLostHost = defineCheck(import.meta.url, {
+  id: "S8.restore-after-lost-host",
+  title: "a shell lost with its shell host is listed as lost after a restart and restores in place",
+  needs: { restart: true },
+  // One lost host proves the restore (FR-17) and that the lost shell keeps its number (PRB.T-015).
+  covers: ["S8 restore after a restart", "S8 PRB.T-015 numbering", "S8 PRB.E-001 FR-17"],
+  run: async (ctx) => {
+    const { trail } = ctx;
+    const prepared = await prepare(ctx, ["plain"], [1]);
+    const { page, frames, ws, projects } = prepared;
+    const first = prepared.shells[0]!;
+    let setup = prepared.setup;
+
+    await trail.stage("lost with the host", async () => {
+      const before = setup;
+      // The host ends while no server is connected, as in a reboot, so the shell is lost, not signalled.
+      setup = await restartAndReload(ctx, page, ws, {
+        close: async () => {
+          await before.close();
+          await ctx.server.stop();
+          await ctx.server.stopShellHost();
+        },
+      });
+      // A fresh subscription: its first list is the server's state after the restart.
+      await setup.shells.lists.until("the shell list after the restart", () => true, 0);
+      await waitFor(
+        endedRow(page, first.shellId, "lost"),
+        `the row of shell ${first.shellId} as lost`,
+      );
+    });
+
+    await trail.stage("PRB.T-015 numbering", async () => {
+      const next = await setup.shell(projects[0]!);
+      await waitFor(shellRow(page, next.shellId), `the tree row of shell ${next.shellId}`);
+      expected({
+        what: "the titles of the lost shell and of one started after the restart",
+        expected: ["Shell 1", "Shell 2"],
+        found: [latest(setup, first)?.title ?? null, latest(setup, next)?.title ?? null],
+      });
+      await restore(page, setup, first);
+      for (const [shell, title] of [
+        [first, "Shell 1"],
+        [next, "Shell 2"],
+      ] as const) {
+        const row = (await shellRow(page, shell.shellId).textContent()) ?? "";
+        expected({
+          what: `the tree row of shell ${shell.shellId} shows its title`,
+          expected: title,
+          found: row.includes(title) ? title : row,
+        });
+      }
+    });
+
+    await trail.stage("restore after a restart", async () => {
+      await openFromTree(page, first.shellId);
+      await echoes(ctx, page, frames, "rebooted");
+    });
+  },
+});
+
+export const successors = [
+  restoreAfterSignal,
+  noRestoreExitKill,
+  noRestoreMovedFolder,
+  removeRestored,
+  restoreAfterLostHost,
+];
+
+// temporary: PRB.T-039 10A removes this alias.
+export const restoreShell = restoreAfterSignal;
