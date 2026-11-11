@@ -151,6 +151,13 @@ export const surviveRestart = defineCheck(import.meta.url, {
           (shell) => [shell.shellId, shell.pid!] as const,
         ),
       );
+      const startBefore = await lastStartOf(setup.client, sparta.name);
+      // Without the fork's entry, an empty record before and after would pass AC-31.
+      expected({
+        what: `the last start of ${repo.path} before the restart`,
+        expected: "new",
+        found: startBefore[repo.path]?.worktree.kind ?? "none",
+      });
       return {
         sparta,
         athens,
@@ -163,7 +170,7 @@ export const surviveRestart = defineCheck(import.meta.url, {
         elsewhere,
         pids,
         tabsBefore: await tabIds(page),
-        startBefore: await lastStartOf(setup.client, sparta.name),
+        startBefore,
       };
     });
     const { sparta, agent, plainShell, hidden, inLive, elsewhere } = before;

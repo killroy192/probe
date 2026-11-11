@@ -102,9 +102,9 @@ export const openShell = (
   { cols = 80, rows = 24 }: { readonly cols?: number; readonly rows?: number } = {},
 ): Promise<ShellSummary> => Effect.runPromise(client["shell.open"]({ cwd, cols, rows }));
 
-/** The workspace's remembered last starts, as JSON, for comparing two moments. */
+/** The workspace's remembered last starts, keyed by project path. */
 export const lastStartOf = async (client: WsClient, name: string) =>
-  JSON.stringify((await Effect.runPromise(client["workspace.open"]({ name }))).lastStarts);
+  (await Effect.runPromise(client["workspace.open"]({ name }))).lastStarts;
 
 /**
  * The pids of every process on the machine whose command line matches `command`, for a shell's
