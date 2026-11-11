@@ -138,7 +138,7 @@ Every atomic check scenario must finish under 20 s. That is a separate gate, nev
 
 A sandbox keeps one harness server up on a throwaway home so saved scenarios run against it without a cold start. It runs saved scenarios only.
 
-- Start it in the background: `vp run scenarios:sandbox -- [--fixture workspace|shells] [--keep-home]`, and run on it once it prints `ready`.
+- Start it in the background: `vp run scenarios:sandbox -- [--fixture workspace|shells] [--keep-home]`, and run on it once it prints `ready`. Its pid is the one on its `sandbox: pid=` line, not the pid of the `vp run` your shell started; `--sandbox` and `kill` take that one.
 - Run on it: `vp run test:scenarios -- --sandbox <pid> --only <name>`, where the name is an id, a set or a composed scenario; `--only` repeats. The run goes through the same launcher, on one worker, with no bundle build and no server start: its scenarios use the sandbox's server, and a sandbox that stops mid-run fails the scenario running, saying so. It accepts a scenario whose file states `needs: {}`, and a set or composed scenario only when every member or step does.
 - Stop it: `kill <pid>`, the pid it printed, never a pid found by pattern ([AGENTS.md rule 1](../../AGENTS.md#the-three-ways-to-hurt-yourself)).
 - It prints one `sandbox: <key>=<value>` line per fact: `pid` first, then `home`, `origin` (loopback only), `server-pid`, `fixture` when seeded, `bundle`, `pairing-url` and `ready`, plus `shell-host-pid` when a shell host starts (before `ready` with the `shells` fixture, otherwise with a run's first shell). The pairing URL is a secret: open it in a browser to look, never write it to a file in the checkout.
