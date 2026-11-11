@@ -199,7 +199,7 @@ Order (epic, user decision 2026-11-10): PRB.T-037, PRB.T-038, PRB.T-043, PRB.T-0
 
 | ID    | Statement | Kind (assumption / unknown) | Status (unverified / verified / false) | How and when to verify | Owner |
 | ----- | --------- | --------------------------- | -------------------------------------- | ---------------------- | ----- |
-| SA-1  | PRB.T-037's spike finds epic A-5 true and its sequential check finds A-4 true, so this story builds on Playwright Test with a shared server; otherwise the fallback applies (EC-14) | assumption | unverified | Read PRB.T-037's handoff before planning this story | author |
+| SA-1  | PRB.T-037's spike finds epic A-5 true and its sequential check finds A-4 true, so this story builds on Playwright Test with a shared server; otherwise the fallback applies (EC-14) | assumption | verified (PRB.T-037, 2026-11-10: A-5 true, A-4 true one after another; no fallback) | Read PRB.T-037's Delivered section (its notes for this story) before planning | author |
 | SA-2  | Atomic scenarios scoped to their own workspace can share one server per worker in parallel (epic A-4, parallel half) | assumption | unverified | AC-2, AC-5 and AC-15. If false, the epic owner decides between fixing the scoping in this story and the epic fallback (EC-14) | author; decision: epic owner |
 | SA-3  | With direct setup and a shared server, every atomic check scenario fits under 15 s (epic A-13) | assumption | unverified | AC-13, the whole-suite gate | author |
 | SA-4  | Parallel load exposes waits that are only guesses (epic A-11) | assumption | unverified | AC-16 | author |

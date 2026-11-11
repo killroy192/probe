@@ -60,7 +60,7 @@ Verified by reading files on 2026-11-10 (the `cocoindex-code` MCP was not availa
 - **Starting a shell over the API.** The "+" modal itself calls `workspace.startShell` (`apps/web/src/state/workspaces.ts:399-413`), so an API start runs the same server method. `WorkspaceStartShellInput` (`packages/contracts/src/workspace.ts:159-168`) takes the workspace, project, an optional worktree, an optional script ("Absent for a plain shell") and a size. The server starts no script when none is given and saves the project's last start for every start (`apps/server/src/savedWorkspaces/SavedWorkspaces.ts:839-885`). The page adds a tab, and updates its own copy of the last starts, only for a shell it started itself (`workspaces.ts:414-430`); a shell started over the API gets no tab. Whether its tree row shows in a page already showing the workspace was not run (SA-3).
 - **Waits.** `recorder().until` (`support.ts:42-61`) and `server.logged` (`server.ts:278-292`) subscribe to values and race a deadline that fails with "Timed out waiting for <what>". The deadlines are three separate 10 s constants (`support.ts:12`, `server.ts:22`, the page action timeout `run.ts:40`), and Playwright's own `waitFor` failures name a locator, not what the scenario awaited. `gone()` (`support.ts:109-116`) polls a pid for up to 5 s; PRB.T-041 replaces it where the shell list reports the pid, and S6's background jobs keep a bounded loop (PRB.T-042 SA-6).
 - **Logging and artifacts.** Scenario servers start with `--log-level info` (`server.ts:227-228`) into a 4 MiB in-memory buffer (`server.ts:17,236`). A failure saves `error.txt`, a screenshot per page, the last 200 log lines per server (`run.ts:41,112-158`) and `recorders.json`, under the OS temp folder (`environment.ts:83-87`). Nothing listens to the browser console (no `console` or `pageerror` listener in `scripts/scenarios`). The server's level defaults to Info (`apps/server/src/cli/config.ts:97`, epic A-12, verified). The web app has no log level of its own (grep of `apps/web/src` for `logLevel`, `LogLevel`, `console.debug`, 2026-11-10: none).
-- **Timing.** No per-scenario "before" round-trip count exists. PRB.T-036's baseline (its AC-21) is still open.
+- **Timing.** The per-scenario "before" round-trip count is a desk count from the code (orchestrator, 2026-11-10, `main` at `f24dbcdf8`, not run); it and the FR-10 threshold are in the Handoff. PRB.T-036's baseline times (its AC-21) were recorded on 2026-11-10 and are in PRB.T-036's Delivered section.
 - **Mobile and desktop.** Nothing here touches either.
 
 ## Expected Behavior
@@ -179,7 +179,7 @@ Setup that is not the subject goes over the API; the subject still happens by th
 | AC-19 | Given a server started with no log flag and no `T3CODE_LOG_LEVEL`, when it runs the code paths of every debug line this story adds, then it prints none of them; and no added line prints a token, pairing URL or cookie | auto (test) and manual (review of each added line) | FR-20, NFR-3 |
 | AC-20 | Given the console or the debug log cannot be saved (a closed page, an unwritable folder), when a scenario fails, then its original error is reported with a note naming the missing piece | auto (harness self-test) | ER-4 |
 | AC-21 | Given a deliberate failure after setup, when the artifacts are read, then they list what each setup call asked for and got back, and contain no token, pairing URL or cookie | auto (harness self-test) and manual (review) | FR-21, NFR-3 |
-| AC-22 | Given the setup round trips counted at this story's start and the epic owner's threshold, when the change is in, then a table in the handoff gives per scenario the round trips and times before and after, each time from one run with its method and machine, and the after counts meet the threshold; nothing fails on a time | manual (author, in the handoff; threshold by the epic owner) | FR-10, A-7 (epic) |
+| AC-22 | Given the setup round trips counted at this story's start and the epic owner's threshold (set 2026-11-11, see Handoff), when the change is in, then a table in the handoff gives per scenario the round trips and times before and after, each time from one run with its method and machine, and the after counts meet the threshold; nothing fails on a time | manual (author, in the handoff; threshold by the epic owner) | FR-10, A-7 (epic) |
 | AC-23 | Given whether PRB.T-041 has landed when this story lands, when the library is reviewed, then its typing, reload and process-end waits use the signals if it had, and otherwise the handoff names the story that switches them | manual (review) | EC-12, FR-12 (touched) |
 | AC-24 | Given the rules file after this story, when read, then it says where the library is and what it offers (including the composition interface), gives the coverage map and the direct-setup rule, the waiting rule as implemented and the debug log and console in artifacts; the interim instructions for FR-10, FR-20 and FR-21 are gone; no other doc restates them | manual (docs review) | FR-15 (epic, kept current), NFR-7 |
 | AC-25 | Given the change, when `vp run test:scenarios` runs once, `--selftest` runs once and `vp run check:changed` runs, then every scenario passes as before, the self-tests behave as before (T2 fails by design) and the new ones pass, S7 still proves restart survival with API-created state, and the `harness.test.ts` guard cases still pass | auto | EC-10, NFR-3, Out Of Scope |
@@ -188,9 +188,9 @@ Setup that is not the subject goes over the API; the subject still happens by th
 
 | Depends on | Why | Status |
 | ---------- | --- | ------ |
-| PRB.T-037 | Epic order; its named fixtures move into or are built from the library (AC-12), and its A-4 check says whether scenarios can share a server one after another, which the no-collision rule serves. | backlog (rework in progress) |
+| PRB.T-037 | Epic order; its named fixtures move into or are built from the library (AC-12), and its A-4 check says whether scenarios can share a server one after another, which the no-collision rule serves. | done (merged 2026-11-11; A-4 sequential verified) |
 | PRB.T-042 | The rules file this story updates (AC-24) and the lint rules on scenario files the library must pass. | done |
-| PRB.T-036 | The fixtures module, failure artifacts, offsets and isolated shell this story builds on; its baseline (AC-21) may give the "before" times (SU-3). | code merged 2026-11-10; in progress |
+| PRB.T-036 | The fixtures module, failure artifacts, offsets and isolated shell this story builds on; its baseline (AC-21) may give the "before" times (SU-3). | done (2026-11-10) |
 
 
 **Blocks:** PRB.T-043 (composed scenarios hand over the library's results; perf scenarios use its setup); PRB.T-039 (atomic scenarios build their own world through the library); PRB.T-040 through it. Independent of PRB.T-041 apart from the switch rule.
@@ -208,6 +208,37 @@ Setup that is not the subject goes over the API; the subject still happens by th
 | SA-7 | API setup removes most per-shell round trips and a large part of the run time (epic A-7). | assumption | unverified | AC-22. | author |
 | SA-8 | A page already open on the start screen, or showing another workspace, can reach a workspace created over the API after it loaded (the Workspaces menu or start screen lists it). | assumption | unverified | AC-7 at the start of implementation. | author |
 | SU-1 | Whether the web app can hide diagnostic lines in production (it has no log level today), or web diagnostics stay out until a decision (epic U-3). | unknown | unverified | Plan stage; if a scenario needs a web line and nothing hides it by default, raise it with the epic owner. | TBD (author, plan stage) |
-| SU-2 | What counts as one setup round trip, and the FR-10 threshold (epic U-2). The epic disagrees with itself on when: its FR-10 Verification row says from this story's own "before" count, its U-2 row says by the end of PRB.T-036; this story follows the FR-10 row. | unknown | unverified | The author proposes the unit with the "before" count at the start; the epic owner sets the threshold. | TBD (epic owner, at the start of this story) |
-| SU-3 | Whether the "before" times come from PRB.T-036's baseline (its AC-21, open) or from this story's own single run at its start. | unknown | unverified | At the start: use the baseline if it exists on the same method. | TBD (author, at the start of this story) |
+| SU-2 | What counts as one setup round trip, and the FR-10 threshold (epic U-2). The epic disagrees with itself on when: its FR-10 Verification row says from this story's own "before" count, its U-2 row says by the end of PRB.T-036; this story follows the FR-10 row. | unknown | verified (decided by the user, 2026-11-11) | Decided: one round trip is one awaited harness operation that crosses a process boundary (pointer action, page wait or read, RPC/HTTP call, CLI process, terminal typing or wait); restarts are counted separately. Threshold: suite-wide setup after ≤ 50 % of before (≤ 561 RT), and every scenario with CONVERT ≥ 19 except S2 cuts its own setup by ≥ 40 %. Unit, before count and threshold: Handoff. | epic owner (user) |
+| SU-3 | Whether the "before" times come from PRB.T-036's baseline or from this story's own single run at its start. | unknown | unverified | At the start. The baseline exists (PRB.T-036 Delivered, 2026-11-10: serial, one run, rebuilt bundle), but it predates PRB.T-037's per-run names in S4 and S5. | TBD (author, at the start of this story) |
 | SU-4 | PRB.T-037 plans two named fixtures (`workspace`: one git project; `shells`: the same with two running plain shells, its AC-5) in the shared fixtures module this story grows into the library, and per-run names for scenarios accepted on the sandbox. Unknown: what it actually ships, and whether its per-run names cover the library's no-collision rule or need extending. | unknown | unverified | Read PRB.T-037's code and handoff when it lands. | TBD (author, when PRB.T-037 lands) |
+
+## Handoff
+
+**FR-10 unit and threshold (user, 2026-11-11; settles SU-2).** One round trip (RT) is one awaited harness operation that crosses a process boundary: P pointer action, W page wait or read, R RPC/HTTP call, C CLI process or restart, T terminal typing or wait. Not counted: local fs/git work, browser bookkeeping, the runner's own server start; restarts are counted separately. Buckets per scenario: CONVERT (setup that moves to the API), KEEP (setup that stays UI because it is the coverage map owner's path, or a judgment call), SUBJECT (the scenario's own subject). **Threshold:** suite-wide setup (CONVERT + KEEP) after ≤ 50 % of before (≤ 561 RT), and every scenario with CONVERT ≥ 19 except S2 cuts its own setup by ≥ 40 % (the "setup after ≤" column). The after count uses the same unit, from the code after the change.
+
+**Before (desk count by the orchestrator, 2026-11-10, read from `main` at `f24dbcdf8`, not run).** Total 2581 RT; setup 1123. A "+"-modal `startShell` costs 11 to 18 RT. Rough after-estimate: setup about 350-400.
+
+| Scenario | CONVERT | KEEP | SUBJECT | Setup after ≤ |
+| -------- | ------- | ---- | ------- | ------------- |
+| S1 | 0 | 5 | 283 | – |
+| S2 | 19 | 36 | 246 | – (excepted) |
+| S3 | 59 | 20 | 300 | 47 |
+| S4 | 155 | 21 | 76 | 105 |
+| S5 | 51 | 13 | 25 | 38 |
+| S6 | 184 | 15 | 69 | 119 |
+| S7 | 249 | 49 | 148 | 178 |
+| S8 | 106 | 19 | 62 | 75 |
+| T-002 | 0 | 10 | 22 | – |
+| R1 | 1 | 15 | 22 | – |
+| E2-S3 | 19 | 13 | 34 | 19 |
+| E2-S1 | 31 | 7 | 133 | 22 |
+| E2-S4 | 19 | 7 | 38 | 15 |
+| Sum | 893 | 230 | 1458 | 561 (suite) |
+
+**Notes from the count for the implementer.**
+- SA-4 risk: `scripts/scenarios/scenarios/many-shells.ts` (~line 74) and `close-tab.ts` (~line 61) count tabs the modal opened; after API starts they need tabs opened from the tree first (EC-1).
+- S3's duplicate add of `repo` (`worktrees.ts` ~line 143) is a check ("repository added twice") and must stay, as an API `workspace.addProject`.
+- An API fork needs a caller-supplied worktree name.
+- S3's `leaveAgent` becomes a "Plain shell" pick in the modal (S3 keeps every start a modal start).
+- Judgment calls in the count: S8's tree kills (15 RT, counted SUBJECT; CONVERT if "kill from the tree: S6" is read strictly) and S2's first sparta create (4 RT, counted KEEP per EC-4).
+- SUBJECT dominates S1, S2 and S3, so their 15 s cap depends on PRB.T-039's split, not on this story.
