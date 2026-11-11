@@ -7,7 +7,7 @@ import type { ShellSummary } from "@t3tools/contracts";
 
 import type { PointerPage } from "../browser.ts";
 import { addStartingScript, gitOk } from "../lib/files.ts";
-import { layoutSaved, reloadShowing, showWorkspace } from "../lib/navigate.ts";
+import { restartAndReload, showWorkspace } from "../lib/navigate.ts";
 import { pageFrames } from "../lib/network.ts";
 import { metric } from "../lib/report.ts";
 import { expectLogged } from "../lib/serverLog.ts";
@@ -491,16 +491,12 @@ export const worktrees: Scenario = {
     // AC-22: the worktree is made but its shell cannot start; it is kept and offered again.
 
     await stage("AC-22", async () => {
-      await layoutSaved(page, ws.name);
-      await setup.close();
       await addStartingScript(server.home, {
         id: "unstartable",
         name: "unstartable",
         command: "no-such-agent-cli --start",
       });
-      await server.restart();
-      await reloadShowing(page, ws.name);
-      setup = await setupOn(ctx, { as: page });
+      setup = await restartAndReload(ctx, page, ws, setup);
       check((await createShellButton(page, repo).count()) === 1, "The project has no +.");
       await openModal(page, repo, { script: "unstartable" });
       check((await mode(page)) === "Fork", "The last choice is not preselected.");

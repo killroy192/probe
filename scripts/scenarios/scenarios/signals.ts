@@ -8,6 +8,7 @@ import {
   openTab,
   recordLayoutStates,
   reloadShowing,
+  restartAndReload,
   showWorkspace,
 } from "../lib/navigate.ts";
 import { setupOn, type Setup, type ShellResult } from "../lib/setup.ts";
@@ -34,7 +35,7 @@ export const tabSignals: Scenario = {
   title: "a shell tab says it is attached and ready, hidden or not, after a reload and a restart",
   needs: { restart: true },
   run: async (ctx) => {
-    const { server, openPage, trail } = ctx;
+    const { openPage, trail } = ctx;
     const page = await openPage();
     const setup = await setupOn(ctx, { as: page });
     const { ws, shells: both } = await shellsInFolder(setup, 2);
@@ -60,11 +61,7 @@ export const tabSignals: Scenario = {
       await readyBoth(page);
     });
     await trail.stage("AC-4 restart", async () => {
-      // A stop with a tab change still in flight would bring the old tab strip back.
-      await layoutSaved(page, ws.name);
-      await setup.close();
-      await server.restart();
-      await reloadShowing(page, ws.name);
+      await restartAndReload(ctx, page, ws, setup);
       await readyBoth(page);
     });
     await trail.stage("AC-4 second client", async () => {

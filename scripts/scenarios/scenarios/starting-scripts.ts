@@ -4,13 +4,12 @@ import * as NodeFSP from "node:fs/promises";
 
 import type { StartingScript } from "@t3tools/contracts";
 
-import type { PointerPage } from "../browser.ts";
 import { readStartingScripts, startingScriptsFile, writeStartingScripts } from "../lib/files.ts";
-import { layoutSaved, reloadShowing, showWorkspace } from "../lib/navigate.ts";
+import { restartAndReload, showWorkspace } from "../lib/navigate.ts";
 import { pageFrames } from "../lib/network.ts";
 import { metric } from "../lib/report.ts";
 import { expectLogged, logEntries, serverPromptMs } from "../lib/serverLog.ts";
-import { setupOn, type Setup, type WorkspaceResult } from "../lib/setup.ts";
+import { setupOn } from "../lib/setup.ts";
 import {
   agentTypedOnceAfterPrompt,
   history,
@@ -35,8 +34,8 @@ import {
 import { typeLine } from "../lib/ui/terminal.ts";
 import { openFromTree, shellNodes, shellRow } from "../lib/ui/tree.ts";
 import { check } from "../lib/waits.ts";
-import type { Scenario, ScenarioContext } from "../scenario.ts";
-import { MOCK_AGENT_COMMAND, type ServerEnv, type ServerHandle } from "../server.ts";
+import type { Scenario } from "../scenario.ts";
+import { MOCK_AGENT_COMMAND, type ServerHandle } from "../server.ts";
 
 /** The prompt mark as it shows in a page frame's JSON text. */
 const FRAME_PROMPT_MARK = JSON.stringify(PROMPT_MARK).slice(1, -1);
@@ -46,22 +45,6 @@ const count = (text: string, part: string) => text.split(part).length - 1;
 /** The server's start log lines. */
 const startLines = (server: ServerHandle) =>
   logEntries(server).filter((line) => line.includes("shell started"));
-
-/** Restarts the server, reloads the page onto `ws` and sets up as it again on the new server. */
-async function restartShowing(
-  ctx: ScenarioContext,
-  page: PointerPage,
-  ws: WorkspaceResult,
-  setup: Setup,
-  env?: ServerEnv,
-): Promise<Setup> {
-  // A stop with a tab change still in flight would bring the old tab strip back.
-  await layoutSaved(page, ws.name);
-  await setup.close();
-  await ctx.server.restart(env === undefined ? undefined : { env });
-  await reloadShowing(page, ws.name);
-  return setupOn(ctx, { as: page });
-}
 
 export const plainShell: Scenario = {
   id: "E2-S3",
@@ -113,7 +96,7 @@ export const plainShell: Scenario = {
 
     // AC-13a: the variable that used to set every shell's command has no effect any more.
     await trail.stage("AC-2a, AC-13a", async () => {
-      setup = await restartShowing(ctx, page, ws, setup, {
+      setup = await restartAndReload(ctx, page, ws, setup, {
         PROBE_AGENT_COMMAND: MOCK_AGENT_COMMAND,
       });
       await openModal(page, repo, { script: "Plain shell" });
@@ -252,7 +235,7 @@ export const userScripts: Scenario = {
         "The mock agent is not preselected (AC-5).",
       );
       await cancelModal(page);
-      setup = await restartShowing(ctx, page, ws, setup);
+      setup = await restartAndReload(ctx, page, ws, setup);
       for (const [project, id] of [
         [repo, mock.id],
         [plain, "echo"],
@@ -294,7 +277,7 @@ export const userScripts: Scenario = {
 
     await trail.stage("AC-23", async () => {
       await writeStartingScripts(server.home, []);
-      setup = await restartShowing(ctx, page, ws, setup);
+      setup = await restartAndReload(ctx, page, ws, setup);
       await expectOnlyPlain(page, repo, "An emptied list was seeded again (AC-23).");
       check(
         (await readStartingScripts(server.home)).length === 0,
@@ -304,7 +287,7 @@ export const userScripts: Scenario = {
 
     await trail.stage("AC-9", async () => {
       await NodeFSP.writeFile(startingScriptsFile(server.home), "{ damaged");
-      setup = await restartShowing(ctx, page, ws, setup);
+      setup = await restartAndReload(ctx, page, ws, setup);
       await expectOnlyPlain(page, repo, "A damaged list offers more than Plain shell (AC-9).");
       await expectLogged(server, "The damaged list is not in the server log (AC-9).", (line) =>
         line.includes("the starting scripts could not be read"),
@@ -317,14 +300,14 @@ export const userScripts: Scenario = {
 
     await trail.stage("AC-8", async () => {
       await NodeFSP.rm(startingScriptsFile(server.home));
-      setup = await restartShowing(ctx, page, ws, setup, { PROBE_SEED_MOCK_AGENT: undefined });
+      setup = await restartAndReload(ctx, page, ws, setup, { PROBE_SEED_MOCK_AGENT: undefined });
       await expectOnlyPlain(page, repo, "A start without the default offers scripts (AC-8).");
       check(
         !(await NodeFSP.stat(startingScriptsFile(server.home)).catch(() => null)),
         "A start without the default wrote a list (AC-8).",
       );
       // With the default on again, a state folder with no list gets the mock agent (AC-23).
-      setup = await restartShowing(ctx, page, ws, setup);
+      setup = await restartAndReload(ctx, page, ws, setup);
       check(
         (await readStartingScripts(server.home)).map((script) => script.name).join() ===
           "mock agent",

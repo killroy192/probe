@@ -4,15 +4,11 @@ import * as NodeFSP from "node:fs/promises";
 import * as NodePath from "node:path";
 import * as NodeProcess from "node:process";
 
-import type { StartingScriptChoice } from "@t3tools/contracts";
-import * as Effect from "effect/Effect";
-
-import type { WsClient } from "../lib/api.ts";
 import { layoutSaved, layoutState, openTab, showWorkspace } from "../lib/navigate.ts";
 import { pageFrames } from "../lib/network.ts";
 import { unlessRoot } from "../lib/report.ts";
 import { expectLogged } from "../lib/serverLog.ts";
-import { type Setup, setupOn, type ShellResult } from "../lib/setup.ts";
+import { mockAgent, type Setup, setupOn, type ShellResult } from "../lib/setup.ts";
 import { agentReady, history, lastStartOf, running, shellEnded, survivors } from "../lib/shells.ts";
 import { alert } from "../lib/ui/dialog.ts";
 import {
@@ -40,14 +36,6 @@ import type { Scenario } from "../scenario.ts";
 
 const missingMark = (page: PointerPage, shellId: string) =>
   page.locator(`[data-shell-row="${shellId}"] [data-missing]`);
-
-/** The harness's seeded "mock agent" starting script, as a start asks for it. */
-async function mockAgent(client: WsClient): Promise<StartingScriptChoice> {
-  const { scripts } = await Effect.runPromise(client["startingScripts.list"]({}));
-  const script = scripts.find((entry) => entry.name === "mock agent");
-  check(script !== undefined, "The server lists no mock agent starting script.");
-  return { id: script.id, name: script.name };
-}
 
 export const restartSurvival: Scenario = {
   id: "S7",

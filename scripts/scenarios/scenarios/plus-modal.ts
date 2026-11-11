@@ -9,18 +9,17 @@ import * as Effect from "effect/Effect";
 import * as Stream from "effect/Stream";
 
 import { connectionCutter, type PointerPage } from "../browser.ts";
-import { connectApi } from "../lib/api.ts";
 import { addStartingScript, git } from "../lib/files.ts";
 import { reloadShowing, restartAndReload } from "../lib/navigate.ts";
 import { pageFrames } from "../lib/network.ts";
 import { metric, unlessRoot } from "../lib/report.ts";
 import { expectLogged } from "../lib/serverLog.ts";
+import { setupOn } from "../lib/setup.ts";
 import {
   agentTypedOnceAfterPrompt,
   MOCK_AGENT_LINES,
   history,
   shellEnded,
-  followShells,
   shellsIn,
 } from "../lib/shells.ts";
 import { addProject, closeFolderList, folderList, openAddFolder } from "../lib/ui/addProject.ts";
@@ -51,7 +50,8 @@ export const plusModal: Scenario = {
   id: "S2",
   title: "start a shell from the plus modal",
   needs: { restart: true },
-  run: async ({ server, openPage, trail }) => {
+  run: async (ctx) => {
+    const { server, openPage, trail } = ctx;
     const folders = NodePath.join(server.home, "folders");
     const repo = NodePath.join(folders, "repo");
     const plain = NodePath.join(folders, "plain");
@@ -71,8 +71,8 @@ export const plusModal: Scenario = {
       if (frame === page.mainFrame()) paths.push(new URL(frame.url()).pathname);
     });
     const frames = pageFrames(page);
-    let rpc = await connectApi(server, page);
-    let shells = followShells(rpc.client);
+    let setup = await setupOn(ctx, { as: page });
+    let shells = setup.shells;
     // After a restart the page connects again from a reload; the shown workspace is in memory only.
     const reopen = (target: PointerPage) => reloadShowing(target, "sparta");
 
@@ -173,7 +173,7 @@ export const plusModal: Scenario = {
       // AC-4: no chat thread exists and the tab shows no chat chrome.
       await trail.stage("AC-4", async () => {
         const [snapshot] = await Effect.runPromise(
-          rpc.client["orchestration.subscribeShell"]({}).pipe(
+          setup.client["orchestration.subscribeShell"]({}).pipe(
             Stream.filter((item) => item.kind === "snapshot"),
             Stream.take(1),
             Stream.runCollect,
@@ -208,7 +208,7 @@ export const plusModal: Scenario = {
       // AC-6: after leaving the CLI, the shell's size equals the grid the view reports.
       await trail.stage("AC-6", async () => {
         const output = recorder<TerminalAttachStreamEvent>("attach events");
-        follow(rpc.client["shell.attach"]({ shellId: first.shellId }), output.push);
+        follow(setup.client["shell.attach"]({ shellId: first.shellId }), output.push);
         await typeLine(page, "exit");
         await tabs(page)
           .filter({ hasText: /^Shell 1 · repo$/ })
@@ -262,8 +262,8 @@ export const plusModal: Scenario = {
           "A double click did not start exactly one shell (AC-24).",
         );
         check(
-          (await history(rpc.client, first.shellId)).includes("echo: hello-probe") &&
-            !(await history(rpc.client, started.shellId)).includes("hello-probe"),
+          (await history(setup.client, first.shellId)).includes("echo: hello-probe") &&
+            !(await history(setup.client, started.shellId)).includes("hello-probe"),
           "The two shells share output (AC-12).",
         );
         // PRB.T-011: the agent command is typed once, after the shell's first prompt. The output runs
@@ -403,15 +403,17 @@ export const plusModal: Scenario = {
       await trail.stage("AC-16", async () => {
         // Shells outlive a restart (PRB.T-007); this check starts from none.
         for (const shell of shells.current()) {
-          await Effect.runPromise(rpc.client["shell.kill"]({ shellId: shell.shellId }));
+          await Effect.runPromise(setup.client["shell.kill"]({ shellId: shell.shellId }));
         }
         await addStartingScript(server.home, {
           id: "unstartable",
           name: "unstartable",
           command: "no-such-agent-cli --start",
         });
-        rpc = await restartAndReload(page, server, rpc, { GIT_CONFIG_GLOBAL: badGitConfig });
-        shells = followShells(rpc.client);
+        setup = await restartAndReload(ctx, page, "sparta", setup, {
+          GIT_CONFIG_GLOBAL: badGitConfig,
+        });
+        shells = setup.shells;
         // A fresh subscription: its first list is the server's state after the restart.
         await shells.lists.until("the list after restart", () => true, 0);
         await shellNodes(page).first().waitFor({ state: "detached" });
@@ -450,8 +452,8 @@ export const plusModal: Scenario = {
             0,
           "A folder whose git init failed was added (AC-17).",
         );
-        rpc = await restartAndReload(page, server, rpc);
-        shells = followShells(rpc.client);
+        setup = await restartAndReload(ctx, page, "sparta", setup);
+        shells = setup.shells;
       });
 
       // AC-18: the connection drops during the start; nothing is shown and a retry works.
@@ -503,7 +505,7 @@ export const plusModal: Scenario = {
         check(chatPaths.length === 0, `The flow opened ${JSON.stringify(chatPaths)} (AC-23).`);
       });
     } finally {
-      await rpc.close();
+      await setup.close();
       await NodeFSP.chmod(locked, 0o755).catch(() => undefined);
     }
   },

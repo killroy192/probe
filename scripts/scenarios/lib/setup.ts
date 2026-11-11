@@ -47,26 +47,13 @@ export async function setUp(page: PointerPage, folders: ReadonlyArray<string>, n
   }
 }
 
-/** Creates `name` on the server with one project folder inside that server's own home. */
-type SeedError =
-  | Effect.Error<ReturnType<WsClient["workspace.create"]>>
-  | Effect.Error<ReturnType<WsClient["workspace.addProject"]>>;
-
-// Annotated: the inferred type is too large to export.
-export const seedWorkspace: (
-  client: WsClient,
-  home: string,
-  name: string,
-) => Effect.Effect<void, SeedError> = Effect.fn("scenarioFixtures.seedWorkspace")(function* (
-  client: WsClient,
-  home: string,
-  name: string,
-) {
-  const folder = NodePath.join(home, `${name}-project`);
-  yield* Effect.promise(() => NodeFSP.mkdir(folder, { recursive: true }));
-  yield* client["workspace.create"]({ name });
-  yield* client["workspace.addProject"]({ mode: "import", name, path: folder });
-});
+/** The harness's seeded "mock agent" starting script, as a start asks for it. */
+export async function mockAgent(client: WsClient): Promise<StartingScriptChoice> {
+  const { scripts } = await Effect.runPromise(client["startingScripts.list"]({}));
+  const script = scripts.find((entry) => entry.name === "mock agent");
+  check(script !== undefined, "The server lists no mock agent starting script.");
+  return { id: script.id, name: script.name };
+}
 
 export interface FolderResult {
   readonly kind: "folder";

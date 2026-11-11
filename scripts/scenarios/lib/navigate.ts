@@ -1,9 +1,14 @@
 import type { PointerPage } from "../browser.ts";
-import type { ServerEnv, ServerHandle } from "../server.ts";
-import { connectApi, type ApiConnection } from "./api.ts";
+import type { ServerEnv } from "../server.ts";
 import { ACTION_MS, type Deadline, seconds } from "./deadlines.ts";
 import { waitFor } from "./waits.ts";
-import type { ShellResult, WorkspaceResult } from "./setup.ts";
+import {
+  setupOn,
+  type Setup,
+  type SetupContext,
+  type ShellResult,
+  type WorkspaceResult,
+} from "./setup.ts";
 import { openFromTree, workspaceRoot, workspaceShown } from "./ui/tree.ts";
 import { openWorkspace } from "./ui/workspacesMenu.ts";
 
@@ -85,19 +90,24 @@ export async function reloadShowing(page: PointerPage, name: string) {
   await workspaceShown(page, name, " after the reload");
 }
 
-/** Restarts the server (a real restart), reloads the page onto "sparta" and connects again. */
+/**
+ * Restarts the server (a real restart) with `env`, reloads the page onto `ws` and sets up as the
+ * page again on the new server; `previous` is the connection to close before the stop.
+ */
 export async function restartAndReload(
+  ctx: SetupContext,
   page: PointerPage,
-  server: ServerHandle,
-  rpc: ApiConnection,
+  ws: string | WorkspaceResult,
+  previous: { readonly close: () => Promise<void> },
   env?: ServerEnv,
-): Promise<ApiConnection> {
+): Promise<Setup> {
+  const name = typeof ws === "string" ? ws : ws.name;
   // A stop with a tab change still in flight would bring the old tab strip back.
-  await layoutSaved(page, "sparta");
-  await rpc.close();
-  await server.restart(env === undefined ? undefined : { env });
-  await reloadShowing(page, "sparta");
-  return connectApi(server, page);
+  await layoutSaved(page, name);
+  await previous.close();
+  await ctx.server.restart(env === undefined ? undefined : { env });
+  await reloadShowing(page, name);
+  return setupOn(ctx, { as: page });
 }
 
 /** A page showing a workspace. */
