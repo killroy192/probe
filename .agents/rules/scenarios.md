@@ -6,17 +6,24 @@ paths:
 
 # Scenario rules
 
-The scenario-specific rules for writing and running scenarios live only here. The general test rules (what to test, waiting for work, no sleeps, polling or clock deltas, flaky tests are fixed, the lint rules that enforce them) are in [AGENTS.md "Verifying"](../../AGENTS.md#verifying) and apply to scenarios too. These rules bind every new or changed scenario now; the existing ones are converted in PRB.T-039, so an old scenario that breaks one (S2 both checks and measures) is not a pattern to copy. A story that changes the harness updates this file in the same change.
+The scenario-specific rules for writing and running scenarios live only here. The general test rules (what to test, waiting for work, no sleeps, polling or clock deltas, flaky tests are fixed, the lint rules that enforce them) are in [AGENTS.md "Verifying"](../../AGENTS.md#verifying) and apply to scenarios too. These rules bind every new or changed scenario now; the existing ones are converted in PRB.T-039, so an old scenario that breaks one (S1 to S8 each check many behaviors) is not a pattern to copy. A story that changes the harness updates this file in the same change.
 
 A scenario (`scripts/scenarios/scenarios/`) starts a real Probe server on a throwaway home and drives the built web app in headless Chromium. A Node runner owns the server process and uses Playwright as a library, because Vitest browser mode runs test code inside the page and cannot stop or restart a real server.
 
 ## Shape
 
-- **Check or perf.** A check scenario asserts behavior and never records a duration. A perf scenario measures and asserts only its own budget, in a file named `<scenario>.perf.ts`. No scenario is both. A perf budget is one a single isolated perf run meets every time: set it with headroom over the value seen, never as a median or best of several runs.
-- **One purpose.** A scenario checks one behavior and fails naming it; it sets up its own state instead of relying on what another scenario left. Bigger flows are composed from atomic scenarios.
+- **Check or perf.** Every scenario is one kind, never both ([Kinds](#kinds)).
+- **One purpose.** A scenario checks one behavior and fails naming it; it sets up its own state instead of relying on what another scenario left. Bigger flows are composed from atomic scenarios ([Sets and composed scenarios](#sets-and-composed-scenarios)).
 - **Saved, never throwaway.** Every scripted check that drives a harness or sandbox server is a saved scenario, registered under an id in `registry.ts`; harness self-tests go in `selftest/`. Do not write a one-off driver script or offer evidence from one; register the scenario first and iterate on it. The manual checks AGENTS.md asks for (a `test-t3-app` pass, before/after captures, a runtime transcript) are not scripted scenarios and are unaffected.
 - **Shared library.** Every reusable setup, UI step, wait and logging helper lives in the library ([below](#the-library)); add to it rather than writing a helper in a scenario file. A scenario file holds only its own steps and assertions.
 - **Direct setup.** A scenario builds its world over the server API unless the UI path is its subject ([coverage map](#direct-setup-and-the-coverage-map)).
+
+## Kinds
+
+- **Check.** A check scenario asserts behavior and never records a duration: its file reads no clock and declares no measure.
+- **Perf.** A perf scenario, id `perf-<name>`, lives in a file named `<name>.perf.ts`, measures one value and asserts nothing itself: it declares one measure with its limit and the criterion that sets it (`PRB.T-004 AC-3`), and the harness judges the value it returns, failing on a miss with the measure, the value and the limit. A product limit is used as written and never changed to make a run pass; a miss goes to the ticket that owns it. A budget a story sets itself is one a single isolated perf run meets every time: set it with headroom over the value seen, never as a median or best of several runs.
+- **Where perf runs.** Only in the serial perf run. The default suite, every set, the cap gate and the sandbox never run a perf scenario, and naming one there is refused, saying so.
+- **Mixes are refused** when the registry loads, before anything runs, naming the scenario and the mix: a check file that reads the clock or declares a measure, a perf file that asserts, or declares other than one measure with its limit and owner, and a file name that does not match its kind.
 
 ## Writing
 
@@ -82,6 +89,13 @@ A scenario creates its workspaces, adds its projects and starts its shells over 
   - `permanent (c): …` a bounded check loop, naming the missing event;
   - `temporary: PRB.T-0NN …` code a named PRB.E-005 story removes.
 
+## Sets and composed scenarios
+
+- **Sets.** A set is a named list, in `registry.ts`, of check or composed scenarios. Running it runs exactly its members, each as it would run alone. A set names no perf scenario and no other set, ids and set names share one namespace, and a `T-` name is a self-test set. The registry is refused at load when a set names an unknown id, a perf scenario or a set, or has the name of an id.
+- **Composed scenarios.** A composed scenario is a saved check made of atomic check scenarios as steps, in order, on one server, under the union of its steps' needs. A step states the kind of value it takes and the kind it returns (a workspace, a shell, a world). The composed scenario hands a step the value an earlier step returned; the step uses it and builds the rest itself, and run alone it builds everything itself. Each step gets its own run id, so a scenario used twice makes distinct names. Refused at load: a step that is not an atomic check, an input from a step that is not earlier, an input of the wrong kind (naming the step, what it takes and what the other returns), and two steps under different conditions.
+- **Composed output.** A pass prints `(composed, <n> steps, <t>)` and one time line per step. A failure names the composed scenario, the failing step, its stage, expected and found, and lists each later step as `not run: step <n> <id>`; the later steps do not run. Artifacts go under `<id>/step-<n>-<stepId>`. A composed scenario is not timed against the cap; its steps are.
+- **Undone in the step.** A change a step makes beyond its own workspaces and folders (a file or folder made unwritable, a shell or follower it must end) is registered as an undo where it is made. The undos run in reverse order when the step ends, pass or fail, and the run prints `undone: <what>` for each. Take write access away only through the library's file step, which registers its undo.
+
 ## Failures and reruns
 
 - A failure must be readable from its first run: it names the scenario, the stage, what was expected and what was found. Mark each step of a scenario as a named stage on its trail (`lib/trail.ts`); code outside every stage is in the stage `setup`, and the failure reads `at stage "<stage>": <cause>`.
@@ -98,30 +112,47 @@ A scenario creates its workspaces, adds its projects and starts its shells over 
 
 ## The 20 s cap gate
 
-Every atomic check scenario must finish under 20 s. That is a separate gate, never judged on a normal run: run it once after a scenario is implemented, and again only when the user asks, each time after the user confirms nothing in the background slows the machine.
+Every atomic check scenario must finish under 20 s. That is a separate gate, never judged on a normal run, which prints times and never compares them to the cap: run it once after a scenario is implemented, and again only when the user asks.
+
+- **Command.** `vp run scenarios:gate -- [--only <name>]... --quiet-confirmed` times each chosen atomic check once, serially, on one worker. `--only` repeats; with none, the gate times every atomic check in the suite.
+- **Confirmation first.** Add `--quiet-confirmed` only after the user confirms nothing in the background slows the machine. Without it the gate times nothing and says to ask the user.
+- **Server start.** The time includes the scenario's own server start only when it needs a fresh server (a restart, an empty home, server-wide state, a condition); otherwise the shared server's start is left out. Each `GATE PASS|FAIL <id> <t> s (server start excluded|included), cap 20 s` line says which.
+- **What it times.** Given a set, it times the set's atomic members and lists each composed member as `NOT TIMED <id>`. A perf or composed scenario named directly is refused, naming why. It does not run on a sandbox.
 
 ## Registering a scenario
 
 - Register it under an id in `registry.ts`; there is no other way to run one.
-- State its `needs` in its own file. `{}` means it needs nothing from its server and is safe on a shared one: every workspace name and folder it makes carries `runId`, and it asserts only on what it made. Otherwise name what it needs: `restart`, `secondServer`, `pristineHome`, or `unshared: "<why>"` for anything else a shared server breaks (fixed names, server-wide state, matching every process). A scenario without `needs` is refused on a sandbox.
+- State its `needs` in its own file. `{}` means it needs nothing from its server and is safe on a shared one: every workspace name and folder it makes carries `runId`, and it asserts only on what it made. Otherwise name what it needs:
+  - `restart`, `secondServer`, `pristineHome`;
+  - `serverWide: "<why>"` when it changes or depends on state every scenario on its server sees (the starting-script list, the server's own state folders, the server process itself);
+  - `condition` when its server must start under a condition (an environment variable, a faulty git config): a reason and the variables for the server's home. A condition is met by starting a server under it, never by restarting into it;
+  - `unshared: "<why>"` for anything else a shared server breaks (fixed names, matching every process), until PRB.T-039 converts it.
+- A scenario that needs a restart, an empty home, server-wide state, a condition or is `unshared` gets a server of its own; `secondServer` alone does not. A scenario without `needs` is refused on a sandbox.
+- A check that is not a self-test lists the criteria it proves in `covers`, as `"S7 AC-6"`.
 
 ## The sandbox
 
 A sandbox keeps one harness server up on a throwaway home so saved scenarios run against it without a cold start. It runs saved scenarios only.
 
 - Start it in the background: `vp run scenarios:sandbox -- [--fixture workspace|shells] [--keep-home]`, and run on it once it prints `ready`.
-- Run one scenario on it: `vp run test:scenarios -- --sandbox <pid> --only <id>`. The scenarios it accepts are the ones whose file states `needs: {}`.
+- Run on it: `vp run test:scenarios -- --sandbox <pid> --only <name>`, where the name is an id, a set or a composed scenario. It accepts a scenario whose file states `needs: {}`, and a set or composed scenario only when every member or step does.
 - Stop it: `kill <pid>`, the pid it printed, never a pid found by pattern ([AGENTS.md rule 1](../../AGENTS.md#the-three-ways-to-hurt-yourself)).
 - It prints one `sandbox: <key>=<value>` line per fact: `pid` first, then `home`, `origin` (loopback only), `server-pid`, `fixture` when seeded, `bundle`, `pairing-url` and `ready`, plus `shell-host-pid` when a shell host starts (before `ready` with the `shells` fixture, otherwise with a run's first shell). The pairing URL is a secret: open it in a browser to look, never write it to a file in the checkout.
 - Fixtures, made by the library's setup over the server API: `workspace` (a workspace with one git project) and `shells` (the same with two running plain shells). Their names carry a run id too.
 - A sandbox is not reset between runs: a scenario runs against whatever the fixture and earlier runs left, and must not depend on its absence.
-- Refused before the sandbox is touched, with the reason: a script path or an unknown id given to `--only`; a scenario that needs a restart, a second server or an empty home, is `unshared`, or states no needs; a second run while one runs; a run after a web, server, package or sandbox harness source changed, or the bundle was rebuilt, since the sandbox started (start a new one). Scenario files and their steps are loaded by each run, so changing them needs no new sandbox. A scenario that tries what it did not state fails naming it.
+- Refused before the sandbox is touched, with the reason: a script path or an unknown id given to `--only`; a scenario that needs a restart, a second server, an empty home, server-wide state or a condition, is `unshared`, or states no needs; a set or composed scenario with any such member or step (the whole run is refused, naming each refused member or step and its reason, so a set never runs in part); a perf scenario; a second run while one runs; a run after a web, server, package or sandbox harness source changed, or the bundle was rebuilt, since the sandbox started (start a new one). Scenario files and their steps are loaded by each run, so changing them needs no new sandbox. A scenario that tries what it did not state fails naming it.
 - Stopping it ends its server, shell host and shells and removes the home, unless it was started with `--keep-home`. A sandbox killed with SIGKILL is cleaned up by the next suite or sandbox start. A failure on it leaves artifacts as in the suite, outside the home.
 
 ## Running
 
-- `vp run test:scenarios` runs the suite and exits non-zero when a scenario fails; `-- --only <id>` runs one scenario.
-- `-- --selftest` runs the harness self-tests `T1`, `T2`, `T4`, `T10` (two setups on one server) and `T11` (a page reaches an API-made workspace from the start screen and from another workspace). `-- --selftest --only <id>` runs one of `T3`, `T5` (tries needs it did not state), `T6` (names what it makes by its run), `T7` to `T9` (each signal wait fails naming what it awaited), `T12` (a setup call fails in setup), `T13` (a workspace is not shown), `T14` (a wait fails naming what it awaited, its offset and the deadline) or `T15` (labelled artifacts from two pages and a second server). `T2`, `T5`, `T6`, `T8` to `T14` also run on a sandbox. `T2`, `T3`, `T5`, `T12`, `T13` and `T15` fail on purpose, so they exit non-zero.
+- `vp run test:scenarios` runs every check and composed scenario in the suite and exits non-zero when one fails. `-- --only <name>` runs an id, a set or a composed scenario; `--only` repeats. The summary counts what ran, passed and failed; a named set also gets its own line.
+- `vp run test:scenarios:perf -- --quiet-confirmed` is the serial perf run, after the user confirms the machine is quiet.
+- `vp run test:scenarios:loop -- <N> [--only <name>]` is the N-run determinism loop, only when an acceptance criterion asks for one.
+- `-- --selftest` runs the harness self-tests `T1`, `T2`, `T4`, `T10` (two setups on one server) and `T11` (a page reaches an API-made workspace from the start screen and from another workspace). `-- --selftest --only <name>` runs one of the others or a self-test set:
+  - `T3`; `T5` (tries needs it did not state); `T6` (names what it makes by its run); `T7` to `T9` (each signal wait fails naming what it awaited); `T12` (a setup call fails in setup); `T13` (a workspace is not shown); `T14` (a wait fails naming what it awaited, its offset and the deadline); `T15` (labelled artifacts from two pages and a second server);
+  - `T16` (returns a workspace) and `T17` (takes one, or makes its own alone); `T18` (a wrong UI state), `T19` (terminal output that never comes) and `T20` (its server crashes mid-stage), each naming stage, expected and found; `T21` (composed, fails at step 2, step 3 not run); `T22` (composed, two handovers); `T23` (`serverWide`) and `T24` (`condition`); `T25` (fails while a folder is unwritable, and the folder is restored); `T26` (composed with a restart step);
+  - sets `T-lib` (T10 to T15), `T-diagnosis`, `T-compose`, `T-needs`, `T-sandbox`, `T-restart-set` and `T-gate`.
+- `T2`, `T3`, `T5`, `T12`, `T13`, `T15`, `T18` to `T21` and `T25` fail on purpose, so they exit non-zero. Every self-test whose needs are `{}`, and every composed one made only of such steps, also runs on a sandbox; `T-restart-set`, `T23`, `T24` and `T26` are refused there.
 - Chromium is the web browser tests' Playwright Chromium: `node scripts/node_modules/playwright-core/cli.js install --only-shell chromium` once, or `--browser <path>`.
 - The web bundle is rebuilt when an input is newer than `apps/web/dist`; `--rebuild` forces it.
 - `scripts/scenarios/harness.test.ts` (Vitest) covers the runner's failure paths and the throwaway-home guard; `sandbox.test.ts` covers the sandbox.
@@ -131,5 +162,4 @@ A sandbox keeps one harness server up on a throwaway home so saved scenarios run
 
 Each line goes when its story lands.
 
-- No sets, composed scenarios, `.perf.ts` support or cap gate command yet (PRB.T-043): each scenario runs alone under its id; add no new timing to a check scenario (the existing `metric()` calls stay until then); the cap gate is one `--only <id>` run after the user's confirmation, reading the time on its `PASS` line.
-- No serial perf run or N-run loop command yet (PRB.T-040).
+- Sets, composed scenarios, the perf run, the gate and the loop run on PRB.T-040's runner; until it lands, none of them runs, and no perf scenario has run yet.
