@@ -1,4 +1,5 @@
 import type { PointerPage } from "../../browser.ts";
+import { ACTION_MS, type Deadline, seconds } from "../deadlines.ts";
 import { check } from "../waits.ts";
 
 /** A shell's tab panel; a hidden tab's panel stays mounted. */
@@ -18,16 +19,15 @@ const tabState = (page: PointerPage, shellId: string): Promise<string> =>
 
 /**
  * Waits until the page shows the shell's tab attached (its terminal takes input) and the shell at
- * its first prompt; hidden tabs count. A shell that ends meanwhile fails at once. `timeout` is for
- * the self-tests; scenarios use the page's action timeout.
+ * its first prompt; hidden tabs count. A shell that ends meanwhile fails at once.
  */
 export async function shellReady(
   page: PointerPage,
   shellId: string,
-  { timeout }: { readonly timeout?: number } = {},
+  { deadline = ACTION_MS }: { readonly deadline?: Deadline } = {},
 ) {
   const panel = shellPanel(page, shellId);
-  const wait = timeout === undefined ? {} : { timeout };
+  const wait = { timeout: deadline };
   // An ended shell leaves its tab, so a panel that was there and goes means it ended.
   const hadTab = (await panel.count()) > 0;
   const outcome = await Promise.race([
@@ -48,7 +48,7 @@ export async function shellReady(
   throw new Error(
     outcome === "ended"
       ? `Shell ${shellId} ended while waiting for it to be attached and ready (${seen}).`
-      : `Shell ${shellId} never showed attached and ready; its tab last showed ${seen}.`,
+      : `Shell ${shellId} never showed attached and ready within ${seconds(deadline)}; its tab last showed ${seen}.`,
   );
 }
 
@@ -59,7 +59,7 @@ export async function shellReady(
 export async function typeLine(
   page: PointerPage,
   text: string,
-  options: { readonly timeout?: number } = {},
+  options: { readonly deadline?: Deadline } = {},
 ) {
   const shellId = await page
     .getByRole("tabpanel")

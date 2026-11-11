@@ -5,8 +5,16 @@ import * as NodeProcess from "node:process";
 
 import * as Effect from "effect/Effect";
 import * as Stream from "effect/Stream";
+import type { Locator } from "playwright-core";
 
-import { WAIT_MS } from "./deadlines.ts";
+import {
+  ACTION_MS,
+  type Deadline,
+  PROCESS_END_MS,
+  PROCESS_END_STEP_MS,
+  seconds,
+  WAIT_MS,
+} from "./deadlines.ts";
 
 /** Fails the scenario with `message` unless `condition` holds. */
 export function check(condition: boolean, message: string): asserts condition {
@@ -33,6 +41,34 @@ export function recorderTails(count = 20): Record<string, ReadonlyArray<unknown>
 }
 
 /**
+ * Waits for `locator` to reach `state` (Playwright's default, visible). A failure names `what`, the
+ * milestone awaited, and the deadline, instead of Playwright's selector and call log.
+ */
+export async function waitFor(
+  locator: Locator,
+  what: string,
+  {
+    state = "visible",
+    deadline = ACTION_MS,
+  }: {
+    readonly state?: "attached" | "detached" | "visible" | "hidden";
+    readonly deadline?: Deadline;
+  } = {},
+) {
+  try {
+    await locator.waitFor({ state, timeout: deadline });
+  } catch (error) {
+    const timedOut = error instanceof Error && error.name === "TimeoutError";
+    throw new Error(
+      timedOut
+        ? `Timed out after ${seconds(deadline)} waiting for ${what} (${state}).`
+        : `Waiting for ${what} failed: ${error instanceof Error ? error.message.split("\n")[0] : String(error)}`,
+      { cause: error },
+    );
+  }
+}
+
+/**
  * Values seen so far. `until` waits for the first one from offset `from` on that matches; pass
  * `mark()` taken before the action whose result you wait for, so an earlier value cannot answer.
  */
@@ -40,7 +76,12 @@ export function recorder<A>(label = "values") {
   const seen: Array<A> = [];
   const waiters = new Set<() => void>();
   live.add({ label, seen });
-  const until = (what: string, match: (value: A) => boolean, from: number) =>
+  const until = (
+    what: string,
+    match: (value: A) => boolean,
+    from: number,
+    { deadline = WAIT_MS }: { readonly deadline?: Deadline } = {},
+  ) =>
     new Promise<A>((resolve, reject) => {
       const check = () => {
         const found = seen.slice(from).find(match);
@@ -52,8 +93,13 @@ export function recorder<A>(label = "values") {
       // oxlint-disable-next-line t3code/no-real-time-wait-in-tests -- permanent (b): deadline raced against the value, named in the failure
       const timer = setTimeout(() => {
         waiters.delete(check);
-        reject(new Error(`Timed out waiting for ${what}.`));
-      }, WAIT_MS);
+        const since = Math.max(0, seen.length - from);
+        reject(
+          new Error(
+            `Timed out after ${seconds(deadline)} waiting for ${what} (${label} from offset ${from}, ${since} ${since === 1 ? "value" : "values"} seen since).`,
+          ),
+        );
+      }, deadline);
       waiters.add(check);
       check();
     });
@@ -104,16 +150,15 @@ export const alive = (pid: number) => {
 };
 
 /**
- * Whether a process the server does not own has ended within 5 s. A shell the server owns has an
- * end event instead: wait for it with `shellEnded`.
+ * Whether a process the server does not own has ended within `PROCESS_END_MS`. A shell the server
+ * owns has an end event instead: wait for it with `shellEnded`.
  */
 export async function gone(pid: number): Promise<boolean> {
-  // Up to 5 s: 50 checks 100 ms apart.
   // oxlint-disable-next-line t3code/no-polling-loop-in-tests -- permanent (c): nothing reports the end of a process the server does not own
   for (let attempt = 0; alive(pid); attempt++) {
-    if (attempt === 50) return false;
+    if (attempt === PROCESS_END_MS / PROCESS_END_STEP_MS) return false;
     // oxlint-disable-next-line t3code/no-real-time-wait-in-tests -- permanent (c): nothing reports the end of a process the server does not own
-    await new Promise((resolve) => setTimeout(resolve, 100));
+    await new Promise((resolve) => setTimeout(resolve, PROCESS_END_STEP_MS));
   }
   return true;
 }

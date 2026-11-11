@@ -1,6 +1,8 @@
 import type { PointerPage } from "../browser.ts";
 import type { ServerEnv, ServerHandle } from "../server.ts";
 import { connectRpc, type RpcConnection } from "./api.ts";
+import { ACTION_MS, type Deadline, seconds } from "./deadlines.ts";
+import { waitFor } from "./waits.ts";
 
 /**
  * Records every layout save state the page shows, from each page load on, so a scenario can
@@ -37,12 +39,12 @@ export const layoutState = (page: PointerPage, state: "pending" | "saved" | "fai
 export async function layoutSaved(
   page: PointerPage,
   workspace: string,
-  { timeout }: { readonly timeout?: number } = {},
+  { deadline = ACTION_MS }: { readonly deadline?: Deadline } = {},
 ) {
   const screen = page.getByTestId("workspace-screen");
   if ((await screen.getAttribute("data-layout-save")) === null) return;
   const state = (value: "saved" | "failed") => layoutState(page, value);
-  const wait = timeout === undefined ? {} : { timeout };
+  const wait = { timeout: deadline };
   const outcome = await Promise.race([
     state("saved")
       .waitFor(wait)
@@ -56,7 +58,7 @@ export async function layoutSaved(
   throw new Error(
     outcome === "failed"
       ? `Saving the layout of ${workspace} failed (the page shows ${seen}).`
-      : `The layout of ${workspace} was never saved; the page last showed ${seen}.`,
+      : `The layout of ${workspace} was never saved within ${seconds(deadline)}; the page last showed ${seen}.`,
   );
 }
 
@@ -77,7 +79,10 @@ export async function reloadShowing(page: PointerPage, name: string) {
       .click();
     await page.getByRole("menuitem", { name, exact: true }).click();
   }
-  await page.getByRole("tree").getByRole("treeitem", { level: 1, name }).waitFor();
+  await waitFor(
+    page.getByRole("tree").getByRole("treeitem", { level: 1, name }),
+    `the tree to show workspace ${name} after the reload`,
+  );
 }
 
 /** Restarts the server (a real restart), reloads the page onto "sparta" and connects again. */

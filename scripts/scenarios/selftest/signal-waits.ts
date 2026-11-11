@@ -9,17 +9,17 @@ import * as Effect from "effect/Effect";
 
 import { frameHolder, type PointerPage } from "../browser.ts";
 import { connectRpc } from "../lib/api.ts";
+import { SELFTEST_SHORT_MS, seconds } from "../lib/deadlines.ts";
 import { layoutSaved, layoutState } from "../lib/navigate.ts";
 import { setUp } from "../lib/setup.ts";
 import { history, shellEnded, shellList } from "../lib/shells.ts";
 import { startShell } from "../lib/ui/plusModal.ts";
 import { closeTab } from "../lib/ui/tabs.ts";
 import { shellReady, typeLine } from "../lib/ui/terminal.ts";
-import { check } from "../lib/waits.ts";
+import { check, recorder, waitFor } from "../lib/waits.ts";
 import type { Scenario, ScenarioContext } from "../scenario.ts";
 
-/** A wait that must fail fast in a self-test, so the self-test does not take the page timeout. */
-const SHORT_MS = 2_000;
+const SHORT = seconds(SELFTEST_SHORT_MS);
 
 /** The message of `wait`'s failure; fails the self-test when `wait` succeeds. */
 async function failure(what: string, wait: Promise<unknown>): Promise<string> {
@@ -55,19 +55,21 @@ export const typingWaitFails: Scenario = {
       const never = await startShell(page, shells, plain);
       const message = await failure(
         "Typing into a shell that is never ready",
-        typeLine(page, "echo typed-t7", { timeout: SHORT_MS }),
+        typeLine(page, "echo typed-t7", { deadline: SELFTEST_SHORT_MS }),
       );
       check(
-        message.includes(never.shellId) && message.includes("ready: starting"),
-        `The typing wait's failure does not name the shell and its states: ${message}`,
+        message.includes(never.shellId) &&
+          message.includes("ready: starting") &&
+          message.includes(SHORT),
+        `The typing wait's failure does not name the shell, its states and the deadline: ${message}`,
       );
       check(
         !(await history(rpc.client, never.shellId)).includes("typed-t7"),
         "The typing wait typed into a shell that was not ready.",
       );
 
-      // A shell that ends while the wait runs fails it at once, not at its (long) deadline.
-      const ending = shellReady(page, never.shellId, { timeout: 60_000 });
+      // A shell that ends while the wait runs fails it at once, not at its deadline.
+      const ending = shellReady(page, never.shellId);
       NodeProcess.kill(never.pid!, "SIGKILL");
       const ended = await failure("Waiting for a shell that ends", ending);
       check(
@@ -99,11 +101,11 @@ export const layoutWaitFails: Scenario = {
       await layoutState(page, "pending").waitFor();
       const message = await failure(
         "Waiting for a held layout save",
-        layoutSaved(page, name, { timeout: SHORT_MS }),
+        layoutSaved(page, name, { deadline: SELFTEST_SHORT_MS }),
       );
       check(
-        message.includes(name) && message.includes("pending"),
-        `The layout wait's failure does not name the workspace and its state: ${message}`,
+        message.includes(name) && message.includes("pending") && message.includes(SHORT),
+        `The layout wait's failure does not name the workspace, its state and the deadline: ${message}`,
       );
       holder.release();
     } finally {
@@ -135,5 +137,44 @@ export const endCheckFails: Scenario = {
       survivor.kill("SIGKILL");
       await rpc.close();
     }
+  },
+};
+
+export const waitFailuresNamed: Scenario = {
+  id: "T14",
+  title: "a wait whose event never comes fails naming what it awaited, its offset and the deadline",
+  needs: {},
+  run: async ({ openPage }) => {
+    const values = recorder<string>("t14 values");
+    values.push("before");
+    const from = values.mark();
+    values.push("after-1");
+    values.push("after-2");
+    const recorded = await failure(
+      "Waiting for a value that never comes",
+      values.until("the value never-t14", (value) => value === "never-t14", from, {
+        deadline: SELFTEST_SHORT_MS,
+      }),
+    );
+    check(
+      recorded.includes("the value never-t14") &&
+        recorded.includes("t14 values") &&
+        recorded.includes(`offset ${from}`) &&
+        recorded.includes("2 values seen since") &&
+        recorded.includes(SHORT),
+      `The recorder wait's failure does not name what, its recorder, offset, count and deadline: ${recorded}`,
+    );
+
+    const page = await openPage();
+    const located = await failure(
+      "Waiting for an element that never shows",
+      waitFor(page.getByTestId("never-t14"), "the element never-t14", {
+        deadline: SELFTEST_SHORT_MS,
+      }),
+    );
+    check(
+      located.includes("the element never-t14") && located.includes(SHORT),
+      `The page wait's failure does not name what it awaited and the deadline: ${located}`,
+    );
   },
 };
