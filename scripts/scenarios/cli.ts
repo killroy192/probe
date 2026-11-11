@@ -543,12 +543,12 @@ function runPlaywright(
       }
     };
     const signals = ["SIGINT", "SIGTERM", "SIGHUP"] as const;
-    for (const signal of signals) NodeProcess.on(signal, forward);
+    for (const signal of signals) process.on(signal, forward);
     child.once("error", (error) =>
       reject(new Error(`Could not start Playwright: ${error.message}`, { cause: error })),
     );
     child.once("exit", (code) => {
-      for (const signal of signals) NodeProcess.off(signal, forward);
+      for (const signal of signals) process.off(signal, forward);
       resolve({ code: code ?? 1, signalled });
     });
   });

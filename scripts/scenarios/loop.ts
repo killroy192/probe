@@ -199,7 +199,7 @@ async function main(): Promise<number> {
   const { plan } = planned;
 
   for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"] as const) {
-    NodeProcess.on(signal, () => {
+    process.on(signal, () => {
       interrupted = true;
       // A terminal's Ctrl-C reaches the launcher too; it stops once however often it is told.
       child?.kill(signal);

@@ -15,9 +15,9 @@ const plan = readRunPlan(NodeProcess.env);
 // Workers load this file too; only Playwright's main process is the launcher's child.
 if (plan !== undefined && NodeProcess.ppid === plan.launcher.pid) {
   const manifest = openManifest(undefined, plan.launcher);
-  NodeProcess.once("exit", () => manifest.close());
+  process.once("exit", () => manifest.close());
   // A launcher killed with SIGKILL closes the IPC channel; SIGINT is Playwright's graceful stop.
-  NodeProcess.once("disconnect", () => NodeProcess.kill(NodeProcess.pid, "SIGINT"));
+  process.once("disconnect", () => NodeProcess.kill(NodeProcess.pid, "SIGINT"));
 }
 
 const outputRoot =
