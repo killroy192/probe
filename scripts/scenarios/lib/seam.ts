@@ -6,6 +6,7 @@ import { deriveWsBaseUrl, normalizeHttpBaseUrl } from "@t3tools/shared/advertise
 import type { PointerPage } from "../browser.ts";
 import type { ServerHandle } from "../server.ts";
 import { environmentId, serverToken } from "./api.ts";
+import { pageSettled } from "./navigate.ts";
 
 // Mirrors `apps/web/src/connection/storage.ts`; R1 fails if the app stops reading this shape.
 const DATABASE_NAME = "t3code:connection-runtime";
@@ -21,7 +22,7 @@ export interface SavedServer {
 
 /**
  * Saves `server` in the browser's connection catalog, as a paired bearer environment would be,
- * then reloads so the app's connection runtime reads it. The page must already be on the UI.
+ * then reloads so the app's connection runtime reads it.
  */
 export async function saveServerInBrowser(
   page: PointerPage,
@@ -52,6 +53,8 @@ export async function saveServerInBrowser(
     remoteDpopTokens: [],
     disabledEnvironmentIds: [],
   });
+  // The app creates the catalog store when it boots; written earlier, the store is missing.
+  await pageSettled(page, "saving a server in the browser");
   // A string, since this package has no DOM types; it runs in the page.
   await page.evaluate(`new Promise((resolve, reject) => {
     const open = indexedDB.open(${JSON.stringify(DATABASE_NAME)});

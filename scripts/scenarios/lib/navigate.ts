@@ -140,18 +140,22 @@ export interface ShownPage {
  * Brings the page to `ws` with the "Workspaces" menu, from the start screen or another workspace,
  * and waits for the tree to show it; a failure names the workspace and what the menu offered.
  */
-export async function showWorkspace(page: PointerPage, ws: WorkspaceResult): Promise<ShownPage> {
-  const shown: ShownPage = { kind: "page", page, workspace: ws };
-  const tree = page.getByRole("tree");
-  const header = workspaceRoot(page, ws.name);
+/** Waits until the page has settled on a workspace or the start screen, so the app has booted. */
+export async function pageSettled(page: PointerPage, before: string) {
   const startScreen = page
     .getByTestId("workspace-screen")
     .getByRole("button", { name: "Open workspace" });
-  // A remembered workspace may still be coming back: wait until the page settles on one or none.
   await waitFor(
-    startScreen.or(tree.getByRole("treeitem", { level: 1 })).first(),
-    `the page to settle on a workspace or the start screen before showing ${ws.name}`,
+    startScreen.or(page.getByRole("tree").getByRole("treeitem", { level: 1 })).first(),
+    `the page to settle on a workspace or the start screen before ${before}`,
   );
+}
+
+export async function showWorkspace(page: PointerPage, ws: WorkspaceResult): Promise<ShownPage> {
+  const shown: ShownPage = { kind: "page", page, workspace: ws };
+  const header = workspaceRoot(page, ws.name);
+  // A remembered workspace may still be coming back: wait until the page settles on one or none.
+  await pageSettled(page, `showing ${ws.name}`);
   if ((await header.count()) > 0) return shown;
   try {
     await openWorkspace(page, ws.name);
