@@ -63,7 +63,8 @@ export function describeExit(label: string, pid: number | undefined, exit: Unexp
   const lines = exit.tail
     .split("\n")
     .map((line) => line.trimEnd())
-    .filter((line) => line !== "")
+    // The startup pairing QR code is block art that names nothing and encodes a pairing token.
+    .filter((line) => /[\p{L}\p{N}]/u.test(line))
     .slice(-LAST_LINES);
   const who = pid === undefined ? label : `${label} (pid ${pid})`;
   return [

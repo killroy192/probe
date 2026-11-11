@@ -147,7 +147,7 @@ describe("artifacts", () => {
 
 describe("describeExit", () => {
   it("names the server, how it ended and its last lines", () => {
-    const tail = ["one", "two", "", "three", "four", "five", "six"].join("\n");
+    const tail = ["one", "two", "", "three", "four", "  █▀▀▀█ ▄▄", "five", "six"].join("\n");
     expect(describeExit("shared server", 42, { code: null, signal: "SIGKILL", tail })).toBe(
       [
         "the shared server (pid 42) exited unexpectedly with SIGKILL; its last lines:",
