@@ -15,6 +15,7 @@ import { deliberateFailure } from "./selftest/deliberate-failure.ts";
 import { oneLogin } from "./selftest/one-login.ts";
 import { restartPersistence } from "./selftest/restart-persistence.ts";
 import { secondServerFailure } from "./selftest/second-server-failure.ts";
+import { labelledArtifacts } from "./selftest/labelled-artifacts.ts";
 import { endCheckFails, layoutWaitFails, typingWaitFails } from "./selftest/signal-waits.ts";
 import { unstatedNeeds } from "./selftest/unstated-needs.ts";
 import type { Scenario } from "./scenario.ts";
@@ -57,4 +58,5 @@ export const pickedSelftestScenarios: ReadonlyArray<Scenario> = [
   typingWaitFails,
   layoutWaitFails,
   endCheckFails,
+  labelledArtifacts,
 ];

@@ -32,10 +32,18 @@ export interface ServerHandle {
   readonly kill: () => Promise<void>;
   /** Stops the server and starts it again on the same home and port, with `env` on top of the defaults. */
   readonly restart: (options?: { readonly env?: ServerEnv }) => Promise<void>;
-  /** Everything the server has printed so far, across restarts (info level). */
+  /** The last few MiB the server has printed, across restarts. */
   readonly logs: () => string;
-  /** Resolves with the first log entry that `match` accepts, from the start of the logs on. */
-  readonly logged: (what: string, match: (entry: string) => boolean) => Promise<string>;
+  /** How many bytes of log the server has printed so far, across restarts; only ever grows. */
+  readonly logMark: () => number;
+  /** Everything the server printed after `mark`, read from its log file, so nothing is cut. */
+  readonly logSince: (mark: number) => string;
+  /** Resolves with the first log entry from `from` (a `logMark`, default the start) on that `match` accepts. */
+  readonly logged: (
+    what: string,
+    match: (entry: string) => boolean,
+    options?: { readonly from?: number },
+  ) => Promise<string>;
   /** Mints a one-time pairing URL that signs a browser in without a human. */
   readonly pairingUrl: () => Promise<string>;
   /** How many pairing URLs were minted, each one a CLI process start. */
@@ -187,15 +195,53 @@ export function parsePairingCredentialOutput(output: string): string {
 /** The log entries in `logs`; an entry starts with its time and continues on indented lines. */
 const entriesOf = (logs: string) => logs.split(/\n(?=\S)/);
 
-/** Entries of `read()` that `match` accepts, checked again each time `subscribe` wakes it. */
+/** The bytes of `file` from `from` to its end; empty when the file is missing. */
+function bytesFrom(file: string, from: number): Buffer {
+  let fd: number;
+  try {
+    fd = NodeFS.openSync(file, "r");
+  } catch {
+    return Buffer.alloc(0);
+  }
+  try {
+    const size = NodeFS.fstatSync(fd).size;
+    if (size <= from) return Buffer.alloc(0);
+    const buffer = Buffer.alloc(size - from);
+    const read = NodeFS.readSync(fd, buffer, 0, buffer.length, from);
+    return buffer.subarray(0, read);
+  } finally {
+    NodeFS.closeSync(fd);
+  }
+}
+
+function fileSize(file: string): number {
+  try {
+    return NodeFS.statSync(file).size;
+  } catch {
+    return 0;
+  }
+}
+
+/**
+ * Log entries of `file` from a byte offset on that `match` accepts, checked again each time
+ * `subscribe` wakes it. Each check reads only what follows the last entry that may still grow.
+ */
 const waitForLog =
-  (read: () => string, subscribe: (wake: () => void) => () => void) =>
-  (what: string, match: (entry: string) => boolean) =>
+  (file: string, subscribe: (wake: () => void) => () => void) =>
+  (what: string, match: (entry: string) => boolean, options?: { readonly from?: number }) =>
     new Promise<string>((resolve, reject) => {
       let unsubscribe = () => {};
+      let position = options?.from ?? 0;
       const check = () => {
-        const found = entriesOf(read()).find(match);
-        if (found === undefined) return;
+        const text = bytesFrom(file, position).toString("utf8");
+        if (text === "") return;
+        const entries = entriesOf(text);
+        const found = entries.find(match);
+        if (found === undefined) {
+          const growing = entries.at(-1) ?? "";
+          position += Buffer.byteLength(text.slice(0, text.length - growing.length));
+          return;
+        }
         clearTimeout(timer);
         unsubscribe();
         resolve(found);
@@ -249,13 +295,19 @@ export async function startServer(options: {
   readonly onOutput?: (chunk: string) => void;
   /** Called whenever a server process ends, including the stops and restarts the harness makes. */
   readonly onExit?: (how: string) => void;
+  /** The server's `--log-level`, debug unless given; null starts it without the flag. */
+  readonly logLevel?: string | null;
 }): Promise<ServerHandle> {
   const serverBin = options.serverBin ?? DEFAULT_SERVER_BIN;
   const port = await reservePort();
   const origin = `http://${HOST}:${port}`;
   let child: NodeChildProcess.ChildProcess | undefined;
   let logs = "";
+  const logFile = harnessLogFileIn(options.home);
+  NodeFS.mkdirSync(NodePath.dirname(logFile), { recursive: true });
+  let logBytes = fileSize(logFile);
   const logWaiters = new Set<() => void>();
+  const logLevel = options.logLevel === undefined ? "debug" : options.logLevel;
   let pairings = 0;
   const defaults: ServerEnv = {
     // Without a UTF-8 locale zsh counts a prompt's "➜" as three columns and redraws over the
@@ -281,12 +333,14 @@ export async function startServer(options: {
         "--base-dir",
         options.home,
         "--no-browser",
-        "--log-level",
-        "info",
+        ...(logLevel === null ? [] : ["--log-level", logLevel]),
       ],
       { cwd: REPO_ROOT, env: envFor(env), stdio: ["ignore", "pipe", "pipe"] },
     );
     child = spawned;
+    // Opened per process and closed once its output ends; a write after the home is gone is harmless.
+    const logFd = NodeFS.openSync(logFile, "a");
+    spawned.once("close", () => NodeFS.closeSync(logFd));
     spawned.once("exit", (code, signal) =>
       options.onExit?.(signal === null ? `code ${String(code)}` : signal),
     );
@@ -294,6 +348,9 @@ export async function startServer(options: {
     try {
       await waitUntilServing(spawned, origin, (chunk) => {
         options.onOutput?.(chunk);
+        const bytes = Buffer.from(chunk);
+        NodeFS.writeSync(logFd, bytes);
+        logBytes += bytes.length;
         logs = (logs + chunk).slice(-LOG_LIMIT);
         for (const wake of logWaiters) wake();
       });
@@ -326,13 +383,12 @@ export async function startServer(options: {
       await start(restartOptions?.env);
     },
     logs: () => logs,
-    logged: waitForLog(
-      () => logs,
-      (wake) => {
-        logWaiters.add(wake);
-        return () => logWaiters.delete(wake);
-      },
-    ),
+    logMark: () => logBytes,
+    logSince: (mark) => bytesFrom(logFile, mark).toString("utf8"),
+    logged: waitForLog(logFile, (wake) => {
+      logWaiters.add(wake);
+      return () => logWaiters.delete(wake);
+    }),
     pairingUrl: async () => {
       pairings += 1;
       const credential = parsePairingCredentialOutput(
@@ -346,6 +402,11 @@ export async function startServer(options: {
     shellHostPid,
     stopShellHost: (signal) => stopShellHostIn(options.home, signal),
   };
+}
+
+/** Every server started on `home` appends its output here, so a failure can copy all of it. */
+function harnessLogFileIn(home: string): string {
+  return NodePath.join(home, "harness", "server.log");
 }
 
 function rawOutputDirIn(home: string): string {
@@ -392,7 +453,9 @@ export function attachServer(
     kill: refused("a server stop"),
     restart: refused("a restart"),
     logs: readLogs,
-    logged: waitForLog(readLogs, (wake) => {
+    logMark: () => fileSize(target.logFile),
+    logSince: (mark) => bytesFrom(target.logFile, mark).toString("utf8"),
+    logged: waitForLog(target.logFile, (wake) => {
       const watcher = NodeFS.watch(target.logFile, wake);
       return () => watcher.close();
     }),

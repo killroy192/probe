@@ -3,7 +3,6 @@
 
 import * as NodeCrypto from "node:crypto";
 import * as NodeFS from "node:fs";
-import * as NodeFSP from "node:fs/promises";
 import * as NodePath from "node:path";
 import * as NodeProcess from "node:process";
 
@@ -32,8 +31,8 @@ import {
 } from "./environment.ts";
 import { scenarioShell } from "./isolation.ts";
 import { ACTION_MS } from "./lib/deadlines.ts";
-import { createTrail } from "./lib/trail.ts";
-import { recorderTails, resetRecorders } from "./lib/waits.ts";
+import { createTrail, StageFailure } from "./lib/trail.ts";
+import { resetRecorders } from "./lib/waits.ts";
 import {
   pickedSelftestScenarios,
   scenarios,
@@ -45,7 +44,6 @@ import type { Scenario } from "./scenario.ts";
 import { attachServer, REPO_ROOT, startServer, type ServerHandle } from "./server.ts";
 
 const TOTAL = 8;
-const LOG_TAIL_LINES = 200;
 
 // Everything the run started, so an interrupt or a failure stops exactly that and nothing else.
 const cleanups: Array<() => Promise<void>> = [];
@@ -72,62 +70,12 @@ const write = (line: string) => NodeProcess.stdout.write(`${line}\n`);
 // Run and scenario durations are printed, never judged (NFR-6).
 // oxlint-disable-next-line t3code/no-wall-clock-in-tests -- permanent (a): the runner's printed timing
 const clock = () => performance.now();
+const VIEWPORT = { width: 1200, height: 800 };
 const seconds = (fromMs: number) => `${((clock() - fromMs) / 1000).toFixed(1)} s`;
 
 interface Owned {
-  readonly label: string;
   handle: ServerHandle | undefined;
   readonly stop: () => Promise<void>;
-}
-
-/** Saves what a failure leaves; each piece on its own, so one that fails never hides the error. */
-async function saveArtifacts(
-  dir: string,
-  error: unknown,
-  pages: ReadonlyArray<PointerPage>,
-  servers: ReadonlyArray<Owned>,
-): Promise<{ readonly saved: ReadonlyArray<string>; readonly missing: ReadonlyArray<string> }> {
-  const saved: Array<string> = [];
-  const missing: Array<string> = [];
-  const attempt = async (name: string, save: (path: string) => Promise<unknown>) => {
-    const path = NodePath.join(dir, name);
-    try {
-      await save(path);
-      saved.push(name);
-    } catch (cause) {
-      missing.push(`${name}: ${cause instanceof Error ? cause.message.split("\n")[0] : cause}`);
-    }
-  };
-  try {
-    await NodeFSP.mkdir(dir, { recursive: true });
-  } catch (cause) {
-    return {
-      saved,
-      missing: [`${dir}: ${cause instanceof Error ? cause.message.split("\n")[0] : cause}`],
-    };
-  }
-  await attempt("error.txt", (path) =>
-    NodeFSP.writeFile(
-      path,
-      error instanceof Error ? (error.stack ?? error.message) : String(error),
-    ),
-  );
-  for (const [index, page] of pages.entries()) {
-    if (page.isClosed()) continue;
-    await attempt(`page-${index + 1}.png`, (path) =>
-      page.screenshot({ path, fullPage: true, timeout: 5_000 }),
-    );
-  }
-  for (const { label, handle } of servers) {
-    if (handle === undefined) continue;
-    await attempt(`${label.replace(/\s+/g, "-")}-log-tail.txt`, (path) =>
-      NodeFSP.writeFile(path, handle.logs().split("\n").slice(-LOG_TAIL_LINES).join("\n")),
-    );
-  }
-  await attempt("recorders.json", (path) =>
-    NodeFSP.writeFile(path, JSON.stringify(recorderTails(), null, 2)),
-  );
-  return { saved, missing };
 }
 
 interface SandboxTarget {
@@ -218,8 +166,8 @@ async function runScenario(
 ): Promise<Outcome> {
   const startedMs = clock();
   resetRecorders();
+  const trail = createTrail();
   const owned: Array<Owned> = [];
-  const pages: Array<PointerPage> = [];
   const contexts: Array<BrowserContext> = [];
   const startOwnedServer = async (label: string, serverBin: string | undefined) => {
     // oxlint-disable-next-line t3code/no-wall-clock-in-tests -- permanent (a): the PID-reuse guard's timestamp
@@ -232,7 +180,6 @@ async function runScenario(
       manifest?.add(entry);
     };
     const server: Owned = {
-      label,
       handle: undefined,
       stop: async () => {
         await server.handle?.kill();
@@ -253,6 +200,7 @@ async function runScenario(
       onSpawn: record,
     });
     write(`scenarios: ${scenario.id} ${label} pid=${server.handle.pid()} home=${home}`);
+    trail.addServer(label, server.handle);
     return server.handle;
   };
 
@@ -261,8 +209,8 @@ async function runScenario(
       record,
       (need) => new Error(`${scenario.id} tried ${need} on the sandbox, a need it did not state.`),
     );
-    // Listed for the failure artifacts only; the sandbox owns and stops its server.
-    owned.push({ label: "sandbox server", handle, stop: async () => {} });
+    // Its log from now on is this run's share; the sandbox owns and stops its server.
+    trail.addServer("sandbox server", handle);
     return handle;
   };
 
@@ -270,9 +218,9 @@ async function runScenario(
   let error: unknown;
   let artifacts: string | undefined;
   const fail = async (caught: unknown) => {
-    error = caught;
+    error = caught instanceof StageFailure ? caught : new StageFailure(trail.current(), caught);
     const dir = NodePath.join(artifactsRoot, scenario.id);
-    const { saved, missing } = await saveArtifacts(dir, caught, pages, owned);
+    const { saved, missing } = await trail.save(dir, error);
     artifacts = [
       `artifacts: ${dir}${saved.length > 0 ? ` (${saved.join(", ")})` : ""}`,
       ...missing.map((note) => `artifact missing: ${note}`),
@@ -291,14 +239,15 @@ async function runScenario(
       session = await context.storageState();
     };
     const newPage = async (signedIn: boolean): Promise<PointerPage> => {
-      const context = await browser.newContext(
-        signedIn && session !== undefined ? { storageState: session } : {},
-      );
+      const context = await browser.newContext({
+        viewport: VIEWPORT,
+        ...(signedIn && session !== undefined ? { storageState: session } : {}),
+      });
       contexts.push(context);
       // A broken step should fail in seconds; Playwright's 30 s default makes each failure slow.
       context.setDefaultTimeout(ACTION_MS);
       const page = await context.newPage();
-      pages.push(page);
+      trail.addPage(signedIn ? "signed-in" : "anonymous", page);
       if (!signedIn) return page;
       if (session === undefined) {
         await signIn(page, context);
@@ -313,7 +262,7 @@ async function runScenario(
       server,
       runId: NodeCrypto.randomBytes(3).toString("hex"),
       scenarioId: scenario.id,
-      trail: createTrail(),
+      trail,
       onStepEnd: (what, undo) => {
         undos.push({ what, undo });
       },
@@ -349,6 +298,9 @@ async function runScenario(
     }
   }
   const durationMs = clock() - startedMs;
+  for (const { label, bytes } of trail.logSizes()) {
+    write(`scenarios: ${scenario.id} ${label} log=${Math.ceil(bytes / 1024)}KiB`);
+  }
   const teardownFrom = clock();
   for (const context of contexts) await context.close().catch(() => undefined);
   for (const server of owned.reverse()) {
