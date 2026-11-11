@@ -3242,35 +3242,86 @@ it.layer(
     }).pipe(Effect.provide(logs.layer));
   });
 
-  it.effect("removes a shell that exits on its own, and keeps one a signal ended", () =>
-    Effect.gen(function* () {
-      const registryPath = yield* registryIn();
-      const { manager, ptyAdapter } = yield* createManager();
-      const { host, forgotten } = yield* fakeHost([]);
-      const shells = yield* makeShells(manager, { registryPath, host });
-      const events = yield* collectList(shells);
-      const exited = yield* shells.open({ cwd: process.cwd() });
-      const signalled = yield* shells.open({ cwd: process.cwd() });
+  it.effect(
+    "removes a shell that exits on its own, and keeps one a signal ended while the other saves",
+    () =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const registryPath = yield* registryIn();
+        const { manager, ptyAdapter } = yield* createManager();
+        const { host, forgotten } = yield* fakeHost([]);
+        const held = yield* Deferred.make<void>();
+        const release = yield* Deferred.make<void>();
+        // Once armed, the next list write is held; writes that start meanwhile are tracked to landing.
+        let armed = false;
+        let heldTemp: string | null = null;
+        const meanwhile: Array<Deferred.Deferred<void>> = [];
+        const heldFs: FileSystem.FileSystem = {
+          ...fs,
+          readLink: (path) => {
+            if (path === registryPath && heldTemp !== null) {
+              meanwhile.push(Deferred.makeUnsafe<void>());
+            }
+            return fs.readLink(path);
+          },
+          writeFileString: (path, data, options) => {
+            if (!armed) return fs.writeFileString(path, data, options);
+            armed = false;
+            heldTemp = path;
+            return Deferred.succeed(held, undefined).pipe(
+              Effect.andThen(Deferred.await(release)),
+              Effect.andThen(fs.writeFileString(path, data, options)),
+            );
+          },
+          rename: (from, to) =>
+            fs.rename(from, to).pipe(
+              Effect.tap(() => {
+                const landed = to === registryPath && from !== heldTemp ? meanwhile.shift() : null;
+                return landed == null ? Effect.void : Deferred.succeed(landed, undefined);
+              }),
+            ),
+        };
+        const shells = yield* makeShells(manager, { registryPath, host }).pipe(
+          Effect.provideService(FileSystem.FileSystem, heldFs),
+        );
+        const events = yield* collectList(shells);
+        const exited = yield* shells.open({ cwd: process.cwd() });
+        const signalled = yield* shells.open({ cwd: process.cwd() });
+        const signalSeen = yield* Deferred.make<void>();
+        const stop = yield* manager.subscribe((event) =>
+          event.type === "exited" && event.exitSignal !== null && event.exitSignal > 0
+            ? Deferred.succeed(signalSeen, undefined).pipe(Effect.asVoid)
+            : Effect.void,
+        );
 
-      ptyAdapter.processes[0]!.emitExit({ exitCode: 1, signal: 0 });
-      ptyAdapter.processes[1]!.emitExit({ exitCode: 0, signal: 9 });
-      // Each end is saved before the host is told to forget the shell.
-      expect([yield* Queue.take(forgotten), yield* Queue.take(forgotten)].sort()).toEqual(
-        [exited.pid!, signalled.pid!].sort(),
-      );
+        // The list without the exited shell is held mid-write, before the signal end is known.
+        armed = true;
+        ptyAdapter.processes[0]!.emitExit({ exitCode: 1, signal: 0 });
+        yield* Deferred.await(held);
+        ptyAdapter.processes[1]!.emitExit({ exitCode: 0, signal: 9 });
+        // Shells subscribed first, so the signal end has changed the list by the time this sees it.
+        yield* Deferred.await(signalSeen);
+        stop();
+        // The held list lands last: the order that dropped the end while writes could overlap.
+        for (const landed of meanwhile) yield* Deferred.await(landed);
+        yield* Deferred.succeed(release, undefined);
+        // Each end is saved before the host is told to forget the shell.
+        expect([yield* Queue.take(forgotten), yield* Queue.take(forgotten)].sort()).toEqual(
+          [exited.pid!, signalled.pid!].sort(),
+        );
 
-      expect(yield* events).toContainEqual({ type: "remove", shellId: exited.shellId });
-      expect((yield* shells.list).map((shell) => [shell.shellId, shell.ended])).toEqual([
-        [signalled.shellId, "signal"],
-      ]);
-      const next = yield* makeShells((yield* createManager()).manager, {
-        registryPath,
-        host: (yield* fakeHost([])).host,
-      });
-      expect((yield* next.list).map((shell) => [shell.shellId, shell.ended])).toEqual([
-        [signalled.shellId, "signal"],
-      ]);
-    }),
+        expect(yield* events).toContainEqual({ type: "remove", shellId: exited.shellId });
+        expect((yield* shells.list).map((shell) => [shell.shellId, shell.ended])).toEqual([
+          [signalled.shellId, "signal"],
+        ]);
+        const next = yield* makeShells((yield* createManager()).manager, {
+          registryPath,
+          host: (yield* fakeHost([])).host,
+        });
+        expect((yield* next.list).map((shell) => [shell.shellId, shell.ended])).toEqual([
+          [signalled.shellId, "signal"],
+        ]);
+      }),
   );
 
   it.effect("restores an ended shell in place on request, and only an ended one", () =>
