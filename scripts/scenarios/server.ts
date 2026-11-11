@@ -124,6 +124,9 @@ export const childEnv = (
   for (const key of Object.keys(env)) {
     if (RESERVED_PREFIXES.some((prefix) => key.startsWith(prefix))) delete env[key];
   }
+  // Playwright's workers set FORCE_COLOR, which outranks NO_COLOR and colours the numbers log
+  // matchers read.
+  delete env.FORCE_COLOR;
   for (const [key, value] of Object.entries(overrides)) {
     if (value === undefined) delete env[key];
     else env[key] = value;

@@ -1294,8 +1294,12 @@ describe("shell isolation", () => {
     );
   });
 
-  it("never hands the server a Probe, Vite or T3 variable, and always the harness's git config", () => {
-    const env = childEnv({}, { T3CODE_HOME: "/x", VITE_WS_URL: "ws://x", PROBE_X: "1", KEEP: "1" });
+  it("never hands the server a Probe, Vite or T3 variable or forced colour, and always the harness's git config", () => {
+    const env = childEnv(
+      {},
+      { T3CODE_HOME: "/x", VITE_WS_URL: "ws://x", PROBE_X: "1", FORCE_COLOR: "1", KEEP: "1" },
+    );
+    assert.notProperty(env, "FORCE_COLOR");
     assert.deepEqual(
       Object.keys(env).filter((key) => /^(T3CODE_|VITE_|PROBE_)/.test(key)),
       [],
