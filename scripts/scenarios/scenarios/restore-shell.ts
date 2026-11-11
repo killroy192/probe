@@ -103,8 +103,19 @@ export const restoreAfterSignal = defineCheck(import.meta.url, {
   id: "S8.restore-after-signal",
   title: "a shell a signal ended stays listed and runs again only on the user's Restore",
   needs: {},
-  // The S8 behavior is the E-001 requirement: the restore is the user's, never automatic.
-  covers: ["S8 restore after a signal", "S8 PRB.E-001 FR-17"],
+  // One signal and one Restore prove them: the ended row and the restored shell, its tab and input.
+  verifies: [
+    "restore-shell/FR-1",
+    "restore-shell/FR-2",
+    "restore-shell/FR-3",
+    "restore-shell/FR-4",
+    "restore-shell/FR-5",
+    "restore-shell/FR-6",
+    "restore-shell/FR-7",
+    "kill-shell/FR-24",
+    "kill-shell/FR-25",
+    "workspaces/FR-25",
+  ],
   run: async (ctx) => {
     const { trail } = ctx;
     const { page, frames, setup, shells } = await prepare(ctx, ["plain"], [1]);
@@ -159,8 +170,7 @@ export const noRestoreExitKill = defineCheck(import.meta.url, {
   id: "S8.no-restore-exit-kill",
   title: "a shell that exits or is killed leaves the list and offers nothing to restore",
   needs: {},
-  // An exit and a kill are the two ways a shell leaves for good, which FR-19 names.
-  covers: ["S8 no restore for exit or kill", "S8 PRB.E-001 FR-19"],
+  verifies: ["restore-shell/FR-10"],
   run: async (ctx) => {
     const { trail } = ctx;
     const { page, setup, shells } = await prepare(ctx, ["plain"], [2]);
@@ -185,8 +195,8 @@ export const noRestoreMovedFolder = defineCheck(import.meta.url, {
   id: "S8.no-restore-moved-folder",
   title: "an ended shell whose folder is gone offers no Restore and can be removed",
   needs: {},
-  // A missing folder is the other case FR-19 rules out of a restore.
-  covers: ["S8 no restore for a moved folder", "S8 PRB.E-001 FR-19"],
+  // One ended shell whose folder is gone proves them: marked, no Restore, removable.
+  verifies: ["restore-shell/FR-11", "restore-shell/FR-12", "restore-shell/FR-13"],
   run: async (ctx) => {
     const { trail } = ctx;
     const { page, setup, paths, shells } = await prepare(ctx, ["moved"], [1]);
@@ -220,7 +230,7 @@ export const removeRestored = defineCheck(import.meta.url, {
   id: "S8.remove-restored",
   title: "a restored shell can be removed",
   needs: {},
-  covers: ["S8 remove after restore"],
+  verifies: ["restore-shell/FR-14"],
   run: async (ctx) => {
     const { trail } = ctx;
     const { page, setup, shells } = await prepare(ctx, ["plain"], [1]);
@@ -244,8 +254,14 @@ export const restoreAfterLostHost = defineCheck(import.meta.url, {
   id: "S8.restore-after-lost-host",
   title: "a shell lost with its shell host is listed as lost after a restart and restores in place",
   needs: { restart: true },
-  // One lost host proves the restore (FR-17) and that the lost shell keeps its number (PRB.T-015).
-  covers: ["S8 restore after a restart", "S8 PRB.T-015 numbering", "S8 PRB.E-001 FR-17"],
+  // One lost host proves them: the shell is lost, keeps its number and restores in place.
+  verifies: [
+    "reload-and-restart/FR-20",
+    "restore-shell/FR-2",
+    "restore-shell/FR-6",
+    "restore-shell/FR-8",
+    "restore-shell/FR-9",
+  ],
   run: async (ctx) => {
     const { trail } = ctx;
     const prepared = await prepare(ctx, ["plain"], [1]);
@@ -261,7 +277,7 @@ export const restoreAfterLostHost = defineCheck(import.meta.url, {
       );
     });
 
-    await trail.stage("PRB.T-015 numbering", async () => {
+    await trail.stage("numbering", async () => {
       const next = await setup.shell(projects[0]!);
       await waitFor(shellRow(page, next.shellId), `the tree row of shell ${next.shellId}`);
       expected({

@@ -80,7 +80,7 @@ export const perfScenarios: ReadonlyArray<PerfScenario> = [
   promptHarnessPerf,
 ];
 
-/** The long scenarios that PRB.T-039 split; each name is now a set of the checks that cover it. */
+/** The long scenarios split into atomic checks; each name is now the set of its successors. */
 export const OLD_IDS = [
   "S1",
   "S2",
@@ -98,17 +98,15 @@ export const OLD_IDS = [
   "T-041a",
 ] as const;
 
-const covering = (old: string) =>
-  checks
-    .filter((check) => check.covers?.some((covered) => covered.startsWith(`${old} `)))
-    .map((check) => check.id);
+const successors = (old: string) =>
+  checks.filter((check) => check.id.startsWith(`${old}.`)).map((check) => check.id);
 
 /**
- * Ids and set names share one namespace. An old id is the set of every check that covers one of
- * its criteria; `shared` is every check a sandbox accepts.
+ * Ids and set names share one namespace. An old id is the set of the checks whose ids it
+ * prefixes, as `S7.survive-restart`; `shared` is every check a sandbox accepts.
  */
 export const sets: ReadonlyArray<ScenarioSet> = [
-  ...OLD_IDS.map((old) => ({ name: old, members: covering(old) })),
+  ...OLD_IDS.map((old) => ({ name: old, members: successors(old) })),
   {
     name: "shared",
     members: checks.filter((check) => sandboxRefusal(check) === undefined).map(({ id }) => id),

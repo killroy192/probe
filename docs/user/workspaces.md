@@ -2,9 +2,8 @@
 
 The browser app opens on a terminal-first screen. A workspace is a named
 collection of projects and the shells you run in them; its shell tree has the
-workspace as its root. Chat is hidden in this build: no control opens a chat,
-and an old chat link or bookmark lands on the shown workspace, or on the start
-screen when none is shown.
+workspace as its root. Chat is hidden in this build; an old chat link opens
+this screen instead.
 
 ## Start
 
@@ -21,8 +20,7 @@ workspace's name.
 
 The left sidebar shows the shown workspace as the root of its shell tree. The
 **Workspaces** button at the top of the sidebar creates a workspace, opens
-another saved one, or removes one. Opening the workspace already shown changes
-nothing. Settings stays at the bottom of the sidebar. Search is not active yet.
+another saved one, or removes one. Settings stays at the bottom of the sidebar. Search is not active yet.
 
 Removing a workspace deletes its saved entry and kills every running shell in
 its projects, including shells another workspace started in a project they
@@ -126,14 +124,11 @@ its output, in the same place in the tree, and the workspace opens with the same
 tabs. A small helper process owns the shells while the server is down; it ends
 by itself once no shells are left.
 
-A shell that ends on its own, whatever its exit status, leaves the tree for
-good, as a killed shell does. A shell that a signal ended, or that was lost
-because its helper ended (for example in a reboot), stays in the tree marked
-"ended"; hover the mark to see why. An ended shell has no running process and
-nothing restores it by itself: hover its row and click **Restore** to start it
-again in the same folder, worktree and branch, or **×** to remove it. A restored
-shell is a new shell with empty output, marked "restored", and no agent is
-started in it; if its tab was open when it ended, the tab comes back.
+A shell that exits on its own leaves the tree, as a killed shell does. One that
+a signal ended, or that was lost with its helper (for example in a reboot),
+stays marked "ended"; hover the mark to see why. Hover its row and click
+**Restore** to start a fresh shell in the same folder, with no agent started in
+it, or **×** to remove it.
 
 When a shell's folder or worktree is gone from disk, its row is marked "moved".
 A shell still running there keeps working; an ended one can only be removed, not restored.
@@ -160,5 +155,4 @@ contain `/ \ : * ? " < > |` or control characters, end with a dot, or be a name
 the file system reserves, such as `con` or `nul`, because each workspace is
 saved as a file named after it in the server's `userdata/workspaces` folder.
 
-If a saved workspace file is unreadable or damaged, it stays in the list and
-opening it shows why.
+A damaged workspace file stays listed, but can't be opened.

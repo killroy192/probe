@@ -35,7 +35,8 @@ const perf = definePerf("file:///repo/scripts/scenarios/scenarios/x.perf.ts", {
   id: "perf-x",
   title: "x",
   needs: {},
-  measure: { name: "x", limitMs: 1, limitFrom: "PRB.T-004 AC-3" },
+  measure: { name: "x", limitMs: 1 },
+  verifies: ["shells/NFR-1"],
   run: async () => 0,
 });
 const T1 = check("T1");
@@ -45,7 +46,7 @@ const perfWithin = definePerf("file:///repo/scripts/scenarios/selftest/within.pe
   id: "T30",
   title: "within",
   needs: {},
-  measure: { name: "x", limitMs: 1, limitFrom: "PRB.T-040 AC-11" },
+  measure: { name: "x", limitMs: 1 },
   run: async () => 0,
 });
 

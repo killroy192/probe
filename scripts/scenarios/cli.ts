@@ -46,6 +46,7 @@ import {
   freshServerNeeded,
   type Registry,
   registryOf,
+  type RequirementDoc,
   resolveName,
   type Runnable,
   validateRegistry,
@@ -555,6 +556,24 @@ function runPlaywright(
   });
 }
 
+const SCENARIO_DOCS = NodePath.join(REPO_ROOT, "docs", "scenarios");
+const HARNESS_DIR = NodePath.dirname(NodeURL.fileURLToPath(import.meta.url));
+
+/** Every `docs/scenarios` file, the requirements a scenario's `verifies` may name. */
+export function requirementDocs(dir = SCENARIO_DOCS): ReadonlyArray<RequirementDoc> {
+  if (!NodeFS.existsSync(dir)) return [];
+  return NodeFS.readdirSync(dir)
+    .filter((name) => name.endsWith(".md"))
+    .map((name) => ({ name, text: NodeFS.readFileSync(NodePath.join(dir, name), "utf8") }));
+}
+
+/** The harness's own sources: every `.ts` file here but the product scenarios in `scenarios/`. */
+export function harnessFiles(dir = HARNESS_DIR): ReadonlyArray<string> {
+  return NodeFS.readdirSync(dir, { recursive: true, encoding: "utf8" })
+    .filter((path) => path.endsWith(".ts") && !path.startsWith(`scenarios${NodePath.sep}`))
+    .map((path) => NodePath.join(dir, path));
+}
+
 async function main(): Promise<number> {
   const argv = NodeProcess.argv.slice(2);
   const guard = refusalReason(argv, NodeProcess.env);
@@ -573,10 +592,12 @@ async function main(): Promise<number> {
     perfScenarios: [...suite.perfScenarios, ...selftest.perfScenarios],
     sets: [...suite.sets, ...selftest.sets],
   };
-  const rejections = validateRegistry(
-    onSandbox ? sandbox : options.selftest ? selftest : suite,
-    (file) => NodeFS.readFileSync(file, "utf8"),
-  );
+  const rejections = validateRegistry(onSandbox ? sandbox : options.selftest ? selftest : suite, {
+    readSource: (file) => NodeFS.readFileSync(file, "utf8"),
+    docs: requirementDocs(),
+    selftests: [...selftest.checks, ...selftest.composed, ...selftest.perfScenarios],
+    harnessFiles: harnessFiles(),
+  });
   if (rejections.length > 0) {
     return refuse(rejections.map(({ name, reason }) => `${name}: ${reason}`).join("; "), onSandbox);
   }

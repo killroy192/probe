@@ -13,7 +13,7 @@ const perf = definePerf("file:///repo/x.perf.ts", {
   id: "perf-x",
   title: "x",
   needs: {},
-  measure: { name: "x", limitMs: 1, limitFrom: "PRB.T-004 AC-3" },
+  measure: { name: "x", limitMs: 1 },
   run: async () => 0,
 });
 const registry = registryOf(
@@ -82,7 +82,7 @@ describe("gateTargets", () => {
     });
   });
 
-  // AC-5 and AC-13: perf and composed scenarios named directly are refused, naming why.
+  // Perf and composed scenarios named directly are refused, naming why.
   it("refuses perf, composed and unknown names", () => {
     expect(gateTargets(registry, ["perf-x", "T22", "T99"]).refusals).toStrictEqual([
       "perf-x is a perf scenario; the gate times check scenarios only",

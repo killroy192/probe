@@ -28,21 +28,21 @@ build detail.
 
 ## Epic reading of the rubric
 
-| Section                                | Usual outcome                                                                       |
-| -------------------------------------- | ----------------------------------------------------------------------------------- |
-| Goal, Why and why now                  | History: keep, condensed to the problem and why it mattered then                    |
-| KPI                                    | History: keep as the result, "target X, reached Y on <date>" (ask if unknown)       |
-| Users and scenarios                    | Project where the scenario still describes behavior (`docs/user/`, `scenarios`), else delete |
-| Scope (in and out)                     | Out-of-scope rows with a reason are History; in-scope rows are implementation       |
-| Functional / non-functional requirements | Project when a constraint outlives the epic (internals); the table itself is deleted |
-| Approach, alternatives considered      | Rejected alternatives and why: History. The chosen path: implementation             |
-| Stories (candidates)                   | Delete; the stories are tickets. Keep a "Delivered by" list of story IDs and titles |
-| Verification, Done when                | Delete the plan. The result is in the KPI line                                      |
-| Dependencies and sequencing            | Delete unless it records a decision about order that still binds (History)          |
-| Risks                                  | A risk that happened, or a mitigation that became a rule: History or Project. Others: delete |
-| Assumptions and unknowns               | Verified or false with consequences: History. Still unverified: move to `docs/dev/questions.md` |
-| Open questions                         | Unanswered: `docs/dev/questions.md`, retitled to stand alone. Answered: History or Project |
-| Notes for stories                      | Rules a future story must follow: Project (docs or rules files). Rest: delete        |
+| Section                                  | Usual outcome                                                                                                                                                                     |
+| ---------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Goal, Why and why now                    | History: keep, condensed to the problem and why it mattered then                                                                                                                  |
+| KPI                                      | History: keep as the result, "target X, reached Y on <date>" (ask if unknown)                                                                                                     |
+| Users and scenarios                      | Project where the scenario still describes behavior (`docs/user/`, `docs/scenarios/`), else delete                                                                                |
+| Scope (in and out)                       | Out-of-scope rows with a reason are History; in-scope rows are implementation                                                                                                     |
+| Functional / non-functional requirements | Built behavior: FR/NFR rows in `docs/scenarios/`; a constraint that outlives the epic: internals. The table itself is deleted; the AC to scenario-id mapping stays in the stories |
+| Approach, alternatives considered        | Rejected alternatives and why: History. The chosen path: implementation                                                                                                           |
+| Stories (candidates)                     | Delete; the stories are tickets. Keep a "Delivered by" list of story IDs and titles                                                                                               |
+| Verification, Done when                  | Delete the plan. The result is in the KPI line                                                                                                                                    |
+| Dependencies and sequencing              | Delete unless it records a decision about order that still binds (History)                                                                                                        |
+| Risks                                    | A risk that happened, or a mitigation that became a rule: History or Project. Others: delete                                                                                      |
+| Assumptions and unknowns                 | Verified or false with consequences: History. Still unverified: move to `docs/dev/questions.md`                                                                                   |
+| Open questions                           | Unanswered: `docs/dev/questions.md`, retitled to stand alone. Answered: History or Project                                                                                        |
+| Notes for stories                        | Rules a future story must follow: Project (docs or rules files). Rest: delete                                                                                                     |
 
 Product and scope decisions made in the epic belong in `docs/dev/roadmap.md` if they are not there
 yet; check, and do not duplicate.

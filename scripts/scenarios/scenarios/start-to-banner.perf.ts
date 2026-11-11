@@ -9,7 +9,8 @@ export const startToBannerPerf = definePerf(import.meta.url, {
   id: "perf-start-to-banner",
   title: "the agent's banner shows after a start from the plus modal",
   needs: {},
-  measure: { name: "click-to-banner", limitMs: 2000, limitFrom: "PRB.E-001 NFR-1" },
+  measure: { name: "click-to-banner", limitMs: 2000 },
+  verifies: ["starting-scripts/NFR-3"],
   run: async (ctx) => {
     const page = await ctx.openPage();
     const frames = pageFrames(page);

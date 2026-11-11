@@ -468,7 +468,7 @@ async function gitWorkspace(server: ServerHandle, runId: string, count: number) 
   const setup = await setupOn({ server, runId, trail: createTrail() });
   try {
     const repo = await setup.repo({ label: "project" });
-    // PRB.T-037's sandbox prints this exact name.
+    // The sandbox prints this exact name.
     const ws = await setup.workspace(`fixture-${runId}`, { exact: true });
     const project = await setup.project(ws, repo);
     const shellIds: Array<string> = [];

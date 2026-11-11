@@ -184,8 +184,8 @@ describe("scenario reporter", () => {
 
   it("prints each perf verdict and counts the misses in the perf run's summary", async () => {
     const { instance, lines } = reporter({ mode: "perf" });
-    const within = "PERF PASS perf-a a 120 ms, limit 700 ms (PRB.E-002 NFR-1)";
-    const over = "PERF FAIL perf-b b 900 ms, limit 700 ms (PRB.E-002 NFR-1)";
+    const within = "PERF PASS perf-a a 120 ms, limit 700 ms (starting-scripts/NFR-1)";
+    const over = "PERF FAIL perf-b b 900 ms, limit 700 ms (starting-scripts/NFR-1)";
     instance.onTestEnd(
       { title: "perf-a a" },
       result("passed", atomic("perf-a", { perf: { line: within, pass: true } })),

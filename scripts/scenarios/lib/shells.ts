@@ -226,7 +226,7 @@ export async function agentReady(client: WsClient, shellId: string) {
 }
 
 /**
- * PRB.T-011 on a shell's raw output (`ServerHandle.rawOutput`): the agent command was typed once,
+ * Checks on a shell's raw output (`ServerHandle.rawOutput`): the agent command was typed once,
  * after the first prompt. A prompt may scroll and redraw the line, so the command's last word
  * stands for it and is not counted; a second typing shows as a second session or as the agent
  * echoing it.

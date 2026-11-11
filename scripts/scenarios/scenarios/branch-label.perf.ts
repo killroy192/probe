@@ -16,7 +16,8 @@ export const branchLabelPerf = definePerf(import.meta.url, {
   id: "perf-branch-label",
   title: "a branch switch in a shell relabels its worktree node",
   needs: {},
-  measure: { name: "switch-to-label", limitMs: 3000, limitFrom: "PRB.T-005 AC-26" },
+  measure: { name: "switch-to-label", limitMs: 3000 },
+  verifies: ["worktrees/NFR-2"],
   run: async (ctx) => {
     const page = await ctx.openPage();
     const setup = await setupOn(ctx, { as: page });

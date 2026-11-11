@@ -235,11 +235,11 @@ describe("scenario launcher", () => {
       // The second run: the perf self-tests, one within its budget and one over it.
       assert.match(
         output,
-        /PASS\s+T33 a perf self-test within its budget \([^)]*\)\n\s+PERF PASS T33 open-a-page \d+ ms, limit 60000 ms \(PRB\.T-040 AC-11\)/,
+        /PASS\s+T33 a perf self-test within its budget \([^)]*\)\n\s+PERF PASS T33 open-a-page \d+ ms, limit 60000 ms/,
       );
       assert.match(
         output,
-        /FAIL\s+T34 a perf self-test over its budget \([^)]*\): PERF FAIL T34 open-a-page \d+ ms, limit 1 ms \(PRB\.T-040 AC-11\)/,
+        /FAIL\s+T34 a perf self-test over its budget \([^)]*\): PERF FAIL T34 open-a-page \d+ ms, limit 1 ms/,
       );
       assert.include(output, "perf: 2 measured, 1 over the limit");
       assert.match(output, /scenarios: self-test 2 ran, 1 passed, 1 failed/);
@@ -681,7 +681,7 @@ describe("scenario launcher", () => {
       ).done;
       assert.strictEqual(code, 1, output);
       const serverMs = Number(
-        /PERF FAIL perf-prompt-server start-to-prompt (\d+) ms, limit 700 ms \(PRB\.E-002 NFR-1\)/.exec(
+        /PERF FAIL perf-prompt-server start-to-prompt (\d+) ms, limit 700 ms \(starting-scripts\/NFR-1\)/.exec(
           output,
         )?.[1],
       );
@@ -897,7 +897,7 @@ describe("web bundle", () => {
   });
 });
 
-describe("PRB.T-011 order on raw output", () => {
+describe("an agent command typed once, after the first prompt, on raw output", () => {
   const COMMAND = "node /repo/scripts/mock-agent/mock-agent.ts";
   const MARK = "\u001b]133;B\u0007";
   const PROMPT = "\u001b]133;A\u0007$ ";
@@ -1287,7 +1287,7 @@ describe("shell isolation", () => {
       const isolated = yield* shellUnder(ambient, true, homes);
       assert.strictEqual(isolated.program, "zsh");
       assert.notInclude(isolated.shown, "PROBE-LEAK-42");
-      // Its HOME is inside the throwaway home, never the developer's (AC-19).
+      // Its HOME is inside the throwaway home, never the developer's.
       assert.include(isolated.shown, `home=${NodePath.join(isolated.home, "shell-home")} end`);
 
       const own = yield* shellUnder(ambient, false, homes);

@@ -19,7 +19,8 @@ export const manyShellsCheck = defineCheck(import.meta.url, {
   id: "S4.many-shells",
   title: "shells in projects, worktrees and a fork each keep their own output",
   needs: {},
-  covers: ["S4 AC-1"],
+  // One set of shells proves them: each runs in its own tab and keeps its own typed line.
+  verifies: ["shells/FR-1", "shells/FR-2"],
   run: async (ctx) => {
     const { server, trail } = ctx;
     const { page, frames, setup } = await framedPage(ctx);
@@ -47,7 +48,7 @@ export const manyShellsCheck = defineCheck(import.meta.url, {
       return { inRepo, started };
     });
 
-    await trail.stage("AC-1", async () => {
+    await trail.stage("each shell its own output", async () => {
       expected({
         what: "the folder the fork started in",
         expected: NodePath.join(server.home, "worktrees", NodePath.basename(inRepo.path)),
@@ -86,12 +87,13 @@ export const switchTabs = defineCheck(import.meta.url, {
   id: "S4.switch-tabs",
   title: "clicking another tab shows that shell and the one left keeps running",
   needs: {},
-  covers: ["S4 AC-2"],
+  // One tab switch proves them: the clicked shell is shown and focused, the one left runs.
+  verifies: ["shells/FR-3", "shells/FR-4", "shells/FR-5", "workspaces/FR-25"],
   run: async (ctx) => {
     const { page, shells, setup } = await ctx.trail.stage("setup", () => plainTabs(ctx, 2));
     const [left, shown] = shells as [(typeof shells)[number], (typeof shells)[number]];
 
-    await ctx.trail.stage("AC-2", async () => {
+    await ctx.trail.stage("switch tabs", async () => {
       await shellTab(page, left.shellId).click();
       await waitFor(selectedShellTab(page, left.shellId), `the clicked tab of ${left.shellId}`);
       await shellTab(page, shown.shellId).click();
@@ -115,7 +117,14 @@ export const reloadLayout = defineCheck(import.meta.url, {
   title: "a reload shows the same workspace, tree, tabs and selected tab",
   needs: {},
   // One reload proves them: the workspace, its rows, the open tabs, the selection, the closed tab.
-  covers: ["S4 AC-32", "S4 AC-1", "S4 AC-31", "S4 AC-5"],
+  verifies: [
+    "workspaces/FR-13",
+    "shells/FR-6",
+    "shells/FR-7",
+    "shells/FR-8",
+    "close-and-reopen/FR-2",
+    "close-and-reopen/FR-7",
+  ],
   run: async (ctx) => {
     const { trail } = ctx;
     const { page, workspace, shells, setup } = await trail.stage("setup", () => plainTabs(ctx, 3));
@@ -125,7 +134,7 @@ export const reloadLayout = defineCheck(import.meta.url, {
       (typeof shells)[number],
     ];
 
-    await trail.stage("AC-32", async () => {
+    await trail.stage("reload shows the workspace", async () => {
       await closeTab(page, closed.shellId);
       await openFromTree(page, selected.shellId);
       await layoutSaved(page, workspace.name);
@@ -133,7 +142,7 @@ export const reloadLayout = defineCheck(import.meta.url, {
       await workspaceShown(page, workspace.name, " after the reload");
     });
 
-    await trail.stage("AC-1", async () => {
+    await trail.stage("same rows and tabs", async () => {
       for (const shell of shells) {
         await waitFor(shellRow(page, shell.shellId), `the tree row of shell ${shell.shellId}`);
       }
@@ -147,7 +156,7 @@ export const reloadLayout = defineCheck(import.meta.url, {
       });
     });
 
-    await trail.stage("AC-31", async () => {
+    await trail.stage("same selected tab", async () => {
       expected({
         what: "the selected tab after the reload",
         expected: selected.shellId,
@@ -155,7 +164,7 @@ export const reloadLayout = defineCheck(import.meta.url, {
       });
     });
 
-    await trail.stage("AC-5", async () => {
+    await trail.stage("closed tab stays closed", async () => {
       expected({
         what: "tabs of the shell whose tab was closed before the reload",
         expected: 0,
@@ -173,8 +182,7 @@ export const reloadLayout = defineCheck(import.meta.url, {
 export const outputDuringReloadCheck = outputDuringReload(import.meta.url, {
   id: "S4.output-during-reload",
   title: "output a plain shell makes during a reload shows once after it",
-  // One held output proves them: shown once (AC-4), held with no sleep (AC-26), a plain shell (EC-3).
-  covers: ["S4 AC-4", "S4 AC-26", "S4 EC-3"],
+  verifies: ["shells/FR-10"],
   release: "after-reload",
 });
 
@@ -182,8 +190,8 @@ export const reopenAfterReload = defineCheck(import.meta.url, {
   id: "S4.reopen-after-reload",
   title: "after a reload a reopened tab shows its earlier output once and takes input",
   needs: {},
-  // One reload proves them: the reopened tab (AC-2) and the open one (AC-3) show earlier output once.
-  covers: ["S4 AC-2", "S4 AC-3"],
+  // One reload proves them: the reopened tab and the open one show earlier output once.
+  verifies: ["shells/FR-9", "close-and-reopen/FR-8"],
   run: async (ctx) => {
     const { trail } = ctx;
     const { page, frames, workspace, shells, setup } = await trail.stage("setup", async () => {
@@ -210,7 +218,7 @@ export const reopenAfterReload = defineCheck(import.meta.url, {
       return reloadedFrom;
     });
 
-    await trail.stage("AC-2", async () => {
+    await trail.stage("reopened tab after the reload", async () => {
       const reopenedFrom = frames.mark();
       await openFromTree(page, reopened.shellId);
       await frames.until(
@@ -237,7 +245,7 @@ export const reopenAfterReload = defineCheck(import.meta.url, {
       });
     });
 
-    await trail.stage("AC-3", async () => {
+    await trail.stage("open tab after the reload", async () => {
       expected({
         what: `times the earlier output of shell ${open.shellId} arrived after the reload`,
         expected: 1,
@@ -252,7 +260,7 @@ export const endedAfterReload = defineCheck(import.meta.url, {
   title: "after a reload killed and exited shells stay gone and a signalled one shows as ended",
   needs: {},
   // One reload proves them: killed and exited shells stay gone, the signalled one shows ended.
-  covers: ["S4 AC-11", "S4 AC-28", "S4 AC-15"],
+  verifies: ["kill-shell/FR-22", "kill-shell/FR-23", "kill-shell/FR-24", "kill-shell/FR-25"],
   run: async (ctx) => {
     const { trail } = ctx;
     const { page, workspace, shells, setup } = await trail.stage("setup", () => plainTabs(ctx, 4));
@@ -287,7 +295,7 @@ export const endedAfterReload = defineCheck(import.meta.url, {
       await waitFor(shellRow(page, kept.shellId), `the tree row of shell ${kept.shellId}`);
     });
 
-    await trail.stage("AC-11", async () => {
+    await trail.stage("killed and exited stay gone", async () => {
       for (const shell of [killed, exited]) {
         expected({
           what: `tree rows of shell ${shell.shellId} after the reload`,
@@ -297,7 +305,7 @@ export const endedAfterReload = defineCheck(import.meta.url, {
       }
     });
 
-    await trail.stage("AC-15", async () => {
+    await trail.stage("signalled shows ended", async () => {
       await waitFor(
         endedRow(page, signalled.shellId, "signal"),
         `the row of shell ${signalled.shellId} ended by a signal`,

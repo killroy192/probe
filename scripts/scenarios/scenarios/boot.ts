@@ -98,7 +98,7 @@ export const startScreen = defineCheck(import.meta.url, {
   id: "S1.start-screen",
   title: "the first page is the start screen, offering only Open and Create workspace",
   needs: { pristineHome: true },
-  covers: ["S1 AC-1"],
+  verifies: ["workspaces/FR-1", "workspaces/FR-19", "workspaces/FR-25"],
   run: async ({ server, openPage, trail }) => {
     await trail.stage("the harness's server and home", async () => {
       expected({
@@ -114,7 +114,7 @@ export const startScreen = defineCheck(import.meta.url, {
       });
     });
     const page = await openPage();
-    await trail.stage("AC-1", async () => {
+    await trail.stage("start screen", async () => {
       await onStartScreen(page);
       expected({
         what: "error states on the first page",
@@ -157,11 +157,11 @@ export const createFromStartScreen = defineCheck(import.meta.url, {
   id: "S1.create-workspace",
   title: "a workspace created from the start screen is the root of an empty tree",
   needs: {},
-  covers: ["S1 AC-2"],
+  verifies: ["workspaces/FR-2", "workspaces/FR-25"],
   run: async ({ runId, openPage, trail }) => {
     const page = await openPage();
     const name = `sparta-${runId}`;
-    await trail.stage("AC-2", async () => {
+    await trail.stage("create from start screen", async () => {
       await onStartScreen(page);
       await createWorkspace(page, name, { from: "start screen" });
       await shownWorkspace(page, name);
@@ -174,12 +174,12 @@ export const nameRefusals = defineCheck(import.meta.url, {
   title: "an empty, file-unsafe or taken name is refused with a reason",
   needs: {},
   // Both are the create dialog's refusals of a name; only the taken one needs a workspace.
-  covers: ["S1 AC-13", "S1 AC-14"],
+  verifies: ["workspaces/FR-3", "workspaces/FR-4", "workspaces/FR-5", "workspaces/FR-25"],
   run: async (ctx) => {
     const page = await ctx.openPage();
     const setup = await setupOn(ctx, { as: page });
     const ws = await setup.workspace("sparta");
-    await ctx.trail.stage("AC-13", async () => {
+    await ctx.trail.stage("empty or unsafe name", async () => {
       await onStartScreen(page);
       await startScreenButton(page, "Create workspace").click();
       expected({
@@ -194,7 +194,7 @@ export const nameRefusals = defineCheck(import.meta.url, {
         found: (await fillCreateWorkspace(page, "a/b")) !== null,
       });
     });
-    await ctx.trail.stage("AC-14", async () => {
+    await ctx.trail.stage("taken name", async () => {
       const taken = ws.name.toUpperCase();
       await openWorkspace(page, ws.name);
       await shownWorkspace(page, ws.name);
@@ -215,21 +215,27 @@ export const secondWorkspace = defineCheck(import.meta.url, {
   title: "a second workspace from the Workspaces menu is listed, and switching shows each once",
   needs: {},
   // One switch flow: create a second, list both, switch back, then choose the shown one again.
-  covers: ["S1 AC-3", "S1 AC-4", "S1 AC-8", "S1 AC-9"],
+  verifies: [
+    "workspaces/FR-6",
+    "workspaces/FR-7",
+    "workspaces/FR-8",
+    "workspaces/FR-9",
+    "workspaces/FR-25",
+  ],
   run: async (ctx) => {
     const { workspace: sparta, shown } = await world(ctx, { projects: [], page: true });
     const page = shown!.page;
     const athens = `athens-${ctx.runId}`;
-    await ctx.trail.stage("AC-3", async () => {
+    await ctx.trail.stage("create from menu", async () => {
       await createWorkspace(page, athens);
       await shownWorkspace(page, athens);
       await expectMenuOffers(page, "Open workspace", { includes: [athens, sparta.name] });
     });
-    await ctx.trail.stage("AC-4, AC-8", async () => {
+    await ctx.trail.stage("switch back", async () => {
       await openWorkspace(page, sparta.name);
       await shownWorkspace(page, sparta.name);
     });
-    await ctx.trail.stage("AC-9", async () => {
+    await ctx.trail.stage("choose shown again", async () => {
       await openWorkspace(page, sparta.name);
       await shownWorkspace(page, sparta.name);
       await openWorkspacesMenu(page, "Open workspace");
@@ -248,7 +254,7 @@ export const removeOther = defineCheck(import.meta.url, {
   id: "S1.remove-other",
   title: "removing another workspace keeps the shown one and leaves its folder on disk",
   needs: {},
-  covers: ["S1 AC-5"],
+  verifies: ["workspaces/FR-10", "workspaces/FR-11", "workspaces/FR-25"],
   run: async (ctx) => {
     const { workspace: kept, shown, setup } = await world(ctx, { projects: [], page: true });
     const page = shown!.page;
@@ -256,7 +262,7 @@ export const removeOther = defineCheck(import.meta.url, {
     const folder = await setup.folder("athens-project");
     await setup.project(other, folder);
     const names = followWorkspaces(setup.client);
-    await ctx.trail.stage("AC-5", async () => {
+    await ctx.trail.stage("remove other", async () => {
       const from = names.mark();
       await removeWorkspace(page, other.name);
       await names.until(
@@ -285,13 +291,13 @@ export const removeShown = defineCheck(import.meta.url, {
   id: "S1.remove-shown",
   title: "removing the shown workspace returns to the start screen, which lists the rest",
   needs: {},
-  covers: ["S1 AC-6"],
+  verifies: ["workspaces/FR-12", "workspaces/FR-25"],
   run: async (ctx) => {
     const { workspace: removed, shown, setup } = await world(ctx, { projects: [], page: true });
     const page = shown!.page;
     const rest = await setup.workspace("rest");
     const names = followWorkspaces(setup.client);
-    await ctx.trail.stage("AC-6", async () => {
+    await ctx.trail.stage("remove shown", async () => {
       const from = names.mark();
       await removeWorkspace(page, removed.name);
       await names.until(
@@ -323,11 +329,11 @@ export const settingsNoChat = defineCheck(import.meta.url, {
   id: "S1.settings-no-chat",
   title: "settings opens from the sidebar footer and lists no chat page",
   needs: {},
-  covers: ["S1 AC-10"],
+  verifies: ["workspaces/FR-17", "workspaces/FR-18", "workspaces/FR-25"],
   run: async (ctx) => {
     const { workspace: ws, shown } = await world(ctx, { projects: [], page: true });
     const page = shown!.page;
-    await ctx.trail.stage("AC-10", async () => {
+    await ctx.trail.stage("settings sections", async () => {
       await page.getByRole("button", { name: "Settings" }).click();
       const section = (path: string) => page.locator(`[data-settings-section="${path}"]`);
       await waitFor(section("/settings/connections"), "the Connections settings section");
@@ -354,15 +360,15 @@ export const chatRoutesShown = defineCheck(import.meta.url, {
   title: "with a workspace shown, chat addresses and chat shortcuts change nothing",
   needs: {},
   // One page showing a workspace: chat addresses and chat shortcuts both leave it shown.
-  covers: ["S1 AC-11 with a workspace shown", "S1 AC-12"],
+  verifies: ["workspaces/FR-20", "workspaces/FR-22"],
   run: async (ctx) => {
     const { workspace: ws, shown, setup } = await world(ctx, { projects: [], page: true });
     const page = shown!.page;
     const addresses = (await chatAddresses(ctx.server)).slice(0, SHOWN_ADDRESSES);
-    // A project gives chat shortcuts something to start a thread in, had they stayed installed (AC-12).
+    // A project gives chat shortcuts something to start a thread in, had they stayed installed.
     const folder = await setup.folder("chat-project");
     await ctx.server.cli(["project", "add", folder.path, "--title", `chat-project-${ctx.runId}`]);
-    await ctx.trail.stage("AC-11 with a workspace shown", async () => {
+    await ctx.trail.stage("chat addresses with a workspace shown", async () => {
       for (const address of addresses) {
         await navigateInApp(page, address);
         await shownWorkspace(page, ws.name);
@@ -370,7 +376,7 @@ export const chatRoutesShown = defineCheck(import.meta.url, {
       await loadAddress(page, addresses[0]!);
       await shownWorkspace(page, ws.name);
     });
-    await ctx.trail.stage("AC-12", async () => {
+    await ctx.trail.stage("chat shortcuts", async () => {
       // Count every navigation the page starts, so a working chat shortcut is caught even though
       // the draft address it opens would redirect back to "/".
       await page.evaluate(`(() => {
@@ -409,11 +415,11 @@ export const chatRoutesStartScreen = defineCheck(import.meta.url, {
   id: "S1.chat-routes-start-screen",
   title: "with no workspace shown, each chat address lands on the start screen",
   needs: {},
-  covers: ["S1 AC-11 with none shown"],
+  verifies: ["workspaces/FR-21"],
   run: async (ctx) => {
     const page = await ctx.openPage();
     const addresses = (await chatAddresses(ctx.server)).slice(SHOWN_ADDRESSES);
-    await ctx.trail.stage("AC-11 with none shown", async () => {
+    await ctx.trail.stage("chat addresses with none shown", async () => {
       await onStartScreen(page);
       for (const address of addresses) {
         await navigateInApp(page, address);
@@ -430,13 +436,13 @@ export const reloadKeepsSaved = defineCheck(import.meta.url, {
   id: "S1.reload-keeps-saved",
   title: "a reload shows the same workspace and keeps every saved one listed, a seeded one too",
   needs: { serverWide: "writes into the server's workspaces folder" },
-  // One reload: it shows the same workspace (AC-20) and its list keeps every saved one (AC-7).
-  covers: ["S1 AC-20", "S1 AC-7"],
+  // One reload: it shows the same workspace and its list keeps every saved one, which opens.
+  verifies: ["workspaces/FR-13", "workspaces/FR-7", "workspaces/FR-8", "workspaces/FR-25"],
   run: async (ctx) => {
     const { workspace: ws, shown } = await world(ctx, { projects: [], page: true });
     const page = shown!.page;
     const delphi = `delphi-${ctx.runId}`;
-    await ctx.trail.stage("AC-20, AC-7", async () => {
+    await ctx.trail.stage("reload keeps saved", async () => {
       await seedWorkspace(ctx.server, delphi, '{"version":1}');
       await page.reload();
       await shownWorkspace(page, ws.name);
@@ -451,7 +457,7 @@ export const invalidWorkspace = defineCheck(import.meta.url, {
   id: "S1.invalid-workspace",
   title: "an invalid or unreadable workspace stays listed and is refused when chosen",
   needs: { serverWide: "writes into the server's workspaces folder" },
-  covers: ["S1 AC-15"],
+  verifies: ["workspaces/FR-14", "workspaces/FR-25"],
   run: async (ctx) => {
     const broken = `broken-${ctx.runId}`;
     const locked = `locked-${ctx.runId}`;
@@ -467,18 +473,14 @@ export const invalidWorkspace = defineCheck(import.meta.url, {
       );
       await shownWorkspace(page, ws.name);
     };
-    await ctx.trail.stage("AC-15 from the menu", async () => {
+    await ctx.trail.stage("refused from the menu", async () => {
       await refusedOnOpen(broken);
-      await revokeWrite(
-        ctx,
-        lockedFile,
-        "AC-15 unreadable workspace",
-        () => refusedOnOpen(locked),
-        { unreadable: true },
-      );
+      await revokeWrite(ctx, lockedFile, "unreadable workspace", () => refusedOnOpen(locked), {
+        unreadable: true,
+      });
     });
     // A page of its own, so the menu's refusal toast cannot answer for this one.
-    await ctx.trail.stage("AC-15 from the start screen", async () => {
+    await ctx.trail.stage("refused from the start screen", async () => {
       const fresh = await ctx.openPage();
       await onStartScreen(fresh);
       await startScreenButton(fresh, "Open workspace").click();
@@ -496,34 +498,29 @@ export const folderUnwritable = defineCheck(import.meta.url, {
   id: "S1.folder-unwritable",
   title: "when the workspaces folder cannot change, create and remove say why and the list stays",
   needs: { serverWide: "makes the workspaces folder read-only" },
-  // One read-only folder refuses both changes: the create (AC-16) and the remove (AC-17).
-  covers: ["S1 AC-16", "S1 AC-17"],
+  // One read-only folder refuses both changes: the create and the remove.
+  verifies: ["workspaces/FR-15", "workspaces/FR-16", "workspaces/FR-25"],
   run: async (ctx) => {
     const { workspace: ws, shown } = await world(ctx, { projects: [], page: true });
     const page = shown!.page;
     const olympia = `olympia-${ctx.runId}`;
-    await ctx.trail.stage("AC-16, AC-17", async () => {
-      await revokeWrite(
-        ctx,
-        workspacesDir(ctx.server),
-        "AC-16, AC-17 folder that cannot change",
-        async () => {
-          await openWorkspacesMenu(page);
-          await page.getByRole("menuitem", { name: "Create workspace" }).click();
-          const refusal = await fillCreateWorkspace(page, olympia);
-          expected({
-            what: `whether creating ${olympia} in a read-only folder is refused`,
-            expected: true,
-            found: refusal?.includes("Could not create") ?? "no refusal",
-          });
-          await removeWorkspace(page, ws.name);
-          await waitFor(alert(page, "Could not remove"), `the refusal to remove ${ws.name}`);
-          await expectMenuOffers(page, "Open workspace", {
-            includes: [ws.name],
-            excludes: [olympia],
-          });
-        },
-      );
+    await ctx.trail.stage("read-only folder", async () => {
+      await revokeWrite(ctx, workspacesDir(ctx.server), "folder that cannot change", async () => {
+        await openWorkspacesMenu(page);
+        await page.getByRole("menuitem", { name: "Create workspace" }).click();
+        const refusal = await fillCreateWorkspace(page, olympia);
+        expected({
+          what: `whether creating ${olympia} in a read-only folder is refused`,
+          expected: true,
+          found: refusal?.includes("Could not create") ?? "no refusal",
+        });
+        await removeWorkspace(page, ws.name);
+        await waitFor(alert(page, "Could not remove"), `the refusal to remove ${ws.name}`);
+        await expectMenuOffers(page, "Open workspace", {
+          includes: [ws.name],
+          excludes: [olympia],
+        });
+      });
     });
   },
 });

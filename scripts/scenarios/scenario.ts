@@ -83,8 +83,8 @@ export interface CheckScenario {
   readonly title: string;
   /** `{}` when it needs nothing and is safe on a shared server: its names and folders use `runId`. */
   readonly needs: ScenarioNeeds;
-  /** The criteria it proves, as `"S7 AC-6"`. */
-  readonly covers?: ReadonlyArray<string>;
+  /** The `docs/scenarios` requirements it proves, as `"shells/FR-3"`; a self-test has none. */
+  readonly verifies?: ReadonlyArray<string>;
   /** Why a sandbox refuses it although its needs are `{}`, as `"it SIGKILLs its server"`. */
   readonly offSandbox?: string;
   readonly takes?: ResultKind;
@@ -95,8 +95,6 @@ export interface CheckScenario {
 export interface PerfMeasure {
   readonly name: string;
   readonly limitMs: number;
-  /** The criterion that sets the limit, as `"PRB.T-004 AC-3"`. */
-  readonly limitFrom: string;
 }
 
 export interface PerfScenario {
@@ -106,6 +104,8 @@ export interface PerfScenario {
   readonly title: string;
   readonly needs: ScenarioNeeds;
   readonly measure: PerfMeasure;
+  /** The one NFR that states the limit, as `"worktrees/NFR-1"`; a self-test has none. */
+  readonly verifies?: ReadonlyArray<string>;
   /** Resolves with the measured milliseconds; the harness judges them against the limit. */
   readonly run: (context: ScenarioContext) => Promise<number>;
 }
@@ -123,6 +123,8 @@ export interface ComposedScenario {
   readonly id: string;
   readonly title: string;
   readonly steps: ReadonlyArray<ComposedStep>;
+  /** The `docs/scenarios` requirements the whole flow proves; a self-test has none. */
+  readonly verifies?: ReadonlyArray<string>;
 }
 
 /** Check or composed ids that run together under one name; ids and set names share one namespace. */
@@ -142,7 +144,7 @@ export function defineCheck<const T extends ResultKind = never, const R extends 
     readonly id: string;
     readonly title: string;
     readonly needs: ScenarioNeeds;
-    readonly covers?: ReadonlyArray<string>;
+    readonly verifies?: ReadonlyArray<string>;
     readonly offSandbox?: string;
     readonly takes?: T;
     readonly returns?: R;

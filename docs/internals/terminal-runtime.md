@@ -23,9 +23,9 @@ or none for a plain shell; `SavedWorkspaces` looks the id up in the user's list 
 moment and refuses one that is gone, then passes the script to `Shells.open` as an option (it is
 not part of the `shell.open` wire input, so a client cannot type a command through it). The user's
 list is `starting-scripts.json` in the state folder of the server that serves the UI, read on every
-use; a state folder with no file gets the mock agent only when `PROBE_SEED_MOCK_AGENT` is set (dev
-and the scenario harness), and an existing file, even an empty one, is never rewritten. The
-project's last start, worktree and script id, is saved per project in the workspace file.
+use; only a state folder with no file is seeded, with the mock agent when `PROBE_SEED_MOCK_AGENT`
+is set (dev and the scenario harness). What the list offers in each case:
+[Choose what a new shell starts](../scenarios/starting-scripts.md). The project's last start, worktree and script id, is saved per project in the workspace file.
 
 For a script, the shell that will run it decides whether its program exists, because only that
 shell, after its startup files ran, knows its `PATH`, aliases, functions and builtins (the U-1
@@ -40,9 +40,9 @@ answer the shell is listed but not saved, so a server restart meanwhile finds it
 host and kills it, and input to it waits until the command is typed. On `missing` the shell is
 killed and removed and `shell.open` fails naming the program; with no answer (an unwrapped shell, a config that
 replaced the wrapper, the timeout) the start is not refused. Typing the command, rather than
-spawning the CLI directly, keeps the shell open when the CLI exits. `Shells` logs each start with
-the script's name and program, or `plain`, never the command line (it may carry a secret), each
-failed start with the cwd (and the script's name and program), and each end.
+spawning the CLI directly, keeps the shell open when the CLI exits. `Shells` never logs a start's
+command line, because it may carry a secret; what each start, refusal and end logs is in
+[the starting-scripts requirements](../scenarios/starting-scripts.md#requirements).
 
 The command is typed only once the shell is ready. Typed at once, the terminal driver echoes it
 before the prompt and the shell's line editor draws it again after, so it shows twice. zsh and bash
@@ -118,13 +118,12 @@ so the same process continues with its scrollback. The host also sends `grids`, 
 each output offset on, and adopt replays each part at its own grid (see below); a host session with no registry entry is a
 crashed server's leftover and is killed.
 
-How a shell ended decides whether it stays: a Probe kill or an exit without a signal (any status)
-removes it and its history; a signal exit, or a registry entry the host no longer has (the host
-died, for example in a reboot), keeps it listed with `ended: "signal" | "lost"` until it is
-killed. Only the user brings an ended shell back: `Shells.restore` (`shell.restore`) reopens the
-same terminal under the same id and folder, drops the old output, issues a new kill token and
-sets `restored`. It refuses a shell that has not ended or whose folder is gone, and nothing calls
-it automatically. The host remembers an exit that happens while no server is connected until a server
+Which endings keep a shell listed is in [Kill a shell](../scenarios/kill-shell.md#see-what-ended)
+and [Restore an ended shell](../scenarios/restore-shell.md); what survives a restart is in
+[Reloads and restarts](../scenarios/reload-and-restart.md). A kept shell carries
+`ended: "signal" | "lost"`, `lost` being a registry entry the host no longer has. `Shells.restore`
+(`shell.restore`) reopens the same terminal under the same id with a new kill token, and nothing
+calls it automatically. The host remembers an exit that happens while no server is connected until a server
 forgets it. The socket name carries the protocol version, so a server of another version starts
 its own host and shows the old host's shells as lost.
 

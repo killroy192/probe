@@ -74,16 +74,19 @@ export const surviveRestart = defineCheck(import.meta.url, {
   id: "S7.survive-restart",
   title: "a restart keeps every running shell, its output, its place, the tabs and modal defaults",
   needs: { restart: true },
-  // One restart: every kind of running state is judged after the same restart (EC-3).
-  covers: [
-    "S7 AC-6",
-    "S7 AC-7",
-    "S7 AC-8",
-    "S7 AC-10",
-    "S7 AC-31",
-    "S7 AC-34",
-    "S7 EC-1",
-    "S7 AC-29",
+  // One restart: every kind of running state is judged after the same restart.
+  verifies: [
+    "reload-and-restart/FR-1",
+    "reload-and-restart/FR-2",
+    "reload-and-restart/FR-3",
+    "reload-and-restart/FR-4",
+    "reload-and-restart/FR-5",
+    "reload-and-restart/FR-6",
+    "reload-and-restart/FR-7",
+    "reload-and-restart/FR-8",
+    "reload-and-restart/FR-9",
+    "reload-and-restart/FR-10",
+    "reload-and-restart/FR-11",
   ],
   run: async (ctx) => {
     const { server, trail } = ctx;
@@ -142,7 +145,7 @@ export const surviveRestart = defineCheck(import.meta.url, {
         ),
       );
       const startBefore = await lastStartOf(setup.client, sparta.name);
-      // Without the fork's entry, an empty record before and after would pass AC-31.
+      // Without the fork's entry, an empty record before and after would pass the last-start check.
       expected({
         what: `the last start of ${repo.path} before the restart`,
         expected: "new",
@@ -171,7 +174,7 @@ export const surviveRestart = defineCheck(import.meta.url, {
       setup = await restartAndReload(ctx, page, sparta, setup);
     });
 
-    await trail.stage("AC-6", async () => {
+    await trail.stage("running shells kept", async () => {
       for (const [shellId, pid] of before.pids) {
         const entry = listed(setup, { shellId });
         expected({
@@ -195,7 +198,7 @@ export const surviveRestart = defineCheck(import.meta.url, {
       );
     });
 
-    await trail.stage("AC-7", async () => {
+    await trail.stage("agent output, place and tabs kept", async () => {
       expected({
         what: "the agent shell's history holds its line from before the restart",
         expected: true,
@@ -218,7 +221,7 @@ export const surviveRestart = defineCheck(import.meta.url, {
       });
     });
 
-    await trail.stage("AC-8", async () =>
+    await trail.stage("plain output kept", async () =>
       expected({
         what: "the plain shell's history holds its line from before the restart",
         expected: true,
@@ -226,7 +229,7 @@ export const surviveRestart = defineCheck(import.meta.url, {
       }),
     );
 
-    await trail.stage("AC-31", async () => {
+    await trail.stage("selected tab and last start kept", async () => {
       expected({
         what: "the selected tab after the restart",
         expected: agent.shellId,
@@ -239,7 +242,7 @@ export const surviveRestart = defineCheck(import.meta.url, {
       });
     });
 
-    await trail.stage("EC-1", async () => {
+    await trail.stage("closed tab stays closed", async () => {
       // The row shows once the tree is back, so a closed tab would have come back with it.
       await waitFor(shellRow(page, hidden.shellId), `the row of shell ${hidden.shellId}`);
       expected({
@@ -249,10 +252,10 @@ export const surviveRestart = defineCheck(import.meta.url, {
       });
     });
 
-    await trail.stage("AC-34", () =>
+    await trail.stage("reattach logged", () =>
       expectLogged(
         server,
-        "The log has no reattach line with the shell id and folder (AC-34).",
+        "The log has no reattach line with the shell id and folder.",
         (entry) =>
           entry.includes("shell reattached") &&
           entry.includes(agent.shellId) &&
@@ -260,7 +263,7 @@ export const surviveRestart = defineCheck(import.meta.url, {
       ),
     );
 
-    await trail.stage("AC-29", async () => {
+    await trail.stage("deleted folder marked moved", async () => {
       await waitFor(
         missingMark(page, inLive.shellId),
         `shell ${inLive.shellId} to show as missing`,
@@ -280,7 +283,7 @@ export const surviveRestart = defineCheck(import.meta.url, {
       );
     });
 
-    await trail.stage("AC-10", async () => {
+    await trail.stage("each workspace shows its own shells", async () => {
       await openWorkspace(page, before.athens.name);
       await workspaceShown(page, before.athens.name);
       await waitFor(shellRow(page, elsewhere.shellId), `the row of shell ${elsewhere.shellId}`);
@@ -300,7 +303,13 @@ export const endedAfterRestart = defineCheck(import.meta.url, {
   title: "killed and exited shells stay gone after a restart, and missing folders show as such",
   needs: { restart: true },
   // One restart: each is how the restarted server shows a shell that ended before it.
-  covers: ["S7 AC-12", "S7 AC-13", "S7 AC-14", "S7 AC-23", "S7 AC-16", "S7 AC-22"],
+  verifies: [
+    "reload-and-restart/FR-13",
+    "reload-and-restart/FR-14",
+    "reload-and-restart/FR-15",
+    "reload-and-restart/FR-16",
+    "reload-and-restart/FR-17",
+  ],
   run: async (ctx) => {
     const { trail } = ctx;
     const page = await widePage(ctx);
@@ -315,7 +324,7 @@ export const endedAfterRestart = defineCheck(import.meta.url, {
       const moved = await setup.project(sparta, await setup.folder("moved"));
       await showWorkspace(page, sparta);
 
-      // The fork is the repo's last start, which stage AC-23 reads back, so it starts from the modal.
+      // The fork is the repo's last start, which the worktree stage reads back, so it starts from the modal.
       const fork = await startShell(page, setup.shells, repo.path, { fork: true });
       const forked: ShellResult = {
         kind: "shell",
@@ -360,7 +369,7 @@ export const endedAfterRestart = defineCheck(import.meta.url, {
       setup = await restartAndReload(ctx, page, made.sparta, setup);
     });
 
-    await trail.stage("AC-12", async () => {
+    await trail.stage("ended shells gone", async () => {
       unlistedAfterRestart(setup, made.ended, "killed and exited shells listed after the restart");
       expected({
         what: "killed and exited shells still running after the restart",
@@ -369,7 +378,7 @@ export const endedAfterRestart = defineCheck(import.meta.url, {
       });
     });
 
-    await trail.stage("AC-23", async () => {
+    await trail.stage("killed shell's worktree offered", async () => {
       await NodeFSP.access(made.forked.cwd);
       await openModal(page, made.repo.path);
       // The project's last start was the fork, so the modal opens on Fork.
@@ -383,7 +392,7 @@ export const endedAfterRestart = defineCheck(import.meta.url, {
       });
     });
 
-    await trail.stage("AC-16", async () => {
+    await trail.stage("missing folders marked", async () => {
       for (const [folder, shell] of made.missing) {
         await waitFor(projectMissing(page, folder), `project ${folder} to show as not found`);
         await waitFor(
@@ -397,8 +406,8 @@ export const endedAfterRestart = defineCheck(import.meta.url, {
       }
     });
 
-    await trail.stage("AC-22", async () => {
-      // The projects show as not found (stage AC-16), so their buttons have settled.
+    await trail.stage("no create in missing folders", async () => {
+      // The projects show as not found (previous stage), so their buttons have settled.
       for (const [folder] of made.missing) {
         expected({
           what: `"Create shell" buttons in the missing folder ${folder}`,
@@ -415,7 +424,7 @@ export const removedStayGone = defineCheck(import.meta.url, {
   title: "removing unavailable entries works, and they stay gone after a restart",
   needs: { restart: true },
   // The removal, then the same entries after a restart.
-  covers: ["S7 AC-17", "S7 AC-17 after restart"],
+  verifies: ["reload-and-restart/FR-18", "reload-and-restart/FR-19"],
   run: async (ctx) => {
     const { trail } = ctx;
     const page = await widePage(ctx);
@@ -441,7 +450,7 @@ export const removedStayGone = defineCheck(import.meta.url, {
       };
     });
 
-    await trail.stage("AC-17", async () => {
+    await trail.stage("remove unavailable", async () => {
       for (const shell of made.gone) await killFromTree(page, shell.shellId);
       // With their last shells removed, the projects whose folders are gone leave the workspace.
       for (const folder of made.folders) {
@@ -451,7 +460,7 @@ export const removedStayGone = defineCheck(import.meta.url, {
       }
     });
 
-    await trail.stage("AC-17 after restart", async () => {
+    await trail.stage("removed stay gone after restart", async () => {
       setup = await restartAndReload(ctx, page, made.sparta, setup);
       unlistedAfterRestart(setup, made.gone, "removed shells listed after the restart");
       // The kept shell's row shows once the tree is back, so a removed project would show with it.
@@ -471,10 +480,15 @@ export const removedStayGone = defineCheck(import.meta.url, {
 export const lostHost = defineCheck(import.meta.url, {
   id: "S7.lost-host",
   title: "a restart that lost the shell host shows its shells as lost, and removed ones stay gone",
-  // Two restarts (D10): the first loses the host, the second proves what was removed stays gone.
+  // Two restarts: the first loses the host, the second proves what was removed stays gone.
   needs: { restart: true },
-  // The lost host, then a second restart: the lost entries it removed stay gone (plan D10).
-  covers: ["S7 AC-20", "S7 AC-17 after restart"],
+  // The lost host, then a second restart: the lost entries it removed stay gone.
+  verifies: [
+    "reload-and-restart/FR-20",
+    "reload-and-restart/FR-21",
+    "reload-and-restart/FR-22",
+    "reload-and-restart/FR-19",
+  ],
   run: async (ctx) => {
     const { trail } = ctx;
     const page = await widePage(ctx);
@@ -490,7 +504,7 @@ export const lostHost = defineCheck(import.meta.url, {
       return { sparta, agent, plainShell };
     });
 
-    await trail.stage("AC-20", async () => {
+    await trail.stage("lost host", async () => {
       setup = await restartAndReload(ctx, page, made.sparta, setup, { lostHost: true });
       for (const shell of [made.agent, made.plainShell]) {
         await waitFor(
@@ -506,7 +520,7 @@ export const lostHost = defineCheck(import.meta.url, {
       await killFromTree(page, made.plainShell.shellId);
     });
 
-    await trail.stage("AC-17 after restart", async () => {
+    await trail.stage("removed stay gone after restart", async () => {
       setup = await restartAndReload(ctx, page, made.sparta, setup);
       unlistedAfterRestart(
         setup,
@@ -525,7 +539,7 @@ export const switchWorkspace = defineCheck(import.meta.url, {
   id: "S7.switch-workspace",
   title: "a shell keeps running while another workspace is shown, and switching back finds it",
   needs: {},
-  covers: ["S7 AC-9"],
+  verifies: ["reload-and-restart/FR-12"],
   run: async (ctx) => {
     const { trail } = ctx;
     const page = await widePage(ctx);
@@ -539,7 +553,7 @@ export const switchWorkspace = defineCheck(import.meta.url, {
       return { sparta, shell, athens };
     });
 
-    await trail.stage("AC-9", async () => {
+    await trail.stage("switch back", async () => {
       await showWorkspace(page, made.athens);
       await openWorkspace(page, made.sparta.name);
       await workspaceShown(page, made.sparta.name, " after switching back");
@@ -557,7 +571,7 @@ export const unreadableWorkspace = defineCheck(import.meta.url, {
   id: "S7.unreadable-workspace",
   title: "a workspace whose file became unreadable says why and changes nothing",
   needs: {},
-  covers: ["S7 AC-19"],
+  verifies: ["workspaces/FR-14"],
   run: async (ctx) => {
     const { trail } = ctx;
     const page = await widePage(ctx);
@@ -569,11 +583,11 @@ export const unreadableWorkspace = defineCheck(import.meta.url, {
       return { sparta, athens };
     });
 
-    await trail.stage("AC-19", () =>
+    await trail.stage("unreadable workspace", () =>
       revokeWrite(
         ctx,
         workspaceFile(ctx, made.athens.name),
-        "AC-19 unreadable workspace",
+        "unreadable workspace",
         async () => {
           await openWorkspace(page, made.athens.name);
           await waitFor(
@@ -592,7 +606,7 @@ export const removeWorkspaceByMenu = defineCheck(import.meta.url, {
   id: "S7.remove-workspace",
   title: "a removed workspace is not offered again and its file is gone",
   needs: {},
-  covers: ["S7 AC-33"],
+  verifies: ["workspaces/FR-10", "workspaces/FR-26"],
   run: async (ctx) => {
     const { trail } = ctx;
     const page = await widePage(ctx);
@@ -604,7 +618,7 @@ export const removeWorkspaceByMenu = defineCheck(import.meta.url, {
       return { sparta, athens };
     });
 
-    await trail.stage("AC-33", async () => {
+    await trail.stage("remove workspace", async () => {
       await removeWorkspace(page, made.athens.name);
       await expectMenuOffers(page, "Open workspace", {
         includes: [made.sparta.name],
@@ -626,7 +640,7 @@ export const removeUnsaveable = defineCheck(import.meta.url, {
   id: "S7.remove-unsaveable",
   title: "a removal that cannot be saved says why and keeps the entry",
   needs: { serverWide: "makes the state folder read-only" },
-  covers: ["S7 AC-18"],
+  verifies: ["reload-and-restart/FR-23"],
   run: async (ctx) => {
     const { trail } = ctx;
     const page = await widePage(ctx);
@@ -643,11 +657,11 @@ export const removeUnsaveable = defineCheck(import.meta.url, {
       return { shell };
     });
 
-    await trail.stage("AC-18", () =>
+    await trail.stage("removal not saved", () =>
       revokeWrite(
         ctx,
         NodePath.join(ctx.server.home, "userdata", "shells"),
-        "AC-18 removal that cannot be saved",
+        "removal that cannot be saved",
         async () => {
           await askToKill(page, made.shell.shellId);
           await answerConfirm(page, "Confirm");
@@ -669,7 +683,8 @@ export const layoutUnsaveable = defineCheck(import.meta.url, {
   id: "S7.layout-unsaveable",
   title: "a layout that cannot be saved says so, shells keep running, and saving resumes",
   needs: { serverWide: "makes the state folder read-only" },
-  covers: ["S7 AC-21"],
+  // One unsaveable layout: its alert, the shells it leaves running, and saving once it can.
+  verifies: ["reload-and-restart/FR-24", "reload-and-restart/FR-25", "reload-and-restart/FR-26"],
   run: async (ctx) => {
     const { trail } = ctx;
     const page = await widePage(ctx);
@@ -685,10 +700,10 @@ export const layoutUnsaveable = defineCheck(import.meta.url, {
       return { first, second };
     });
 
-    await trail.stage("AC-21", async () => {
+    await trail.stage("layout not saved", async () => {
       const workspacesDir = NodePath.join(ctx.server.home, "userdata", "workspaces");
       const mode = (await NodeFSP.stat(workspacesDir)).mode & 0o777;
-      await revokeWrite(ctx, workspacesDir, "AC-21 layout that cannot be saved", async () => {
+      await revokeWrite(ctx, workspacesDir, "layout that cannot be saved", async () => {
         await openTab(page, made.second);
         await waitFor(
           alert(page, "The layout is not being saved"),

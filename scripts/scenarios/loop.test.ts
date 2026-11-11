@@ -14,7 +14,7 @@ const perf = definePerf("file:///repo/scripts/scenarios/scenarios/x.perf.ts", {
   id: "perf-x",
   title: "x",
   needs: {},
-  measure: { name: "x", limitMs: 1, limitFrom: "PRB.T-004 AC-3" },
+  measure: { name: "x", limitMs: 1 },
   run: async () => 0,
 });
 const registry = registryOf(

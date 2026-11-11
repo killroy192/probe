@@ -12,7 +12,8 @@ export const promptHarnessPerf = definePerf(import.meta.url, {
   id: "perf-prompt-harness",
   title: "a plain shell's first prompt reaches the page after the click",
   needs: {},
-  measure: { name: "click-to-prompt", limitMs: 700, limitFrom: "PRB.E-002" },
+  measure: { name: "click-to-prompt", limitMs: 700 },
+  verifies: ["starting-scripts/NFR-2"],
   run: async (ctx) => {
     const page = await ctx.openPage();
     const frames = pageFrames(page);

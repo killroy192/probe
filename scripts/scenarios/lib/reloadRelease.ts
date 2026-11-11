@@ -109,7 +109,7 @@ export function outputDuringReload(
   spec: {
     readonly id: string;
     readonly title: string;
-    readonly covers?: ReadonlyArray<string>;
+    readonly verifies?: ReadonlyArray<string>;
     readonly release: ReleaseTiming;
     readonly deadline?: Deadline;
   },
@@ -135,7 +135,7 @@ export function outputDuringReload(
           deadline === undefined ? {} : { deadline },
         ),
       );
-      await trail.stage("AC-4", async () => {
+      await trail.stage("the held output shown once", async () => {
         expected({
           what: "times the output made during the reload reached the page after it",
           expected: 1,
