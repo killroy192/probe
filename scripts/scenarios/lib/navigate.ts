@@ -86,12 +86,6 @@ async function reloadOnto(page: PointerPage, name: string) {
   );
   await page.reload();
   if (!remembered) {
-    // "Create workspace" joins the start screen once the page learns it may change workspaces,
-    // moving "Open workspace" and shutting a menu opened before; harness pages may.
-    await waitFor(
-      startScreenButton(page, "Create workspace"),
-      "the start screen to offer Create workspace after the reload",
-    );
     await startScreenButton(page, "Open workspace").click();
     await page.getByRole("menuitem", { name, exact: true }).click();
   }

@@ -25,7 +25,7 @@ import { Atom } from "effect/reactivity";
 import { connectionAtomRuntime } from "../connection/runtime";
 import { usePrimaryEnvironmentId } from "./environments";
 import { formatEnvironmentQueryError, useEnvironmentQuery } from "./query";
-import { useEnvironmentScope } from "./session";
+import { useEnvironmentScope, useEnvironmentScopesKnown } from "./session";
 import { shellEnvironment, useShells } from "./shells";
 import { useAtomCommand } from "./use-atom-command";
 
@@ -153,6 +153,8 @@ export interface WorkspacesView {
   readonly listError: string | null;
   /** Whether this client may create and remove workspaces and add projects (settings write). */
   readonly canChange: boolean;
+  /** False while canChange is still unknown, so gated items can hold their place disabled. */
+  readonly canChangeKnown: boolean;
   /** Whether this client may start shells (terminal operate). */
   readonly canStartShell: boolean;
   /** The shown workspace, or null for the start screen. */
@@ -249,6 +251,7 @@ export function useWorkspaces(): WorkspacesView {
   const restored = useAtomValue(restoredAtom);
   const setRestored = useAtomSet(restoredAtom);
   const canChange = useAtomValue(workspaceEnvironment.create.permissionAtom(environmentId));
+  const canChangeKnown = useEnvironmentScopesKnown(environmentId);
   const canStartShell = useAtomValue(workspaceEnvironment.startShell.permissionAtom(environmentId));
 
   const workspaces = query.data;
@@ -363,6 +366,7 @@ export function useWorkspaces(): WorkspacesView {
     workspaces,
     listError: query.error,
     canChange,
+    canChangeKnown,
     canStartShell,
     shown,
     tabs,

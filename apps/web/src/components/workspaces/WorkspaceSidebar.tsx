@@ -127,8 +127,8 @@ export function WorkspaceSidebar() {
                     <LayersIcon />
                   </MenuTrigger>
                   <MenuPopup align="end">
-                    {view.canChange ? (
-                      <MenuItem onClick={() => setCreating(true)}>
+                    {view.canChange || !view.canChangeKnown ? (
+                      <MenuItem disabled={!view.canChange} onClick={() => setCreating(true)}>
                         <PlusIcon />
                         Create workspace
                       </MenuItem>
