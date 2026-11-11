@@ -32,15 +32,38 @@ import {
 import { openWorkspace, openWorkspacesMenu, removeWorkspace } from "../lib/ui/workspacesMenu.ts";
 import { alive, check, waitFor } from "../lib/waits.ts";
 import type { PointerPage } from "../browser.ts";
-import type { Scenario } from "../scenario.ts";
+import { defineCheck } from "../scenario.ts";
 
 const missingMark = (page: PointerPage, shellId: string) =>
   page.locator(`[data-shell-row="${shellId}"] [data-missing]`);
 
-export const restartSurvival: Scenario = {
+export const restartSurvival = defineCheck(import.meta.url, {
   id: "S7",
   title: "keep shells, tabs and output across reloads and server restarts",
   needs: { restart: true },
+  covers: [
+    "S7 AC-6",
+    "S7 AC-7",
+    "S7 AC-8",
+    "S7 AC-9",
+    "S7 AC-10",
+    "S7 AC-12",
+    "S7 AC-13",
+    "S7 AC-14",
+    "S7 AC-16",
+    "S7 AC-17",
+    "S7 AC-18",
+    "S7 AC-19",
+    "S7 AC-20",
+    "S7 AC-21",
+    "S7 AC-22",
+    "S7 AC-23",
+    "S7 AC-29",
+    "S7 AC-31",
+    "S7 AC-33",
+    "S7 AC-34",
+    "S7 EC-1",
+  ],
   run: async (ctx) => {
     const { server, trail } = ctx;
     const stateDir = NodePath.join(server.home, "userdata");
@@ -501,4 +524,4 @@ export const restartSurvival: Scenario = {
       );
     });
   },
-};
+});

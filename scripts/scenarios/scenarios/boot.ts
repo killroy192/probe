@@ -12,7 +12,7 @@ import { alert } from "../lib/ui/dialog.ts";
 import { workspaceShown } from "../lib/ui/tree.ts";
 import { fillCreateWorkspace, openWorkspacesMenu } from "../lib/ui/workspacesMenu.ts";
 import { check } from "../lib/waits.ts";
-import type { Scenario } from "../scenario.ts";
+import { defineCheck } from "../scenario.ts";
 
 const screen = (page: PointerPage) => page.getByTestId("workspace-screen");
 const treeRoot = (page: PointerPage) => page.getByRole("tree").getByRole("treeitem");
@@ -49,10 +49,30 @@ async function navigateInApp(page: PointerPage, path: string) {
   await page.waitForURL((url) => url.pathname === "/");
 }
 
-export const boot: Scenario = {
+export const boot = defineCheck(import.meta.url, {
   id: "S1",
   title: "boot and workspaces",
   needs: { pristineHome: true },
+  covers: [
+    "S1 AC-1",
+    "S1 AC-2",
+    "S1 AC-3",
+    "S1 AC-4",
+    "S1 AC-5",
+    "S1 AC-6",
+    "S1 AC-7",
+    "S1 AC-8",
+    "S1 AC-9",
+    "S1 AC-10",
+    "S1 AC-11",
+    "S1 AC-12",
+    "S1 AC-13",
+    "S1 AC-14",
+    "S1 AC-15",
+    "S1 AC-16",
+    "S1 AC-17",
+    "S1 AC-20",
+  ],
   run: async ({ server, openPage, trail }) => {
     check(
       (await runtimePid(server)) === server.pid(),
@@ -323,4 +343,4 @@ export const boot: Scenario = {
       }
     });
   },
-};
+});

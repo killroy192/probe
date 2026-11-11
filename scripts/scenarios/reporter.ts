@@ -11,6 +11,9 @@ import type {
   TestResult,
 } from "@playwright/test/reporter";
 
+import { judgeGate } from "./gate.ts";
+import type { ScenarioSet } from "./scenario.ts";
+
 export const OUTCOME_ATTACHMENT = "scenario-outcome";
 
 export interface StepOutcome {
@@ -32,21 +35,7 @@ export interface ScenarioOutcome {
   readonly steps?: ReadonlyArray<StepOutcome>;
 }
 
-export interface ScenarioSet {
-  readonly name: string;
-  readonly members: ReadonlyArray<string>;
-}
-
-export interface GateRow {
-  readonly id: string;
-  readonly ms: number;
-  readonly freshServer: boolean;
-}
-
-export type GateJudge = (
-  rows: ReadonlyArray<GateRow>,
-  capMs: number,
-) => { readonly lines: ReadonlyArray<string>; readonly failed: boolean };
+export type GateJudge = typeof judgeGate;
 
 export interface ReporterOptions {
   readonly mode?: "suite" | "selftest" | "sandbox";
@@ -160,7 +149,7 @@ function summaryLines(
 export default class ScenarioReporter implements Reporter {
   readonly #options: ReporterOptions;
   readonly #write: (text: string) => void;
-  readonly #judgeGate: GateJudge | undefined;
+  readonly #judgeGate: GateJudge;
   readonly #rows: Array<ResultRow> = [];
   #skipped = 0;
 
@@ -169,12 +158,9 @@ export default class ScenarioReporter implements Reporter {
   }
 
   constructor(options: ReporterOptions = {}, deps: ReporterDeps = {}) {
-    if (options.gate !== undefined && deps.judgeGate === undefined) {
-      throw new Error("The scenario reporter needs a gate judge to run the cap gate.");
-    }
     this.#options = options;
     this.#write = deps.write ?? ((text) => NodeProcess.stdout.write(text));
-    this.#judgeGate = deps.judgeGate;
+    this.#judgeGate = deps.judgeGate ?? judgeGate;
   }
 
   printsToStdio(): boolean {
@@ -232,9 +218,9 @@ export default class ScenarioReporter implements Reporter {
       const rows = this.#rows.flatMap(({ id, durationMs, freshServer }) =>
         freshServer === undefined ? [] : [{ id, ms: durationMs, freshServer }],
       );
-      const verdict = this.#judgeGate!(rows, gate.capMs);
+      const verdict = this.#judgeGate(rows, gate.capMs);
       for (const line of verdict.lines) this.#line(line);
-      gateFailed = verdict.failed;
+      gateFailed = verdict.over.length > 0;
     }
     for (const line of summaryLines(this.#rows, this.#skipped, this.#options, result.duration)) {
       this.#line(line);

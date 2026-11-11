@@ -380,7 +380,7 @@ describe("scenario runner", () => {
           const { code, output } = await spawnRunner(["--only", "S1"]).done;
           assert.strictEqual(code, 0);
           assert.include(output, "PASS    S1 boot");
-          assert.include(output, "1/8 passing, 0 pending, 0 failed");
+          assert.include(output, "scenarios: 1 ran, 1 passed, 0 failed");
         }
         assert.isTrue(alive(bystander.pid()));
         assert.isTrue((await fetch(bystander.origin)).ok);

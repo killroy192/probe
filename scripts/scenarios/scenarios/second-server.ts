@@ -13,7 +13,7 @@ import { saveServerInBrowser } from "../lib/seam.ts";
 import { projectPaths, type Setup, setupOn, workspaceNames } from "../lib/setup.ts";
 import { openShell } from "../lib/shells.ts";
 import { check, recorder, waitFor } from "../lib/waits.ts";
-import type { Scenario } from "../scenario.ts";
+import { defineCheck } from "../scenario.ts";
 import { REPO_ROOT } from "../server.ts";
 
 const LABEL = "Second server";
@@ -23,10 +23,11 @@ const isInside = (child: string, parent: string) => {
   return relative === "" || (!relative.startsWith("..") && !NodePath.isAbsolute(relative));
 };
 
-export const secondServer: Scenario = {
+export const secondServer = defineCheck(import.meta.url, {
   id: "R1",
   title: "second server",
   needs: { secondServer: true },
+  covers: ["R1 AC-1", "R1 AC-2", "R1 AC-3", "R1 EC-1", "R1 EC-4"],
   run: async (ctx) => {
     const { server, trail } = ctx;
     const second = await ctx.startSecondServer();
@@ -151,4 +152,4 @@ export const secondServer: Scenario = {
       );
     });
   },
-};
+});

@@ -5,7 +5,7 @@ import * as NodePath from "node:path";
 import { bundleBuiltMs, bundleInputs, newestOf, serverInputs } from "./bundle.ts";
 import type { SandboxRecord } from "./cleanup.ts";
 import { freshServerNeeded, type Runnable } from "./registryRules.ts";
-import type { Scenario, ScenarioNeeds } from "./scenario.ts";
+import type { CheckScenario, ScenarioNeeds } from "./scenario.ts";
 
 const REGISTERING = `see "Registering a scenario" in .agents/rules/scenarios.md`;
 const SAVED_ONLY = `the sandbox runs saved scenarios only; register it under an id (${REGISTERING})`;
@@ -18,15 +18,22 @@ const SANDBOX_HARNESS = [
   "cleanup.ts",
   "environment.ts",
   "bundle.ts",
+  "browser.ts",
+  "ports.ts",
   "gitconfig",
   "lib/api.ts",
   "lib/deadlines.ts",
   "lib/files.ts",
+  "lib/navigate.ts",
   "lib/report.ts",
-  "lib/seam.ts",
   "lib/setup.ts",
+  "lib/shells.ts",
+  "lib/trail.ts",
   "lib/ui/addProject.ts",
   "lib/ui/dialog.ts",
+  "lib/ui/tabs.ts",
+  "lib/ui/terminal.ts",
+  "lib/ui/tree.ts",
   "lib/ui/workspacesMenu.ts",
   "lib/waits.ts",
 ];
@@ -34,8 +41,8 @@ const SANDBOX_HARNESS = [
 /** The registered scenario `id` names, or why the sandbox refuses it: a script path or an unknown id. */
 export function pickScenario(
   id: string,
-  registered: ReadonlyArray<Scenario>,
-): { readonly scenario: Scenario } | { readonly refusal: string } {
+  registered: ReadonlyArray<CheckScenario>,
+): { readonly scenario: CheckScenario } | { readonly refusal: string } {
   const scenario = registered.find((candidate) => candidate.id === id);
   if (scenario !== undefined) return { scenario };
   if (/[/\\]|\.[cm]?[jt]sx?$/.test(id)) {
@@ -61,7 +68,10 @@ function refusedNeeds(needs: ScenarioNeeds): ReadonlyArray<string> {
 }
 
 /** Why `scenario` may not run on a server other runs share; undefined when it may. */
-export function sandboxRefusal(scenario: Pick<Scenario, "id" | "needs">): string | undefined {
+export function sandboxRefusal(scenario: {
+  readonly id: string;
+  readonly needs?: ScenarioNeeds;
+}): string | undefined {
   const { id, needs } = scenario;
   if (needs === undefined) {
     return `${id} does not state its needs, so it is not known to be safe on a shared server (${REGISTERING}).`;

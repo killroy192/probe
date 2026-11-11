@@ -16,7 +16,7 @@ import { shellTab } from "../lib/ui/tabs.ts";
 import { shellPanel, shellReady } from "../lib/ui/terminal.ts";
 import { openFromTree } from "../lib/ui/tree.ts";
 import { check } from "../lib/waits.ts";
-import type { Scenario } from "../scenario.ts";
+import { defineCheck } from "../scenario.ts";
 
 /** The request that saves a workspace's tabs, as the page sends it. */
 const SAVE_TABS = '"workspace.saveTabs"';
@@ -30,10 +30,11 @@ async function shellsInFolder(setup: Setup, count: number) {
   return { ws, shells };
 }
 
-export const tabSignals: Scenario = {
+export const tabSignals = defineCheck(import.meta.url, {
   id: "T-041a",
   title: "a shell tab says it is attached and ready, hidden or not, after a reload and a restart",
   needs: { restart: true },
+  covers: ["T-041a AC-4", "T-041a AC-6"],
   run: async (ctx) => {
     const { openPage, trail } = ctx;
     const page = await openPage();
@@ -70,12 +71,13 @@ export const tabSignals: Scenario = {
       await readyBoth(other);
     });
   },
-};
+});
 
-export const layoutSignal: Scenario = {
+export const layoutSignal = defineCheck(import.meta.url, {
   id: "T-041b",
   title: "the page says saved only once the server holds its last tab change",
   needs: {},
+  covers: ["T-041b AC-11"],
   run: async (ctx) => {
     const { openPage, trail } = ctx;
     const page = await openPage();
@@ -138,12 +140,13 @@ export const layoutSignal: Scenario = {
       );
     });
   },
-};
+});
 
-export const layoutReload: Scenario = {
+export const layoutReload = defineCheck(import.meta.url, {
   id: "T-041c",
   title: "a reload after a tab change keeps the change only when it waits for saved",
   needs: {},
+  covers: ["T-041c AC-12"],
   run: async (ctx) => {
     const { openPage, trail } = ctx;
     const page = await openPage();
@@ -191,4 +194,4 @@ export const layoutReload: Scenario = {
       );
     });
   },
-};
+});

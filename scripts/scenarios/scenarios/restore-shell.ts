@@ -17,12 +17,13 @@ import {
   shellRow,
 } from "../lib/ui/tree.ts";
 import { check, waitFor } from "../lib/waits.ts";
-import type { Scenario } from "../scenario.ts";
+import { defineCheck } from "../scenario.ts";
 
-export const restoreShell: Scenario = {
+export const restoreShell = defineCheck(import.meta.url, {
   id: "S8",
   title: "restore an ended shell in place, only when the user asks",
   needs: { restart: true },
+  covers: ["S8 PRB.E-001 FR-17", "S8 PRB.E-001 FR-19"],
   run: async (ctx) => {
     const { server, trail } = ctx;
     const page = await ctx.openPage();
@@ -194,4 +195,4 @@ export const restoreShell: Scenario = {
       );
     });
   },
-};
+});

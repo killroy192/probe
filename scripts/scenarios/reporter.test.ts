@@ -186,7 +186,7 @@ describe("scenario reporter", () => {
     const seen: Array<unknown> = [];
     const judge: GateJudge = (rows, capMs) => {
       seen.push({ rows, capMs });
-      return { lines: ["GATE FAIL T1 21.0 s (server start included), cap 20 s"], failed: true };
+      return { lines: ["GATE FAIL T1 21.0 s (server start included), cap 20 s"], over: ["T1"] };
     };
     const { instance, lines } = reporter({ gate: { capMs: 20_000, notTimed: ["T22"] } }, judge);
     instance.onTestEnd({ title: "T16 a" }, result("passed", atomic("T16")));
@@ -219,10 +219,14 @@ describe("scenario reporter", () => {
     expect(lines()).toEqual([]);
   });
 
-  it("refuses a gate run without a judge", () => {
-    expect(() => new ScenarioReporter({ gate: { capMs: 1, notTimed: [] } })).toThrow(
-      "needs a gate judge",
-    );
+  it("judges the gate with the gate's own rule when given no judge", async () => {
+    const { instance, lines } = reporter({ gate: { capMs: 20_000, notTimed: [] } });
+    instance.onTestEnd({ title: "T16 a" }, result("passed", atomic("T16")));
+    expect(await instance.onEnd({ duration: 0 })).toBeUndefined();
+    expect(lines().slice(1, 3)).toEqual([
+      "GATE PASS T16 2.345 s (server start excluded), cap 20 s",
+      "gate: 1 timed, 0 over the cap",
+    ]);
   });
 
   it("writes each id's outcome and time to results.json", async () => {

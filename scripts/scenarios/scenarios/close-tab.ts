@@ -6,12 +6,13 @@ import { closeTab, shellTab, tabs } from "../lib/ui/tabs.ts";
 import { typeLine } from "../lib/ui/terminal.ts";
 import { openFromTree, shellRow } from "../lib/ui/tree.ts";
 import { check, waitFor } from "../lib/waits.ts";
-import type { Scenario } from "../scenario.ts";
+import { defineCheck } from "../scenario.ts";
 
-export const closeTabScenario: Scenario = {
+export const closeTabScenario = defineCheck(import.meta.url, {
   id: "S5",
   title: "close a tab and reopen it from the tree",
   needs: {},
+  covers: ["S5 AC-3", "S5 AC-4", "S5 AC-5", "S5 AC-6"],
   run: async (ctx) => {
     const { trail } = ctx;
     const page = await ctx.openPage();
@@ -103,4 +104,4 @@ export const closeTabScenario: Scenario = {
       check((await shellTab(page, first.shellId).count()) === 0, "A closed tab is still shown.");
     });
   },
-};
+});

@@ -14,12 +14,28 @@ import { typeLine } from "../lib/ui/terminal.ts";
 import { answerConfirm, askToKill, killFromTree, shellRow } from "../lib/ui/tree.ts";
 import { removeWorkspace } from "../lib/ui/workspacesMenu.ts";
 import { alive, check, waitFor } from "../lib/waits.ts";
-import type { Scenario } from "../scenario.ts";
+import { defineCheck } from "../scenario.ts";
 
-export const killShell: Scenario = {
+export const killShell = defineCheck(import.meta.url, {
   id: "S6",
   title: "kill shells from the tree, from inside, and with their workspace",
   needs: { unshared: "it finds its shell's jobs by matching every process on the machine" },
+  covers: [
+    "S6 AC-7",
+    "S6 AC-8",
+    "S6 AC-9",
+    "S6 AC-10",
+    "S6 AC-11",
+    "S6 AC-12",
+    "S6 AC-13",
+    "S6 AC-14",
+    "S6 AC-15",
+    "S6 AC-16",
+    "S6 AC-17",
+    "S6 AC-18",
+    "S6 AC-20",
+    "S6 AC-28",
+  ],
   run: async (ctx) => {
     const { server, trail } = ctx;
     const page = await ctx.openPage();
@@ -224,4 +240,4 @@ export const killShell: Scenario = {
       for (const folder of [repo.path, plain.path, worktree]) await NodeFSP.access(folder);
     });
   },
-};
+});

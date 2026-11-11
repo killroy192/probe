@@ -2,13 +2,13 @@
 
 import { expectLogged } from "../lib/serverLog.ts";
 import { setupOn } from "../lib/setup.ts";
-import type { Scenario } from "../scenario.ts";
+import { defineCheck } from "../scenario.ts";
 
 /**
  * Fails on purpose in its second stage with two servers and a signed-in and an anonymous page
  * open, each page having logged a marker, so the run saves every labelled artifact.
  */
-export const labelledArtifacts: Scenario = {
+export const labelledArtifacts = defineCheck(import.meta.url, {
   id: "T15",
   title: "labelled failure artifacts",
   needs: { secondServer: true },
@@ -40,4 +40,4 @@ export const labelledArtifacts: Scenario = {
       throw new Error("T15 fails on purpose, so the run saves labelled artifacts");
     });
   },
-};
+});

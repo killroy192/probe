@@ -40,16 +40,43 @@ import { typeLine } from "../lib/ui/terminal.ts";
 import { shellNodes } from "../lib/ui/tree.ts";
 import { createWorkspace } from "../lib/ui/workspacesMenu.ts";
 import { check, follow, recorder } from "../lib/waits.ts";
-import type { Scenario } from "../scenario.ts";
+import { defineCheck } from "../scenario.ts";
 import { MOCK_AGENT_COMMAND } from "../server.ts";
 
 const CONNECTION_LOST =
   "The shell did not start: the connection to the server was lost. Try again.";
 
-export const plusModal: Scenario = {
+export const plusModal = defineCheck(import.meta.url, {
   id: "S2",
   title: "start a shell from the plus modal",
   needs: { restart: true },
+  covers: [
+    "S2 AC-1",
+    "S2 AC-2",
+    "S2 AC-3",
+    "S2 AC-4",
+    "S2 AC-5",
+    "S2 AC-6",
+    "S2 AC-7",
+    "S2 AC-8",
+    "S2 AC-9",
+    "S2 AC-10",
+    "S2 AC-11",
+    "S2 AC-12",
+    "S2 AC-13",
+    "S2 AC-14",
+    "S2 AC-14b",
+    "S2 AC-15",
+    "S2 AC-16",
+    "S2 AC-17",
+    "S2 AC-18",
+    "S2 AC-19",
+    "S2 AC-20",
+    "S2 AC-21",
+    "S2 AC-23",
+    "S2 AC-24",
+    "S2 AC-25",
+  ],
   run: async (ctx) => {
     const { server, openPage, trail } = ctx;
     const folders = NodePath.join(server.home, "folders");
@@ -509,4 +536,4 @@ export const plusModal: Scenario = {
       await NodeFSP.chmod(locked, 0o755).catch(() => undefined);
     }
   },
-};
+});

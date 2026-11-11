@@ -29,10 +29,10 @@ import {
   waitFailuresNamed,
 } from "./selftest/signal-waits.ts";
 import { unstatedNeeds } from "./selftest/unstated-needs.ts";
-import type { Scenario } from "./scenario.ts";
+import type { Runnable } from "./registryRules.ts";
+import type { CheckScenario, ComposedScenario, PerfScenario, ScenarioSet } from "./scenario.ts";
 
-// S1..S8 from PRB.E-001. A scenario without `run` is pending until its story builds it.
-export const scenarios: ReadonlyArray<Scenario> = [
+export const checks: ReadonlyArray<CheckScenario> = [
   boot,
   plusModal,
   worktrees,
@@ -41,10 +41,6 @@ export const scenarios: ReadonlyArray<Scenario> = [
   killShell,
   restartSurvival,
   restoreShell,
-];
-
-/** Checks a story owns that are not epic scenarios; they run after S1..S8 and do not count toward 8. */
-export const storyScenarios: ReadonlyArray<Scenario> = [
   standaloneShell,
   secondServer,
   plainShell,
@@ -55,7 +51,16 @@ export const storyScenarios: ReadonlyArray<Scenario> = [
   layoutReload,
 ];
 
-export const selftestScenarios: ReadonlyArray<Scenario> = [
+export const composed: ReadonlyArray<ComposedScenario> = [];
+
+/** Run only in the serial perf run, never as set members. */
+export const perfScenarios: ReadonlyArray<PerfScenario> = [];
+
+/** Ids and set names share one namespace. */
+export const sets: ReadonlyArray<ScenarioSet> = [];
+
+/** The default `--selftest` run. */
+export const selftests: ReadonlyArray<Runnable> = [
   restartPersistence,
   deliberateFailure,
   oneLogin,
@@ -64,7 +69,7 @@ export const selftestScenarios: ReadonlyArray<Scenario> = [
 ];
 
 /** Self-tests that run only when picked with `--only`, so one `--selftest` run stays short. */
-export const pickedSelftestScenarios: ReadonlyArray<Scenario> = [
+export const pickedSelftests: ReadonlyArray<Runnable> = [
   secondServerFailure,
   unstatedNeeds,
   changedRerun,
@@ -76,3 +81,5 @@ export const pickedSelftestScenarios: ReadonlyArray<Scenario> = [
   setupCallFails,
   workspaceNotShown,
 ];
+
+export const selftestSets: ReadonlyArray<ScenarioSet> = [];

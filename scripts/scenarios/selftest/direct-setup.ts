@@ -7,10 +7,10 @@ import * as Effect from "effect/Effect";
 import { openTab, reloadShowing, showWorkspace } from "../lib/navigate.ts";
 import { setupOn, world } from "../lib/setup.ts";
 import { check } from "../lib/waits.ts";
-import type { Scenario } from "../scenario.ts";
+import { defineCheck } from "../scenario.ts";
 
 /** The same setup twice on one server: distinct names and folders, each seeing only its own. */
-export const twoSetups: Scenario = {
+export const twoSetups = defineCheck(import.meta.url, {
   id: "T10",
   title: "two setups on one server",
   needs: {},
@@ -52,10 +52,10 @@ export const twoSetups: Scenario = {
       }
     });
   },
-};
+});
 
 /** A page reaches a workspace made over the API from the start screen and from another workspace. */
-export const reachWorkspace: Scenario = {
+export const reachWorkspace = defineCheck(import.meta.url, {
   id: "T11",
   title: "reach an API-made workspace",
   needs: {},
@@ -81,10 +81,10 @@ export const reachWorkspace: Scenario = {
       await showWorkspace(page, other);
     });
   },
-};
+});
 
 /** Fails on purpose: a project import of a folder that does not exist fails in setup. */
-export const setupCallFails: Scenario = {
+export const setupCallFails = defineCheck(import.meta.url, {
   id: "T12",
   title: "a setup call fails",
   needs: {},
@@ -94,10 +94,10 @@ export const setupCallFails: Scenario = {
     const missing = NodePath.join(ctx.server.home, "folders", ctx.runId, "missing");
     await ctx.trail.stage("setup", () => setup.project(ws, { kind: "folder", path: missing }));
   },
-};
+});
 
 /** Fails on purpose: a page asked to show a workspace that does not exist. */
-export const workspaceNotShown: Scenario = {
+export const workspaceNotShown = defineCheck(import.meta.url, {
   id: "T13",
   title: "a workspace is not shown",
   needs: {},
@@ -107,4 +107,4 @@ export const workspaceNotShown: Scenario = {
       showWorkspace(page, { kind: "workspace", name: `missing-${ctx.runId}` }),
     );
   },
-};
+});

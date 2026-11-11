@@ -1,10 +1,10 @@
-import type { Scenario } from "../scenario.ts";
+import { defineCheck } from "../scenario.ts";
 
 /**
  * States no needs, then tries each one: on a sandbox every attempt is refused naming the need, and
  * the scenario fails listing them. Picked only by id; on its own server nothing is refused.
  */
-export const unstatedNeeds: Scenario = {
+export const unstatedNeeds = defineCheck(import.meta.url, {
   id: "T5",
   title: "tries needs it did not state",
   needs: {},
@@ -24,4 +24,4 @@ export const unstatedNeeds: Scenario = {
       refused.length === 0 ? "No attempt was refused." : `Refused: ${refused.join(" | ")}`,
     );
   },
-};
+});

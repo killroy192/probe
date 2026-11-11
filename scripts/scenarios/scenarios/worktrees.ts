@@ -32,7 +32,7 @@ import { tabs } from "../lib/ui/tabs.ts";
 import { typeLine } from "../lib/ui/terminal.ts";
 import { shellRow } from "../lib/ui/tree.ts";
 import { check, waitFor } from "../lib/waits.ts";
-import type { Scenario } from "../scenario.ts";
+import { defineCheck } from "../scenario.ts";
 
 const NAME = /^probe-worktree-[0-9a-f]{6}$/;
 
@@ -48,10 +48,40 @@ async function proposedName(page: PointerPage) {
   return name;
 }
 
-export const worktrees: Scenario = {
+export const worktrees = defineCheck(import.meta.url, {
   id: "S3",
   title: "start shells in existing and forked worktrees",
   needs: { restart: true },
+  covers: [
+    "S3 AC-1",
+    "S3 AC-2",
+    "S3 AC-3",
+    "S3 AC-4",
+    "S3 AC-5",
+    "S3 AC-6",
+    "S3 AC-7",
+    "S3 AC-8",
+    "S3 AC-9",
+    "S3 AC-10",
+    "S3 AC-11",
+    "S3 AC-12",
+    "S3 AC-13",
+    "S3 AC-14",
+    "S3 AC-15",
+    "S3 AC-16",
+    "S3 AC-17",
+    "S3 AC-18",
+    "S3 AC-19",
+    "S3 AC-22",
+    "S3 AC-23",
+    "S3 AC-24",
+    "S3 AC-25",
+    "S3 AC-26",
+    "S3 AC-27",
+    "S3 AC-28",
+    "S3 AC-29",
+    "S3 AC-30",
+  ],
   run: async (ctx) => {
     const { server, openPage, trail } = ctx;
     const stage = trail.stage;
@@ -532,4 +562,4 @@ export const worktrees: Scenario = {
       );
     });
   },
-};
+});

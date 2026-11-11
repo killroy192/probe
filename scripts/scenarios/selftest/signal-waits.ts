@@ -17,7 +17,7 @@ import { startShell } from "../lib/ui/plusModal.ts";
 import { closeTab } from "../lib/ui/tabs.ts";
 import { shellReady, typeLine } from "../lib/ui/terminal.ts";
 import { check, recorder, waitFor } from "../lib/waits.ts";
-import type { Scenario, ScenarioContext } from "../scenario.ts";
+import { defineCheck, type ScenarioContext } from "../scenario.ts";
 
 const SHORT = seconds(SELFTEST_SHORT_MS);
 
@@ -43,7 +43,7 @@ async function workspacePage({ server, openPage, runId }: ScenarioContext, page?
   return { page: shown, rpc, shells, plain, name };
 }
 
-export const typingWaitFails: Scenario = {
+export const typingWaitFails = defineCheck(import.meta.url, {
   id: "T7",
   title: "typing into a shell that never becomes ready fails naming it, and types nothing",
   needs: { restart: true },
@@ -84,9 +84,9 @@ export const typingWaitFails: Scenario = {
       await rpc.close();
     }
   },
-};
+});
 
-export const layoutWaitFails: Scenario = {
+export const layoutWaitFails = defineCheck(import.meta.url, {
   id: "T8",
   title: "waiting for a layout save that never comes fails naming the workspace and its state",
   needs: {},
@@ -118,9 +118,9 @@ export const layoutWaitFails: Scenario = {
       await rpc.close();
     }
   },
-};
+});
 
-export const endCheckFails: Scenario = {
+export const endCheckFails = defineCheck(import.meta.url, {
   id: "T9",
   title: "a process still running after its shell's end event fails the check at once",
   needs: {},
@@ -146,9 +146,9 @@ export const endCheckFails: Scenario = {
       await rpc.close();
     }
   },
-};
+});
 
-export const waitFailuresNamed: Scenario = {
+export const waitFailuresNamed = defineCheck(import.meta.url, {
   id: "T14",
   title: "a wait whose event never comes fails naming what it awaited, its offset and the deadline",
   needs: {},
@@ -185,4 +185,4 @@ export const waitFailuresNamed: Scenario = {
       `The page wait's failure does not name what it awaited and the deadline: ${located}`,
     );
   },
-};
+});

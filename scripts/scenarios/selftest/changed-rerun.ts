@@ -5,13 +5,13 @@ import * as NodePath from "node:path";
 import * as NodeProcess from "node:process";
 
 import { withClient } from "../lib/api.ts";
-import type { Scenario } from "../scenario.ts";
+import { defineCheck } from "../scenario.ts";
 
 /**
  * Makes a workspace and a folder named by its run, failing if either exists, and writes the note it
  * is given, so a test can change it between two runs on one sandbox. Picked only by id.
  */
-export const changedRerun: Scenario = {
+export const changedRerun = defineCheck(import.meta.url, {
   id: "T6",
   title: "names what it makes by its run",
   needs: {},
@@ -25,4 +25,4 @@ export const changedRerun: Scenario = {
     await withClient(server, (client) => client["workspace.create"]({ name: workspace }));
     NodeProcess.stdout.write(`T6 made workspace=${workspace} folder=${folder}\n`);
   },
-};
+});

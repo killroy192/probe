@@ -23,12 +23,7 @@ import {
   sandboxLogFile,
 } from "./cleanup.ts";
 import { parseSandboxArgs, strayArgs } from "./environment.ts";
-import {
-  pickedSelftestScenarios,
-  scenarios,
-  selftestScenarios,
-  storyScenarios,
-} from "./registry.ts";
+import { checks, pickedSelftests, selftests } from "./registry.ts";
 import { withClient } from "./lib/api.ts";
 import { alive, gone } from "./lib/waits.ts";
 import { pickScenario, sandboxRefusal, staleSandboxFile } from "./sandboxRules.ts";
@@ -39,12 +34,9 @@ const here = (file: string) => NodeURL.fileURLToPath(new URL(file, import.meta.u
 const sandboxBin = here("./sandbox.ts");
 const runnerBin = here("./run.ts");
 const scratch = (label: string) => NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), label));
-const registered = [
-  ...scenarios,
-  ...storyScenarios,
-  ...selftestScenarios,
-  ...pickedSelftestScenarios,
-];
+const registered = [...checks, ...selftests, ...pickedSelftests].filter(
+  (entry) => entry.kind === "check",
+);
 
 describe("sandbox rules", () => {
   it("refuses every stated need and an unstated one, and accepts only scenarios that need nothing", () => {

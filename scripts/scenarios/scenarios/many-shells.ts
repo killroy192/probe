@@ -11,12 +11,26 @@ import { closeTab, shellTab, tabIds, tabs } from "../lib/ui/tabs.ts";
 import { typeLine } from "../lib/ui/terminal.ts";
 import { endedRow, openFromTree, shellRow, workspaceShown } from "../lib/ui/tree.ts";
 import { alive, check, waitFor } from "../lib/waits.ts";
-import type { Scenario } from "../scenario.ts";
+import { defineCheck } from "../scenario.ts";
 
-export const manyShells: Scenario = {
+export const manyShells = defineCheck(import.meta.url, {
   id: "S4",
   title: "run many shells, each with its own output",
   needs: {},
+  covers: [
+    "S4 AC-1",
+    "S4 AC-2",
+    "S4 AC-3",
+    "S4 AC-4",
+    "S4 AC-5",
+    "S4 AC-11",
+    "S4 AC-15",
+    "S4 AC-26",
+    "S4 AC-28",
+    "S4 AC-31",
+    "S4 AC-32",
+    "S4 EC-3",
+  ],
   run: async (ctx) => {
     const { server, trail } = ctx;
     const page = await ctx.openPage();
@@ -246,4 +260,4 @@ export const manyShells: Scenario = {
       );
     });
   },
-};
+});

@@ -9,6 +9,8 @@ export const START_MS = 60_000;
 /** How long a process the server does not own may take to end, and how often it is looked at. */
 export const PROCESS_END_MS = 5_000;
 export const PROCESS_END_STEP_MS = 100;
+/** How often a run on a sandbox looks whether the sandbox, not its own child, has ended. */
+export const SANDBOX_POLL_MS = 250;
 /** For self-tests only: a wait that must fail does so without taking a scenario's deadline. */
 export const SELFTEST_SHORT_MS = 2_000;
 

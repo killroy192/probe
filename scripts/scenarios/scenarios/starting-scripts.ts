@@ -34,7 +34,7 @@ import {
 import { typeLine } from "../lib/ui/terminal.ts";
 import { openFromTree, shellNodes, shellRow } from "../lib/ui/tree.ts";
 import { check } from "../lib/waits.ts";
-import type { Scenario } from "../scenario.ts";
+import { defineCheck } from "../scenario.ts";
 import { MOCK_AGENT_COMMAND, type ServerHandle } from "../server.ts";
 
 /** The prompt mark as it shows in a page frame's JSON text. */
@@ -46,10 +46,11 @@ const count = (text: string, part: string) => text.split(part).length - 1;
 const startLines = (server: ServerHandle) =>
   logEntries(server).filter((line) => line.includes("shell started"));
 
-export const plainShell: Scenario = {
+export const plainShell = defineCheck(import.meta.url, {
   id: "E2-S3",
   title: "start a plain shell from the plus modal",
   needs: { restart: true },
+  covers: ["E2-S3 AC-1", "E2-S3 AC-2a", "E2-S3 AC-2b", "E2-S3 AC-12", "E2-S3 AC-13a"],
   run: async (ctx) => {
     const { server, openPage, trail } = ctx;
     const page = await openPage();
@@ -129,12 +130,25 @@ export const plainShell: Scenario = {
       );
     });
   },
-};
+});
 
-export const userScripts: Scenario = {
+export const userScripts = defineCheck(import.meta.url, {
   id: "E2-S1",
   title: "start a user starting script and find it preselected after a restart",
   needs: { restart: true },
+  covers: [
+    "E2-S1 AC-3",
+    "E2-S1 AC-4",
+    "E2-S1 AC-5",
+    "E2-S1 AC-7",
+    "E2-S1 AC-8",
+    "E2-S1 AC-9",
+    "E2-S1 AC-10",
+    "E2-S1 AC-12",
+    "E2-S1 AC-21",
+    "E2-S1 AC-22",
+    "E2-S1 AC-23",
+  ],
   run: async (ctx) => {
     const { server, openPage, trail } = ctx;
     const page = await openPage();
@@ -315,15 +329,25 @@ export const userScripts: Scenario = {
       );
     });
   },
-};
+});
 
-export const startFailures: Scenario = {
+export const startFailures = defineCheck(import.meta.url, {
   id: "E2-S4",
   title: "a missing program is named and an exiting command keeps the shell",
   needs: {
     unshared:
       "it rewrites the server's starting-script list and expects no other shell on the server",
   },
+  covers: [
+    "E2-S4 AC-1",
+    "E2-S4 AC-2",
+    "E2-S4 AC-4",
+    "E2-S4 AC-5",
+    "E2-S4 AC-9",
+    "E2-S4 AC-10",
+    "E2-S4 AC-11",
+    "E2-S4 AC-12",
+  ],
   run: async (ctx) => {
     const { server, openPage, trail } = ctx;
     const page = await openPage();
@@ -429,4 +453,4 @@ export const startFailures: Scenario = {
       await shellRow(page, quick.shellId).waitFor();
     });
   },
-};
+});

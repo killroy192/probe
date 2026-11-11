@@ -30,20 +30,22 @@ import {
   strayArgs,
 } from "./environment.ts";
 import { scenarioShell } from "./isolation.ts";
-import { ACTION_MS } from "./lib/deadlines.ts";
+import { ACTION_MS, SANDBOX_POLL_MS } from "./lib/deadlines.ts";
 import { createTrail, StageFailure } from "./lib/trail.ts";
 import { resetRecorders } from "./lib/waits.ts";
 import {
-  pickedSelftestScenarios,
-  scenarios,
-  selftestScenarios,
-  storyScenarios,
+  checks,
+  composed,
+  perfScenarios,
+  pickedSelftests,
+  selftests,
+  selftestSets,
+  sets,
 } from "./registry.ts";
+import { type Registry, registryOf, resolveName } from "./registryRules.ts";
 import { pickScenario, sandboxRefusal, staleSandboxFile } from "./sandboxRules.ts";
-import type { Scenario } from "./scenario.ts";
+import type { CheckScenario } from "./scenario.ts";
 import { attachServer, REPO_ROOT, startServer, type ServerHandle } from "./server.ts";
-
-const TOTAL = 8;
 
 // Everything the run started, so an interrupt or a failure stops exactly that and nothing else.
 const cleanups: Array<() => Promise<void>> = [];
@@ -78,6 +80,30 @@ interface Owned {
   readonly stop: () => Promise<void>;
 }
 
+const suite: Registry = { checks, composed, perfScenarios, sets };
+const selftestRegistry = registryOf([...selftests, ...pickedSelftests], selftestSets);
+
+/** The atomic check `name` names, why this runner refuses it, or undefined when nothing has it. */
+function pickCheck(
+  registry: Registry,
+  name: string,
+): { readonly scenario: CheckScenario } | { readonly refusal: string } | undefined {
+  const resolved = resolveName(registry, name);
+  switch (resolved.kind) {
+    case "check":
+      return { scenario: resolved.scenario };
+    case "composed":
+    case "set":
+      return {
+        refusal: `${name} is a ${resolved.kind === "set" ? "set" : "composed scenario"}; it runs on the new runner (PRB.T-040).`,
+      };
+    case "perf":
+      return { refusal: resolved.refusal };
+    case "unknown":
+      return undefined;
+  }
+}
+
 interface SandboxTarget {
   readonly pid: number;
   readonly record: SandboxRecord;
@@ -94,7 +120,7 @@ function sandboxEnds(pid: number): Promise<never> {
       if (!sandboxEnded(pid)) return;
       clearInterval(timer);
       reject(sandboxEndedError(pid));
-    }, 250);
+    }, SANDBOX_POLL_MS);
     cleanups.push(async () => clearInterval(timer));
   });
 }
@@ -107,7 +133,9 @@ function sandboxTarget(
   argv: ReadonlyArray<string>,
   options: RunOptions,
   sandboxPid: number,
-): { readonly target: SandboxTarget; readonly scenario: Scenario } | { readonly refusal: string } {
+):
+  | { readonly target: SandboxTarget; readonly scenario: CheckScenario }
+  | { readonly refusal: string } {
   const [stray] = strayArgs(argv);
   if (stray !== undefined) {
     const picked = pickScenario(stray, []);
@@ -120,12 +148,12 @@ function sandboxTarget(
   }
   if (options.only === undefined)
     return { refusal: "--sandbox runs one scenario; name it with --only <id>." };
-  const picked = pickScenario(options.only, [
-    ...scenarios,
-    ...storyScenarios,
-    ...selftestScenarios,
-    ...pickedSelftestScenarios,
-  ]);
+  const registered = registryOf(
+    [...checks, ...selftests, ...pickedSelftests],
+    [...sets, ...selftestSets],
+  );
+  const picked =
+    pickCheck(registered, options.only) ?? pickScenario(options.only, registered.checks);
   if ("refusal" in picked) return picked;
   const refusal = sandboxRefusal(picked.scenario);
   if (refusal !== undefined) return { refusal };
@@ -148,7 +176,7 @@ interface Outcome {
 }
 
 async function runScenario(
-  scenario: Scenario,
+  scenario: CheckScenario,
   browser: Browser,
   options: RunOptions,
   artifactsRoot: string,
@@ -248,25 +276,28 @@ async function runScenario(
       if (new URL(page.url()).pathname.startsWith("/pair")) await signIn(page, context);
       return page;
     };
-    const running = scenario.run!({
-      server,
-      runId: NodeCrypto.randomBytes(3).toString("hex"),
-      scenarioId: scenario.id,
-      trail,
-      onStepEnd: (what, undo) => {
-        undos.push({ what, undo });
-      },
-      openPage: () => newPage(true),
-      openAnonymousPage: () => newPage(false),
-      startSecondServer: (secondOptions) =>
-        sandbox === undefined
-          ? startOwnedServer("second server", secondOptions?.serverBin ?? options.serverBin)
-          : Promise.reject(
-              new Error(
-                `${scenario.id} tried a second server on the sandbox, a need it did not state.`,
+    const running = scenario.run(
+      {
+        server,
+        runId: NodeCrypto.randomBytes(3).toString("hex"),
+        scenarioId: scenario.id,
+        trail,
+        onStepEnd: (what, undo) => {
+          undos.push({ what, undo });
+        },
+        openPage: () => newPage(true),
+        openAnonymousPage: () => newPage(false),
+        startSecondServer: (secondOptions) =>
+          sandbox === undefined
+            ? startOwnedServer("second server", secondOptions?.serverBin ?? options.serverBin)
+            : Promise.reject(
+                new Error(
+                  `${scenario.id} tried a second server on the sandbox, a need it did not state.`,
+                ),
               ),
-            ),
-    });
+      },
+      undefined,
+    );
     if (sandbox === undefined) await running;
     else {
       // Once the race is lost, the scenario's own failure is not the one reported.
@@ -315,7 +346,7 @@ async function main(): Promise<number> {
   }
   const options = parseArgs(argv);
   let sandbox: SandboxTarget | undefined;
-  let selected: ReadonlyArray<Scenario>;
+  let selected: ReadonlyArray<CheckScenario>;
   if (options.sandbox !== undefined) {
     const refuse = (why: string) => {
       NodeProcess.stderr.write(`scenarios: refusing to run on the sandbox. ${why}\n`);
@@ -329,12 +360,19 @@ async function main(): Promise<number> {
     sandbox = prepared.target;
     selected = [prepared.scenario];
   } else {
-    const all = !options.selftest
-      ? [...scenarios, ...storyScenarios]
-      : options.only === undefined
-        ? selftestScenarios
-        : [...selftestScenarios, ...pickedSelftestScenarios];
-    selected = options.only === undefined ? all : all.filter(({ id }) => id === options.only);
+    const registry = options.selftest ? selftestRegistry : suite;
+    if (options.only === undefined) {
+      selected = options.selftest
+        ? selftests.filter((entry) => entry.kind === "check")
+        : registry.checks;
+    } else {
+      const picked = pickCheck(registry, options.only);
+      if (picked !== undefined && "refusal" in picked) {
+        NodeProcess.stderr.write(`scenarios: refusing to run. ${picked.refusal}\n`);
+        return 2;
+      }
+      selected = picked === undefined ? [] : [picked.scenario];
+    }
   }
   cleanLeftovers(write);
   manifest = openManifest();
@@ -358,21 +396,13 @@ async function main(): Promise<number> {
   }
   const artifactsRoot = options.artifacts ?? defaultArtifactsDir(startedAt);
   let passed = 0;
-  let storyPassed = 0;
   let failed = 0;
-  let pending = 0;
   for (const scenario of selected) {
     const label = `${scenario.id} ${scenario.title}`;
-    if (!scenario.run) {
-      pending += 1;
-      write(`PENDING ${label}`);
-      continue;
-    }
     const outcome = await runScenario(scenario, browser, options, artifactsRoot, sandbox);
     const timing = `(${(outcome.durationMs / 1000).toFixed(1)} s, teardown ${Math.round(outcome.teardownMs)} ms)`;
     if (outcome.error === undefined) {
-      if (storyScenarios.includes(scenario)) storyPassed += 1;
-      else passed += 1;
+      passed += 1;
       write(`PASS    ${label} ${timing}`);
     } else {
       failed += 1;
@@ -384,10 +414,10 @@ async function main(): Promise<number> {
 
   write(
     sandbox !== undefined
-      ? `scenarios: on sandbox ${sandbox.pid}, ${passed + storyPassed} passed, ${failed} failed`
+      ? `scenarios: on sandbox ${sandbox.pid}, ${passed} passed, ${failed} failed`
       : options.selftest
         ? `scenarios: self-test ${passed} passed, ${failed} failed`
-        : `scenarios: ${passed}/${TOTAL} passing, ${pending} pending, ${failed} failed (story checks: ${storyPassed}/${storyScenarios.length} passing)`,
+        : `scenarios: ${passed + failed} ran, ${passed} passed, ${failed} failed`,
   );
   write(`scenarios: total ${seconds(runStartedMs)}`);
   return failed > 0 ? 1 : 0;

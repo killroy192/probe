@@ -6,12 +6,21 @@ import { pageFrames } from "../lib/network.ts";
 import { setupOn } from "../lib/setup.ts";
 import { openShell, writeLine } from "../lib/shells.ts";
 import { alive, follow, recorder, waitFor } from "../lib/waits.ts";
-import type { Scenario } from "../scenario.ts";
+import { defineCheck } from "../scenario.ts";
 
-export const standaloneShell: Scenario = {
+export const standaloneShell = defineCheck(import.meta.url, {
   id: "T-002",
   title: "standalone shell without a chat thread",
   needs: { restart: true },
+  covers: [
+    "T-002 AC-1",
+    "T-002 AC-3",
+    "T-002 AC-5",
+    "T-002 AC-7",
+    "T-002 AC-15",
+    "T-002 AC-16",
+    "T-002 A-14",
+  ],
   run: async (ctx) => {
     const { server, trail } = ctx;
     const page = await ctx.openPage();
@@ -154,4 +163,4 @@ export const standaloneShell: Scenario = {
       }
     });
   },
-};
+});

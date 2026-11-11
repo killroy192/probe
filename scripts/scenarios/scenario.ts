@@ -156,13 +156,3 @@ export function defineComposed(
 ): ComposedScenario {
   return { kind: "composed", file: fileOf(url), ...spec };
 }
-
-/** The shape before `defineCheck`, kept until every scenario is registered through it. */
-export interface Scenario {
-  readonly id: string;
-  readonly title: string;
-  /** `{}` when it needs nothing and is safe on a shared server: its names and folders use `runId`. */
-  readonly needs?: ScenarioNeeds;
-  /** Absent while the story that delivers the scenario is not built. */
-  readonly run?: (context: ScenarioContext) => Promise<void>;
-}
