@@ -1241,9 +1241,10 @@ describe("shell isolation", () => {
           ),
         );
         const text = () => output.seen.join("");
-        // Judges all the text so far; the echoed line is written once.
+        // Judges all the text so far; the echoed line is written once. A path, so the typed
+        // command's own `home=$HOME end` does not count.
         yield* Effect.promise(() =>
-          output.until("the echoed home", () => /home=\S+ end/.test(text()), 0),
+          output.until("the echoed home", () => /home=\/\S* end/.test(text()), 0),
         );
         yield* Fiber.interrupt(viewer);
         return { home, program, shown: text() };
