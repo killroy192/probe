@@ -37,20 +37,22 @@ async function failure(what: string, wait: Promise<unknown>): Promise<string> {
   return outcome;
 }
 
-/** A page with one workspace "sparta" holding one folder, and the server's shell list. */
-async function workspacePage({ server, openPage }: ScenarioContext, page?: PointerPage) {
-  const plain = NodePath.join(server.home, "folders", "plain");
+/** A page with one workspace named by the run, holding one folder, and the server's shell list. */
+async function workspacePage({ server, openPage, runId }: ScenarioContext, page?: PointerPage) {
+  const name = `sparta-${runId}`;
+  const plain = NodePath.join(server.home, "folders", runId, "plain");
   await NodeFSP.mkdir(plain, { recursive: true });
   const shown = page ?? (await openPage());
   const rpc = await connectRpc(server.origin, shown);
   const shells = shellList(rpc.client);
-  await setUp(shown, [plain]);
-  return { page: shown, rpc, shells, plain };
+  await setUp(shown, [plain], name);
+  return { page: shown, rpc, shells, plain, name };
 }
 
 export const typingWaitFails: Scenario = {
-  id: "T5",
+  id: "T7",
   title: "typing into a shell that never becomes ready fails naming it, and types nothing",
+  needs: { restart: true },
   run: async (context) => {
     // An unwrapped shell never prints the prompt mark, so its tab never says ready.
     await context.server.restart({ env: { SHELL: "/bin/sh" } });
@@ -59,14 +61,14 @@ export const typingWaitFails: Scenario = {
       const never = await startShell(page, shells, plain);
       const message = await failure(
         "Typing into a shell that is never ready",
-        typeLine(page, "echo typed-t5", { timeout: SHORT_MS }),
+        typeLine(page, "echo typed-t7", { timeout: SHORT_MS }),
       );
       check(
         message.includes(never.shellId) && message.includes("ready: starting"),
         `The typing wait's failure does not name the shell and its states: ${message}`,
       );
       check(
-        !(await history(rpc.client, never.shellId)).includes("typed-t5"),
+        !(await history(rpc.client, never.shellId)).includes("typed-t7"),
         "The typing wait typed into a shell that was not ready.",
       );
 
@@ -85,27 +87,28 @@ export const typingWaitFails: Scenario = {
 };
 
 export const layoutWaitFails: Scenario = {
-  id: "T6",
+  id: "T8",
   title: "waiting for a layout save that never comes fails naming the workspace and its state",
+  needs: {},
   run: async (context) => {
     const page = await context.openPage();
     const holder = await frameHolder(page);
     // The route applies from the next load on; the page opened already connected.
     await page.reload();
     await page.getByTestId("workspace-screen").waitFor();
-    const { rpc, shells, plain } = await workspacePage(context, page);
+    const { rpc, shells, plain, name } = await workspacePage(context, page);
     try {
       const shell = await startShell(page, shells, plain);
-      await layoutSaved(page, "sparta");
+      await layoutSaved(page, name);
       holder.hold('"workspace.saveTabs"');
       await closeTab(page, shell.shellId);
       await layoutState(page, "pending").waitFor();
       const message = await failure(
         "Waiting for a held layout save",
-        layoutSaved(page, "sparta", { timeout: SHORT_MS }),
+        layoutSaved(page, name, { timeout: SHORT_MS }),
       );
       check(
-        message.includes("sparta") && message.includes("pending"),
+        message.includes(name) && message.includes("pending"),
         `The layout wait's failure does not name the workspace and its state: ${message}`,
       );
       holder.release();
@@ -116,8 +119,9 @@ export const layoutWaitFails: Scenario = {
 };
 
 export const endCheckFails: Scenario = {
-  id: "T7",
+  id: "T9",
   title: "a process still running after its shell's end event fails the check at once",
+  needs: {},
   run: async (context) => {
     const { page, rpc, shells, plain } = await workspacePage(context);
     // Stands in for a shell process that outlived its end event.

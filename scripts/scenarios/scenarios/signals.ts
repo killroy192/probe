@@ -24,8 +24,8 @@ import {
   startShell,
 } from "./workspaceUi.ts";
 
-const plainFolder = async (home: string) => {
-  const plain = NodePath.join(home, "folders", "plain");
+const plainFolder = async (home: string, runId: string) => {
+  const plain = NodePath.join(home, "folders", runId, "plain");
   await NodeFSP.mkdir(plain, { recursive: true });
   return plain;
 };
@@ -36,8 +36,9 @@ const SAVE_TABS = '"workspace.saveTabs"';
 export const tabSignals: Scenario = {
   id: "T-041a",
   title: "a shell tab says it is attached and ready, hidden or not, after a reload and a restart",
-  run: async ({ server, openPage }) => {
-    const plain = await plainFolder(server.home);
+  needs: { restart: true },
+  run: async ({ server, openPage, runId }) => {
+    const plain = await plainFolder(server.home, runId);
     const page = await openPage();
     let rpc = await connectRpc(server.origin, page);
     let stage = "setup";
@@ -83,8 +84,10 @@ export const tabSignals: Scenario = {
 export const layoutSignal: Scenario = {
   id: "T-041b",
   title: "the page says saved only once the server holds its last tab change",
-  run: async ({ server, openPage }) => {
-    const plain = await plainFolder(server.home);
+  needs: {},
+  run: async ({ server, openPage, runId }) => {
+    const name = `sparta-${runId}`;
+    const plain = await plainFolder(server.home, runId);
     const page = await openPage();
     await recordLayoutStates(page);
     const holder = await frameHolder(page);
@@ -95,13 +98,13 @@ export const layoutSignal: Scenario = {
     let stage = "setup";
     try {
       const shells = shellList(rpc.client);
-      await setUp(page, [plain]);
+      await setUp(page, [plain], name);
       const started = [
         await startShell(page, shells, plain),
         await startShell(page, shells, plain),
         await startShell(page, shells, plain),
       ];
-      await layoutSaved(page, "sparta");
+      await layoutSaved(page, name);
 
       // AC-11: quick tab changes show pending until the last save is confirmed. The saves are held
       // back so the changes are quicker than the saves on any machine.
@@ -112,13 +115,13 @@ export const layoutSignal: Scenario = {
       for (const shell of started.toReversed()) await shellTab(page, shell.shellId).click();
       await layoutState(page, "pending").waitFor();
       holder.release();
-      await layoutSaved(page, "sparta");
+      await layoutSaved(page, name);
       const shownSince = (await layoutStates(page)).slice(before);
       check(
         shownSince.indexOf("saved") === shownSince.length - 1 && shownSince[0] === "pending",
         `Between the first change and the last save the page showed ${JSON.stringify(shownSince)} (AC-11).`,
       );
-      const held = await Effect.runPromise(rpc.client["workspace.open"]({ name: "sparta" }));
+      const held = await Effect.runPromise(rpc.client["workspace.open"]({ name }));
       check(
         held.tabs.active === started[0]!.shellId,
         `"saved" showed while the server held ${JSON.stringify(held.tabs)} (AC-11).`,
@@ -127,10 +130,10 @@ export const layoutSignal: Scenario = {
       // AC-11: another client's tab change does not make this page pending.
       stage = "AC-11 second client";
       const other = await openPage();
-      await reloadShowing(other, "sparta");
+      await reloadShowing(other, name);
       const beforeOther = (await layoutStates(page)).length;
       await openFromTree(other, started[1]!.shellId);
-      await layoutSaved(other, "sparta");
+      await layoutSaved(other, name);
       const afterOther = (await layoutStates(page)).slice(beforeOther);
       check(
         !afterOther.includes("pending"),
@@ -139,7 +142,7 @@ export const layoutSignal: Scenario = {
 
       // AC-11: right after a reload, before any change, the page shows saved.
       stage = "AC-11 reload";
-      await reloadShowing(page, "sparta");
+      await reloadShowing(page, name);
       await layoutState(page, "saved").waitFor();
       const afterReload = await layoutStates(page);
       check(
@@ -162,8 +165,10 @@ export const layoutSignal: Scenario = {
 export const layoutReload: Scenario = {
   id: "T-041c",
   title: "a reload after a tab change keeps the change only when it waits for saved",
-  run: async ({ server, openPage }) => {
-    const plain = await plainFolder(server.home);
+  needs: {},
+  run: async ({ server, openPage, runId }) => {
+    const name = `sparta-${runId}`;
+    const plain = await plainFolder(server.home, runId);
     const page = await openPage();
     const holder = await frameHolder(page);
     // The route applies from the next load on; the page opened already connected.
@@ -175,10 +180,10 @@ export const layoutReload: Scenario = {
       (await shellTab(page, shellId).getAttribute("aria-selected")) === "true";
     try {
       const shells = shellList(rpc.client);
-      await setUp(page, [plain]);
+      await setUp(page, [plain], name);
       const first = await startShell(page, shells, plain);
       const second = await startShell(page, shells, plain);
-      await layoutSaved(page, "sparta");
+      await layoutSaved(page, name);
 
       // Negative control (AC-12): a reload while the save is in flight brings the old tab back.
       stage = "AC-12 reload without waiting";
@@ -198,10 +203,10 @@ export const layoutReload: Scenario = {
       holder.hold(SAVE_TABS);
       await shellTab(page, first.shellId).click();
       await layoutState(page, "pending").waitFor();
-      const saved = layoutSaved(page, "sparta");
+      const saved = layoutSaved(page, name);
       holder.release();
       await saved;
-      await reloadShowing(page, "sparta");
+      await reloadShowing(page, name);
       await shellTab(page, first.shellId).waitFor();
       check(
         await selected(first.shellId),

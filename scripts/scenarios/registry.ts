@@ -47,9 +47,6 @@ export const selftestScenarios: ReadonlyArray<Scenario> = [
   restartPersistence,
   deliberateFailure,
   oneLogin,
-  typingWaitFails,
-  layoutWaitFails,
-  endCheckFails,
 ];
 
 /** Self-tests that run only when picked with `--only`, so one `--selftest` run stays short. */
@@ -57,4 +54,7 @@ export const pickedSelftestScenarios: ReadonlyArray<Scenario> = [
   secondServerFailure,
   unstatedNeeds,
   changedRerun,
+  typingWaitFails,
+  layoutWaitFails,
+  endCheckFails,
 ];

@@ -32,10 +32,10 @@ export async function projects(server: ServerHandle) {
   return { repo, linked, plain };
 }
 
-/** Creates the workspace "sparta" in the UI and adds `folders` to it. */
-export async function setUp(page: PointerPage, folders: ReadonlyArray<string>) {
+/** Creates the workspace `name` in the UI and adds `folders` to it. */
+export async function setUp(page: PointerPage, folders: ReadonlyArray<string>, name = "sparta") {
   await page.setViewportSize({ width: 1200, height: 800 });
-  await createWorkspace(page, "sparta");
+  await createWorkspace(page, name);
   for (const folder of folders) {
     check((await addProject(page, { import: folder })) === null, `Adding ${folder} failed.`);
   }

@@ -9,7 +9,7 @@ import type { ShellSummary } from "@t3tools/contracts";
 
 import { connectRpc } from "../rpc.ts";
 import type { Scenario } from "../scenario.ts";
-import { expectLogged, shellOutput } from "../fixtures.ts";
+import { expectLogged } from "../fixtures.ts";
 import { alive, check, pageFrames } from "../support.ts";
 import {
   addProject,
@@ -83,11 +83,11 @@ export const killShell: Scenario = {
       await frames
         .until(`"${echo}" in the shell`, (frame) => frame.includes(echo), from)
         .catch((error: unknown) => {
-          // From the page's frames, which outlive the shell; the server forgets an ended one.
-          const output = JSON.stringify(shellOutput(frames.seen.slice(from), shell.shellId));
+          // The raw output outlives the shell; the server forgets an ended one.
+          const output = JSON.stringify(server.rawOutput(shell.shellId).slice(-600));
           const listed = JSON.stringify(latest(shell) ?? "not listed");
           throw new Error(
-            `${error instanceof Error ? error.message : error} The shell printed ${output} after the line was typed; it is ${listed}.`,
+            `${error instanceof Error ? error.message : error} The shell's output ends with ${output}; it is ${listed}.`,
           );
         });
     };

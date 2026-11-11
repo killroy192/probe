@@ -73,7 +73,7 @@ A sandbox keeps one harness server up on a throwaway home so saved scenarios run
 ## Running
 
 - `vp run test:scenarios` runs the suite and exits non-zero when a scenario fails; `-- --only <id>` runs one scenario.
-- `-- --selftest` runs the harness self-tests `T1`, `T2`, `T4` and `T7` to `T9`; `-- --selftest --only T3` runs `T3`; `T5` (tries needs it did not state) and `T6` (names what it makes by its run) run the same way or on a sandbox. `T2`, `T3` and `T5` fail on purpose, so they exit non-zero.
+- `-- --selftest` runs the harness self-tests `T1`, `T2`, `T4`; `-- --selftest --only <id>` runs one of `T3`, `T5` (tries needs it did not state), `T6` (names what it makes by its run) or `T7` to `T9` (each signal wait fails naming what it awaited); `T5`, `T6`, `T8` and `T9` also run on a sandbox. `T2`, `T3` and `T5` fail on purpose, so they exit non-zero.
 - Chromium is the web browser tests' Playwright Chromium: `node scripts/node_modules/playwright-core/cli.js install --only-shell chromium` once, or `--browser <path>`.
 - The web bundle is rebuilt when an input is newer than `apps/web/dist`; `--rebuild` forces it.
 - `scripts/scenarios/harness.test.ts` (Vitest) covers the runner's failure paths and the throwaway-home guard; `sandbox.test.ts` covers the sandbox.
