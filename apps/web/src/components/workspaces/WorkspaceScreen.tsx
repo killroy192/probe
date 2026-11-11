@@ -66,8 +66,8 @@ export function WorkspaceScreen() {
               />
             </MenuPopup>
           </Menu>
-          {view.canChange ? (
-            <Button size="lg" onClick={() => setCreating(true)}>
+          {view.canChange || !view.canChangeKnown ? (
+            <Button size="lg" disabled={!view.canChange} onClick={() => setCreating(true)}>
               <PlusIcon />
               Create workspace
             </Button>
