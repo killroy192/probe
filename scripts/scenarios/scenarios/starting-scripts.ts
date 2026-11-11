@@ -7,10 +7,9 @@ import type { StartingScript } from "@t3tools/contracts";
 import { expected } from "../lib/expect.ts";
 import { readStartingScripts, startingScriptsFile, writeStartingScripts } from "../lib/files.ts";
 import { restartAndReload, showWorkspace } from "../lib/navigate.ts";
-import { pageFrames } from "../lib/network.ts";
 import { shellCountOf } from "../lib/scoped.ts";
 import { expectLogged, logEntries } from "../lib/serverLog.ts";
-import { framedPage, type SetupContext, world } from "../lib/setup.ts";
+import { framedPage, framedWorld, type SetupContext } from "../lib/setup.ts";
 import {
   agentTypedOnceAfterPrompt,
   history,
@@ -61,14 +60,13 @@ async function seededMock(server: ServerHandle) {
   return mock!;
 }
 
-/** A workspace with a git repo and a plain folder, shown on a fresh page. */
+/** A workspace with a git repo and a plain folder, shown on a fresh page whose frames are recorded. */
 async function shownWorld(ctx: SetupContext & Pick<ScenarioContext, "openPage">, label: string) {
-  const made = await world(ctx, {
+  const made = await framedWorld(ctx, {
     workspace: label,
     projects: [{ kind: "repo" }, { kind: "folder", label: "plain" }],
-    page: true,
   });
-  return { ...made, page: made.shown!.page, repo: made.projects[0]!, plain: made.projects[1]! };
+  return { ...made, repo: made.projects[0]!, plain: made.projects[1]! };
 }
 
 export const plainPreselected = defineCheck(import.meta.url, {
@@ -77,8 +75,7 @@ export const plainPreselected = defineCheck(import.meta.url, {
   needs: {},
   covers: ["E2-S3 AC-2b"],
   run: async (ctx) => {
-    const { page, setup, repo } = await shownWorld(ctx, "plain-preselected");
-    const frames = pageFrames(page);
+    const { page, frames, setup, repo } = await shownWorld(ctx, "plain-preselected");
     await ctx.trail.stage("AC-2b", async () => {
       await openModal(page, repo.path, { script: null });
       expected({
@@ -189,8 +186,7 @@ export const agentOnceAfterPrompt = defineCheck(import.meta.url, {
   // One modal start of the mock agent: it starts (AC-3) and is typed once after the prompt (AC-10).
   covers: ["E2-S1 AC-3", "E2-S1 AC-10"],
   run: async (ctx) => {
-    const { page, setup, repo } = await shownWorld(ctx, "agent-once");
-    const frames = pageFrames(page);
+    const { page, frames, setup, repo } = await shownWorld(ctx, "agent-once");
     await ctx.trail.stage("AC-3, AC-10", async () => {
       const from = frames.mark();
       const started = await startScriptThroughModal(page, setup.shells, repo.path, "mock agent");
@@ -243,8 +239,7 @@ export const secondScript = defineCheck(import.meta.url, {
   run: async (ctx) => {
     const { server, trail } = ctx;
     await writeStartingScripts(server.home, [await seededMock(server), echo]);
-    const { page, setup, plain } = await shownWorld(ctx, "second-script");
-    const frames = pageFrames(page);
+    const { page, frames, setup, plain } = await shownWorld(ctx, "second-script");
 
     const started = await trail.stage("AC-4", async () => {
       const from = frames.mark();
@@ -344,8 +339,7 @@ export const preselectAfterRestart = defineCheck(import.meta.url, {
     const mock = await seededMock(server);
     await writeStartingScripts(server.home, [mock, echo]);
     const made = await shownWorld(ctx, "preselect-after-restart");
-    const { page, setup, repo, plain } = made;
-    const frames = pageFrames(page);
+    const { page, frames, setup, repo, plain } = made;
 
     await trail.stage("start the mock agent and the echo script", async () => {
       const agentFrom = frames.mark();
@@ -568,8 +562,7 @@ export const exitingCommand = defineCheck(import.meta.url, {
       await seededMock(server),
       { id: "quick", name: "quick exit", command: "sh -c 'echo quick-exit; exit 3'" },
     ]);
-    const { page, setup, repo } = await shownWorld(ctx, "exiting-command");
-    const frames = pageFrames(page);
+    const { page, frames, setup, repo } = await shownWorld(ctx, "exiting-command");
 
     const quick = await trail.stage("AC-9", async () => {
       const from = frames.mark();

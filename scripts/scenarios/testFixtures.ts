@@ -19,6 +19,7 @@ import {
 import { type ComposedOutcome, runComposed } from "./compose.ts";
 import { createThrowawayHome, readRunPlan, removeThrowawayHome } from "./environment.ts";
 import { ACTION_MS, SANDBOX_POLL_MS } from "./lib/deadlines.ts";
+import { pageFrames } from "./lib/network.ts";
 import { createTrail, type Trail } from "./lib/trail.ts";
 import { resetRecorders } from "./lib/waits.ts";
 import { composedNeeds, freshServerNeeded, perfVerdict } from "./registryRules.ts";
@@ -266,6 +267,7 @@ function contextFor(rt: Runtime, server: ServerHandle, sessionKey: ServerHandle)
     await context.tracing.start({ snapshots: true, screenshots: true });
     tracked.tracing = true;
     const page = await context.newPage();
+    pageFrames(page);
     rt.trail.addPage(signedIn ? "signed-in" : "anonymous", page);
     if (!signedIn) return page;
     if (session === undefined) {
