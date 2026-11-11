@@ -5,7 +5,7 @@ parent: PRB.E-005
 phase: 1
 labels: [testing, plan]
 created: 2026-11-09
-updated: 2026-11-09
+updated: 2026-11-11
 ---
 
 # Run scenarios on Playwright Test with a shared server and parallel workers
