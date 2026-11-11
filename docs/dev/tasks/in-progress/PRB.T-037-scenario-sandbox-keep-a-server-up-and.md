@@ -237,10 +237,10 @@ Not done: the lock takeover after a killed run is not atomic. Two runs taking ov
 - `vp run test:scenarios -- --selftest`: T1 and T4 pass, T2 fails by design (with its stage, expected and found), as before.
 - `vp run check:changed`, after rebasing on PRB.T-036's merge (`112548d01`): every step passes, tests 144/144 in 5 files. The `harness.test.ts` SIGKILL cleanup failure seen before the rebase was PRB.T-036's, fixed on `main`. The rebase needed one change: the sandbox's server handle (`attachServer`) reads raw shell output (`rawOutput`, new on `main`) from the sandbox's home, as a harness server does.
 - No scenario or test failed because of a product bug.
+- AC-22 walkthrough (2026-11-11, a fresh agent session working from `.agents/rules/scenarios.md`): it started a sandbox, ran `S5` (PASS 7.4 s), then `S4` (PASS 17.4 s) on the same server pid, with no server start. `--only scripts/scenarios/scenarios/workspaceUi.ts` was refused as a path to a script, and `--only S7` was refused because it restarts the server; both exited 2 without touching the server. `kill <pid>` ended the sandbox, server and shell host and removed the home. No file was written in the checkout. Gaps it hit, now closed in the rules file: which scenarios a sandbox accepts (`needs: {}` in the scenario's file), waiting for `ready`, a script path is given to `--only`, and when `shell-host-pid` prints. S4's 17.4 s on a shared machine is not a cap result.
 - verify-story-implementation: fail on AC-13 (fixed since by T6 and its test), AC-22 and the full-suite half of AC-23; no gate scored 0.
 
 Open:
 
 - AC-23: one full `vp run test:scenarios` run, held by the developer while other sessions run scenarios.
-- AC-22: the manual walkthrough by the developer or a fresh agent session from the rules file alone.
 

@@ -58,13 +58,13 @@ Every atomic check scenario must finish under 15 s. That is a separate gate, nev
 
 A sandbox keeps one harness server up on a throwaway home so saved scenarios run against it without a cold start. It runs saved scenarios only.
 
-- Start it in the background: `vp run scenarios:sandbox -- [--fixture workspace|shells] [--keep-home]`
-- Run one scenario on it: `vp run test:scenarios -- --sandbox <pid> --only <id>`
+- Start it in the background: `vp run scenarios:sandbox -- [--fixture workspace|shells] [--keep-home]`, and run on it once it prints `ready`.
+- Run one scenario on it: `vp run test:scenarios -- --sandbox <pid> --only <id>`. The scenarios it accepts are the ones whose file states `needs: {}`.
 - Stop it: `kill <pid>`, the pid it printed, never a pid found by pattern ([AGENTS.md rule 1](../../AGENTS.md#the-three-ways-to-hurt-yourself)).
-- It prints one `sandbox: <key>=<value>` line per fact: `pid` first, then `home`, `origin` (loopback only), `server-pid`, `fixture` when seeded, `bundle`, `pairing-url`, `shell-host-pid` once a shell host runs, and `ready`. The pairing URL is a secret: open it in a browser to look, never write it to a file in the checkout.
+- It prints one `sandbox: <key>=<value>` line per fact: `pid` first, then `home`, `origin` (loopback only), `server-pid`, `fixture` when seeded, `bundle`, `pairing-url` and `ready`, plus `shell-host-pid` when a shell host starts (before `ready` with the `shells` fixture, otherwise with a run's first shell). The pairing URL is a secret: open it in a browser to look, never write it to a file in the checkout.
 - Fixtures, made over the server API: `workspace` (a workspace with one git project) and `shells` (the same with two running plain shells). Their names carry a run id too.
 - A sandbox is not reset between runs: a scenario runs against whatever the fixture and earlier runs left, and must not depend on its absence.
-- Refused before the sandbox is touched, with the reason: a script path or an unknown id; a scenario that needs a restart, a second server or an empty home, is `unshared`, or states no needs; a second run while one runs; a run after a web, server, package or sandbox harness source changed, or the bundle was rebuilt, since the sandbox started (start a new one). Scenario files and their steps are loaded by each run, so changing them needs no new sandbox. A scenario that tries what it did not state fails naming it.
+- Refused before the sandbox is touched, with the reason: a script path or an unknown id given to `--only`; a scenario that needs a restart, a second server or an empty home, is `unshared`, or states no needs; a second run while one runs; a run after a web, server, package or sandbox harness source changed, or the bundle was rebuilt, since the sandbox started (start a new one). Scenario files and their steps are loaded by each run, so changing them needs no new sandbox. A scenario that tries what it did not state fails naming it.
 - Stopping it ends its server, shell host and shells and removes the home, unless it was started with `--keep-home`. A sandbox killed with SIGKILL is cleaned up by the next suite or sandbox start. A failure on it leaves artifacts as in the suite, outside the home.
 
 ## Running
