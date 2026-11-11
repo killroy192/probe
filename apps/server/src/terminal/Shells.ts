@@ -652,12 +652,13 @@ export const makeShells = Effect.fn("Shells.make")(function* (
       reason: signal === null ? "exited" : "signal",
     }).pipe(
       Effect.andThen(
+        // Started at once, so each end has changed the shell list before the next event is handled.
         pid === null
           ? Effect.void
           : (signal === null
               ? removeExited(shellId, pid)
               : keepEnded(shellId, pid, event.exitCode, signal)
-            ).pipe(Effect.forkIn(scope), Effect.asVoid),
+            ).pipe(Effect.forkIn(scope, { startImmediately: true }), Effect.asVoid),
       ),
     );
   });
