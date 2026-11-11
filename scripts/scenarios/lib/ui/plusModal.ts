@@ -1,6 +1,6 @@
 import type { PointerPage } from "../../browser.ts";
-import type { shellList } from "../shells.ts";
-import { check } from "../waits.ts";
+import type { followShells } from "../shells.ts";
+import { check, waitFor } from "../waits.ts";
 import { dialog } from "./dialog.ts";
 import { shellRow } from "./tree.ts";
 
@@ -30,7 +30,7 @@ export async function selectedScript(page: PointerPage) {
 export async function scriptItems(page: PointerPage) {
   await scriptDropdown(page).click();
   const items = page.getByRole("option");
-  await items.first().waitFor();
+  await waitFor(items.first(), "the starting script list");
   const labels = await items.evaluateAll((elements) =>
     elements.map((element) => element.getAttribute("data-title") ?? ""),
   );
@@ -44,7 +44,14 @@ export async function scriptItems(page: PointerPage) {
 export async function pickScript(page: PointerPage, label: string) {
   await scriptDropdown(page).click();
   await page.locator(`[role="option"][data-title="${label}"]`).first().click();
-  await scriptDropdown(page).filter({ hasText: label }).waitFor();
+  await waitFor(scriptDropdown(page).filter({ hasText: label }), `the starting script ${label}`);
+}
+
+/** The id of the selected starting script ("plain" for Plain shell), once the list has loaded. */
+export async function selectedScriptKey(page: PointerPage) {
+  // Start stays disabled until the dialog has read the list.
+  await waitFor(startButton(page).and(page.locator(":enabled")), "the starting scripts to load");
+  return scriptDropdown(page).locator("[data-key]").getAttribute("data-key");
 }
 
 /**
@@ -58,8 +65,13 @@ export async function openModal(
   { script = "mock agent" }: { readonly script?: string | null } = {},
 ) {
   await createShellButton(page, folder).click();
-  await dialog(page).getByRole("heading", { name: "Create shell" }).waitFor();
-  await dialog(page).getByText("Reading worktrees…").waitFor({ state: "detached" });
+  await waitFor(
+    dialog(page).getByRole("heading", { name: "Create shell" }),
+    `"Create shell" for ${folder}`,
+  );
+  await waitFor(dialog(page).getByText("Reading worktrees…"), `the worktrees of ${folder}`, {
+    state: "detached",
+  });
   if (script !== null && (await selectedScript(page)) !== script) await pickScript(page, script);
 }
 
@@ -79,7 +91,7 @@ export async function selectedKey(page: PointerPage, label: "Start in" | "Fork f
 export async function dropdownItems(page: PointerPage, label: "Start in" | "Fork from") {
   await dropdown(page, label).click();
   const items = page.getByRole("option");
-  await items.first().waitFor();
+  await waitFor(items.first(), `the "${label}" list`);
   const read = await items.evaluateAll((elements) =>
     elements.map((element) => [
       element.getAttribute("data-key"),
@@ -97,12 +109,12 @@ export async function dropdownItems(page: PointerPage, label: "Start in" | "Fork
 export async function pickItem(page: PointerPage, label: "Start in" | "Fork from", key: string) {
   await dropdown(page, label).click();
   await page.locator(`[role="option"][data-key="${key}"]`).click();
-  await dropdown(page, label).locator(`[data-key="${key}"]`).waitFor();
+  await waitFor(dropdown(page, label).locator(`[data-key="${key}"]`), `"${label}" to show ${key}`);
 }
 
 export async function cancelModal(page: PointerPage) {
   await dialog(page).getByRole("button", { name: "Cancel", exact: true }).last().click();
-  await dialog(page).waitFor({ state: "detached" });
+  await waitFor(dialog(page), '"Create shell" to close on Cancel', { state: "detached" });
 }
 
 /** Clicks the up-arrow; returns the refusal, or null once the modal closed on a start. */
@@ -111,7 +123,10 @@ export async function startFromModal(page: PointerPage): Promise<string | null> 
   const previous = (await shown.count()) ? await shown.getAttribute("data-attempt") : "none";
   await startButton(page).click();
   const alert = dialog(page).locator(`[role="alert"]:not([data-attempt="${previous}"])`);
-  await Promise.race([dialog(page).waitFor({ state: "detached" }), alert.waitFor()]);
+  await Promise.race([
+    waitFor(dialog(page), '"Create shell" to close on a start', { state: "detached" }),
+    waitFor(alert, `"Create shell"'s refusal`),
+  ]);
   if (await dialog(page).count()) return alert.textContent();
   return null;
 }
@@ -135,7 +150,7 @@ export async function startIn(
 /** Starts a shell with `startIn` and returns it once the server lists it as running. */
 export async function startShell(
   page: PointerPage,
-  shells: ReturnType<typeof shellList>,
+  shells: ReturnType<typeof followShells>,
   project: string,
   place: { readonly existing?: string; readonly fork?: boolean } = {},
 ) {
@@ -147,6 +162,18 @@ export async function startShell(
     Math.max(0, shells.lists.mark() - 1),
   );
   const shell = list.find((entry) => !known.has(entry.shellId) && entry.status === "running")!;
-  await shellRow(page, shell.shellId).waitFor();
+  await waitFor(shellRow(page, shell.shellId), `the tree row of shell ${shell.shellId}`);
   return shell;
+}
+
+/** Opens "Create shell" on `project` and fails with `message` unless only Plain shell is offered. */
+export async function expectOnlyPlain(page: PointerPage, project: string, message: string) {
+  await openModal(page, project, { script: null });
+  await selectedScriptKey(page);
+  const offered = await scriptItems(page);
+  check(
+    JSON.stringify(offered) === JSON.stringify(["Plain shell"]),
+    `${message} ${JSON.stringify(offered)}`,
+  );
+  await cancelModal(page);
 }

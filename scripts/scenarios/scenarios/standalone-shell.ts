@@ -7,7 +7,7 @@ import type { ShellSummary, TerminalAttachStreamEvent } from "@t3tools/contracts
 import * as Effect from "effect/Effect";
 import * as Stream from "effect/Stream";
 
-import { connectRpc, environmentId, type WsClient } from "../lib/api.ts";
+import { connectApi, environmentId, type WsClient } from "../lib/api.ts";
 import { pageFrames } from "../lib/network.ts";
 import { alive, follow, recorder } from "../lib/waits.ts";
 import type { Scenario } from "../scenario.ts";
@@ -27,7 +27,7 @@ export const standaloneShell: Scenario = {
     await page.setViewportSize({ width: 1200, height: 800 });
     const frames = pageFrames(page);
     const environment = await environmentId(server.origin);
-    const rpc = await connectRpc(server.origin, page);
+    const rpc = await connectApi(server, page);
     const { client } = rpc;
 
     try {
@@ -152,7 +152,7 @@ export const standaloneShell: Scenario = {
       if (survivor.pid === null || !alive(survivor.pid)) {
         throw new Error("A running shell ended with the server restart.");
       }
-      const after = await connectRpc(server.origin, page);
+      const after = await connectApi(server, page);
       try {
         const first = await Effect.runPromise(
           after.client.subscribeShells({}).pipe(Stream.take(1), Stream.runCollect),

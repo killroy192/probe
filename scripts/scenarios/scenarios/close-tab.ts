@@ -5,9 +5,9 @@ import * as NodePath from "node:path";
 
 import * as Effect from "effect/Effect";
 
-import { connectRpc } from "../lib/api.ts";
+import { connectApi } from "../lib/api.ts";
 import { pageFrames } from "../lib/network.ts";
-import { history, leaveAgent, shellList } from "../lib/shells.ts";
+import { history, leaveAgent, followShells } from "../lib/shells.ts";
 import { addProject } from "../lib/ui/addProject.ts";
 import { startShell } from "../lib/ui/plusModal.ts";
 import { closeTab, shellTab, tabs } from "../lib/ui/tabs.ts";
@@ -29,8 +29,8 @@ export const closeTabScenario: Scenario = {
     const page = await openPage();
     await page.setViewportSize({ width: 1200, height: 800 });
     const frames = pageFrames(page);
-    const rpc = await connectRpc(server.origin, page);
-    const shells = shellList(rpc.client);
+    const rpc = await connectApi(server, page);
+    const shells = followShells(rpc.client);
     const running = (shellId: string) => {
       const shell = shells.current().find((entry) => entry.shellId === shellId);
       return shell?.status === "running" && shell.pid !== null && alive(shell.pid);

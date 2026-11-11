@@ -30,7 +30,6 @@ import {
   storyScenarios,
 } from "./registry.ts";
 import { withClient } from "./lib/api.ts";
-import { issueBearerToken } from "./lib/seam.ts";
 import { alive, gone } from "./lib/waits.ts";
 import { pickScenario, sandboxRefusal, staleSandboxFile } from "./sandboxRules.ts";
 import { attachServer, REPO_ROOT } from "./server.ts";
@@ -272,7 +271,7 @@ async function apiState(sandbox: Sandbox) {
     },
     (need) => new Error(`The test tried ${need}.`),
   );
-  return withClient(handle.origin, await issueBearerToken(handle), (client) =>
+  return withClient(handle, (client) =>
     Effect.gen(function* () {
       const head = <A, E>(stream: Stream.Stream<A, E>) =>
         Stream.runHead(stream).pipe(Effect.map(Option.getOrUndefined));

@@ -5,7 +5,6 @@ import * as NodePath from "node:path";
 import * as NodeProcess from "node:process";
 
 import { withClient } from "../lib/api.ts";
-import { issueBearerToken } from "../lib/seam.ts";
 import type { Scenario } from "../scenario.ts";
 
 /**
@@ -23,9 +22,7 @@ export const changedRerun: Scenario = {
     // Not recursive: a folder an earlier run made fails the scenario.
     await NodeFSP.mkdir(folder);
     await NodeFSP.writeFile(NodePath.join(folder, "note"), NodeProcess.env.SCENARIO_T6_NOTE ?? "");
-    await withClient(server.origin, await issueBearerToken(server), (client) =>
-      client["workspace.create"]({ name: workspace }),
-    );
+    await withClient(server, (client) => client["workspace.create"]({ name: workspace }));
     NodeProcess.stdout.write(`T6 made workspace=${workspace} folder=${folder}\n`);
   },
 };

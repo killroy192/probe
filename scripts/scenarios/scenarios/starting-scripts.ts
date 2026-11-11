@@ -5,7 +5,7 @@ import * as NodeFSP from "node:fs/promises";
 import type { StartingScript } from "@t3tools/contracts";
 
 import type { PointerPage } from "../browser.ts";
-import { connectRpc } from "../lib/api.ts";
+import { connectApi } from "../lib/api.ts";
 import { readStartingScripts, startingScriptsFile, writeStartingScripts } from "../lib/files.ts";
 import { restartAndReload, reloadShowing, layoutSaved } from "../lib/navigate.ts";
 import { pageFrames } from "../lib/network.ts";
@@ -16,7 +16,7 @@ import {
   agentTypedOnceAfterPrompt,
   MOCK_AGENT_LINES,
   history,
-  shellList,
+  followShells,
   shellsIn,
 } from "../lib/shells.ts";
 import { dialog } from "../lib/ui/dialog.ts";
@@ -65,8 +65,8 @@ export const plainShell: Scenario = {
     const { repo, linked } = await projects(server);
     const page = await openPage();
     const frames = pageFrames(page);
-    let rpc = await connectRpc(server.origin, page);
-    let shells = shellList(rpc.client);
+    let rpc = await connectApi(server, page);
+    let shells = followShells(rpc.client);
     let stage = "setup";
     try {
       await setUp(page, [repo]);
@@ -107,8 +107,8 @@ export const plainShell: Scenario = {
       await rpc.close();
       await server.restart({ env: { PROBE_AGENT_COMMAND: MOCK_AGENT_COMMAND } });
       await reloadShowing(page, "sparta");
-      rpc = await connectRpc(server.origin, page);
-      shells = shellList(rpc.client);
+      rpc = await connectApi(server, page);
+      shells = followShells(rpc.client);
       await openModal(page, repo, { script: "Plain shell" });
       await pickItem(page, "Start in", linked);
       await startModal(page);
@@ -155,8 +155,8 @@ export const userScripts: Scenario = {
     const { repo, plain } = await projects(server);
     const page = await openPage();
     const output = pageFrames(page);
-    let rpc = await connectRpc(server.origin, page);
-    const shells = shellList(rpc.client);
+    let rpc = await connectApi(server, page);
+    const shells = followShells(rpc.client);
     let stage = "setup";
     const echo: StartingScript = {
       id: "echo",
@@ -350,8 +350,8 @@ export const startFailures: Scenario = {
     const { repo } = await projects(server);
     const page = await openPage();
     const output = pageFrames(page);
-    const rpc = await connectRpc(server.origin, page);
-    const shells = shellList(rpc.client);
+    const rpc = await connectApi(server, page);
+    const shells = followShells(rpc.client);
     let stage = "setup";
     try {
       const [mock] = await readStartingScripts(server.home);

@@ -6,11 +6,11 @@ import * as NodeProcess from "node:process";
 
 import * as Effect from "effect/Effect";
 
-import { connectRpc } from "../lib/api.ts";
+import { connectApi } from "../lib/api.ts";
 import { gitOk } from "../lib/files.ts";
 import { layoutSaved } from "../lib/navigate.ts";
 import { pageFrames } from "../lib/network.ts";
-import { history, leaveAgent, shellEnded, shellList } from "../lib/shells.ts";
+import { history, leaveAgent, shellEnded, followShells } from "../lib/shells.ts";
 import { addProject } from "../lib/ui/addProject.ts";
 import { startShell } from "../lib/ui/plusModal.ts";
 import { closeTab, shellTab } from "../lib/ui/tabs.ts";
@@ -41,8 +41,8 @@ export const manyShells: Scenario = {
     const page = await openPage();
     await page.setViewportSize({ width: 1200, height: 800 });
     const frames = pageFrames(page);
-    const rpc = await connectRpc(server.origin, page);
-    const shells = shellList(rpc.client);
+    const rpc = await connectApi(server, page);
+    const shells = followShells(rpc.client);
     let stage = "setup";
 
     try {

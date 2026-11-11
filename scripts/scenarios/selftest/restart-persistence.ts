@@ -1,6 +1,6 @@
 import * as Effect from "effect/Effect";
 
-import { connectRpc } from "../lib/api.ts";
+import { connectApi } from "../lib/api.ts";
 import type { Scenario } from "../scenario.ts";
 
 const NAME = "persisted-workspace";
@@ -10,7 +10,7 @@ export const restartPersistence: Scenario = {
   title: "restart keeps data",
   needs: { restart: true },
   run: async ({ server, openPage }) => {
-    const rpc = await connectRpc(server.origin, await openPage());
+    const rpc = await connectApi(server, await openPage());
     try {
       await Effect.runPromise(rpc.client["workspace.create"]({ name: NAME }));
     } finally {

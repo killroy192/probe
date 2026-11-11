@@ -1,10 +1,10 @@
 import type { PointerPage } from "../browser.ts";
 import type { ServerEnv, ServerHandle } from "../server.ts";
-import { connectRpc, type RpcConnection } from "./api.ts";
+import { connectApi, type ApiConnection } from "./api.ts";
 import { ACTION_MS, type Deadline, seconds } from "./deadlines.ts";
 import { waitFor } from "./waits.ts";
 import type { ShellResult, WorkspaceResult } from "./setup.ts";
-import { openFromTree } from "./ui/tree.ts";
+import { openFromTree, workspaceRoot, workspaceShown } from "./ui/tree.ts";
 import { openWorkspace } from "./ui/workspacesMenu.ts";
 
 /**
@@ -82,25 +82,22 @@ export async function reloadShowing(page: PointerPage, name: string) {
       .click();
     await page.getByRole("menuitem", { name, exact: true }).click();
   }
-  await waitFor(
-    page.getByRole("tree").getByRole("treeitem", { level: 1, name }),
-    `the tree to show workspace ${name} after the reload`,
-  );
+  await workspaceShown(page, name, " after the reload");
 }
 
 /** Restarts the server (a real restart), reloads the page onto "sparta" and connects again. */
 export async function restartAndReload(
   page: PointerPage,
   server: ServerHandle,
-  rpc: RpcConnection,
+  rpc: ApiConnection,
   env?: ServerEnv,
-): Promise<RpcConnection> {
+): Promise<ApiConnection> {
   // A stop with a tab change still in flight would bring the old tab strip back.
   await layoutSaved(page, "sparta");
   await rpc.close();
   await server.restart(env === undefined ? undefined : { env });
   await reloadShowing(page, "sparta");
-  return connectRpc(server.origin, page);
+  return connectApi(server, page);
 }
 
 /** A page showing a workspace. */
@@ -117,15 +114,15 @@ export interface ShownPage {
 export async function showWorkspace(page: PointerPage, ws: WorkspaceResult): Promise<ShownPage> {
   const shown: ShownPage = { kind: "page", page, workspace: ws };
   const tree = page.getByRole("tree");
-  const header = tree.getByRole("treeitem", { level: 1, name: ws.name, exact: true });
+  const header = workspaceRoot(page, ws.name);
   const startScreen = page
     .getByTestId("workspace-screen")
     .getByRole("button", { name: "Open workspace" });
   // A remembered workspace may still be coming back: wait until the page settles on one or none.
-  await startScreen
-    .or(tree.getByRole("treeitem", { level: 1 }))
-    .first()
-    .waitFor();
+  await waitFor(
+    startScreen.or(tree.getByRole("treeitem", { level: 1 })).first(),
+    `the page to settle on a workspace or the start screen before showing ${ws.name}`,
+  );
   if ((await header.count()) > 0) return shown;
   try {
     await openWorkspace(page, ws.name);
@@ -138,7 +135,7 @@ export async function showWorkspace(page: PointerPage, ws: WorkspaceResult): Pro
     );
   }
   try {
-    await header.waitFor();
+    await waitFor(header, `the tree to show workspace ${ws.name}`);
   } catch (cause) {
     throw new Error(`Workspace ${ws.name} was not shown: the tree never showed it.`, { cause });
   }

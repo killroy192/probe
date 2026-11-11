@@ -8,11 +8,11 @@ import * as NodeProcess from "node:process";
 import * as Effect from "effect/Effect";
 
 import { frameHolder, type PointerPage } from "../browser.ts";
-import { connectRpc } from "../lib/api.ts";
+import { connectApi } from "../lib/api.ts";
 import { SELFTEST_SHORT_MS, seconds } from "../lib/deadlines.ts";
 import { layoutSaved, layoutState } from "../lib/navigate.ts";
 import { setUp } from "../lib/setup.ts";
-import { history, shellEnded, shellList } from "../lib/shells.ts";
+import { history, shellEnded, followShells } from "../lib/shells.ts";
 import { startShell } from "../lib/ui/plusModal.ts";
 import { closeTab } from "../lib/ui/tabs.ts";
 import { shellReady, typeLine } from "../lib/ui/terminal.ts";
@@ -37,8 +37,8 @@ async function workspacePage({ server, openPage, runId }: ScenarioContext, page?
   const plain = NodePath.join(server.home, "folders", runId, "plain");
   await NodeFSP.mkdir(plain, { recursive: true });
   const shown = page ?? (await openPage());
-  const rpc = await connectRpc(server.origin, shown);
-  const shells = shellList(rpc.client);
+  const rpc = await connectApi(server, shown);
+  const shells = followShells(rpc.client);
   await setUp(shown, [plain], name);
   return { page: shown, rpc, shells, plain, name };
 }

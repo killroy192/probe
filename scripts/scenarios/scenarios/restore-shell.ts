@@ -6,10 +6,10 @@ import * as NodeProcess from "node:process";
 
 import type { ShellSummary } from "@t3tools/contracts";
 
-import { connectRpc } from "../lib/api.ts";
+import { connectApi } from "../lib/api.ts";
 import { reloadShowing, layoutSaved } from "../lib/navigate.ts";
 import { pageFrames } from "../lib/network.ts";
-import { history, leaveAgent, shellEnded, shellList } from "../lib/shells.ts";
+import { history, leaveAgent, shellEnded, followShells } from "../lib/shells.ts";
 import { addProject } from "../lib/ui/addProject.ts";
 import { startShell } from "../lib/ui/plusModal.ts";
 import { shellTab } from "../lib/ui/tabs.ts";
@@ -43,8 +43,8 @@ export const restoreShell: Scenario = {
     const page = await openPage();
     await page.setViewportSize({ width: 1200, height: 900 });
     const frames = pageFrames(page);
-    let rpc = await connectRpc(server.origin, page);
-    let shells = shellList(rpc.client);
+    let rpc = await connectApi(server, page);
+    let shells = followShells(rpc.client);
     const latest = (shell: ShellSummary) =>
       shells.current().find((entry) => entry.shellId === shell.shellId);
     const signal = async (shell: ShellSummary) => {
@@ -117,8 +117,8 @@ export const restoreShell: Scenario = {
       await server.stopShellHost();
       await server.restart();
       await reloadShowing(page, "troy");
-      rpc = await connectRpc(server.origin, page);
-      shells = shellList(rpc.client);
+      rpc = await connectApi(server, page);
+      shells = followShells(rpc.client);
       // A fresh subscription: its first list is the server's state after the restart.
       await shells.lists.until("the shell list after the restart", () => true, 0);
       await endedRow(page, first.shellId).waitFor();

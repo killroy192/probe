@@ -7,13 +7,13 @@ import type { ShellSummary } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 
 import type { PointerPage } from "../browser.ts";
-import { connectRpc } from "../lib/api.ts";
+import { connectApi } from "../lib/api.ts";
 import { addStartingScript, git } from "../lib/files.ts";
 import { reloadShowing, layoutSaved } from "../lib/navigate.ts";
 import { pageFrames } from "../lib/network.ts";
 import { metric } from "../lib/report.ts";
 import { expectLogged } from "../lib/serverLog.ts";
-import { leaveAgent, runningIn, shellEnded, shellList } from "../lib/shells.ts";
+import { leaveAgent, runningIn, shellEnded, followShells } from "../lib/shells.ts";
 import { addProject } from "../lib/ui/addProject.ts";
 import { dialog } from "../lib/ui/dialog.ts";
 import {
@@ -101,8 +101,8 @@ export const worktrees: Scenario = {
     const page = await openPage();
     await page.setViewportSize({ width: 1200, height: 800 });
     const frames = pageFrames(page);
-    let rpc = await connectRpc(server.origin, page);
-    let shells = shellList(rpc.client);
+    let rpc = await connectApi(server, page);
+    let shells = followShells(rpc.client);
     let stage = "setup";
     const reopen = () => reloadShowing(page, "sparta");
     const killShell = async (shell: ShellSummary) => {
@@ -477,8 +477,8 @@ export const worktrees: Scenario = {
       });
       await server.restart();
       await reopen();
-      rpc = await connectRpc(server.origin, page);
-      shells = shellList(rpc.client);
+      rpc = await connectApi(server, page);
+      shells = followShells(rpc.client);
       check((await createShellButton(page, repo).count()) === 1, "The project has no +.");
       await openModal(page, repo, { script: "unstartable" });
       check((await mode(page)) === "Fork", "The last choice is not preselected.");

@@ -52,12 +52,12 @@ async function rpcProtocol(origin: string, auth: RpcAuth) {
 
 export type WsClient = RpcClient.FromGroup<typeof WsRpcGroup, RpcClientError.RpcClientError>;
 
-/** A WS RPC client signed in as the browser `page` or a bearer token, for driving the server where no UI exists yet. */
-export async function connectRpc(
-  origin: string,
+/** A WS RPC connection to `server`, signed in as the browser `page` (its cookie) or a bearer token. */
+export async function connectApi(
+  server: Pick<ServerHandle, "origin">,
   auth: RpcAuth,
 ): Promise<{ readonly client: WsClient; readonly close: () => Promise<void> }> {
-  const protocol = await rpcProtocol(origin, auth);
+  const protocol = await rpcProtocol(server.origin, auth);
   const scope = Scope.makeUnsafe();
   const client: WsClient = await Effect.runPromise(
     Effect.gen(function* () {
@@ -72,24 +72,21 @@ export async function connectRpc(
   return { client, close: () => (closed ??= Effect.runPromise(Scope.close(scope, Exit.void))) };
 }
 
-export type RpcConnection = Awaited<ReturnType<typeof connectRpc>>;
+export type ApiConnection = Awaited<ReturnType<typeof connectApi>>;
 
-/** Runs `use` with a bearer-token client, closed afterwards. */
+/** Runs `use` with a client signed in as `auth`, by default `server`'s bearer token, closed afterwards. */
 export async function withClient<A, E>(
-  origin: string,
-  bearerToken: string,
+  server: ServerHandle,
   use: (client: WsClient) => Effect.Effect<A, E>,
+  auth?: RpcAuth,
 ): Promise<A> {
-  const rpc = await connectRpc(origin, { bearerToken });
+  const api = await connectApi(server, auth ?? { bearerToken: await serverToken(server) });
   try {
-    return await Effect.runPromise(use(rpc.client));
+    return await Effect.runPromise(use(api.client));
   } finally {
-    await rpc.close();
+    await api.close();
   }
 }
-
-/** A connection to `server`, signed in as the browser `page` (its cookie) or with a bearer token. */
-export const connectApi = (server: ServerHandle, auth: RpcAuth) => connectRpc(server.origin, auth);
 
 /** A bearer token for `server`, minted by its own CLI the way a headless client gets one. */
 export async function issueBearerToken(server: ServerHandle): Promise<string> {

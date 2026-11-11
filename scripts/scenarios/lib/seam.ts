@@ -7,8 +7,6 @@ import type { PointerPage } from "../browser.ts";
 import type { ServerHandle } from "../server.ts";
 import { environmentId, serverToken } from "./api.ts";
 
-export { issueBearerToken } from "./api.ts";
-
 // Mirrors `apps/web/src/connection/storage.ts`; R1 fails if the app stops reading this shape.
 const DATABASE_NAME = "t3code:connection-runtime";
 const CATALOG_STORE = "catalog";

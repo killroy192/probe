@@ -9,7 +9,7 @@ import * as Effect from "effect/Effect";
 import * as Stream from "effect/Stream";
 
 import { connectionCutter, type PointerPage } from "../browser.ts";
-import { connectRpc } from "../lib/api.ts";
+import { connectApi } from "../lib/api.ts";
 import { addStartingScript, git } from "../lib/files.ts";
 import { reloadShowing, layoutSaved } from "../lib/navigate.ts";
 import { pageFrames } from "../lib/network.ts";
@@ -20,7 +20,7 @@ import {
   MOCK_AGENT_LINES,
   history,
   shellEnded,
-  shellList,
+  followShells,
   shellsIn,
 } from "../lib/shells.ts";
 import { addProject, closeFolderList, folderList, openAddFolder } from "../lib/ui/addProject.ts";
@@ -70,8 +70,8 @@ export const plusModal: Scenario = {
       if (frame === page.mainFrame()) paths.push(new URL(frame.url()).pathname);
     });
     const frames = pageFrames(page);
-    let rpc = await connectRpc(server.origin, page);
-    let shells = shellList(rpc.client);
+    let rpc = await connectApi(server, page);
+    let shells = followShells(rpc.client);
     let stage = "setup";
     // After a restart the page connects again from a reload; the shown workspace is in memory only.
     const reopen = (target: PointerPage) => reloadShowing(target, "sparta");
@@ -408,8 +408,8 @@ export const plusModal: Scenario = {
       });
       await server.restart({ env: { GIT_CONFIG_GLOBAL: badGitConfig } });
       await reopen(page);
-      rpc = await connectRpc(server.origin, page);
-      shells = shellList(rpc.client);
+      rpc = await connectApi(server, page);
+      shells = followShells(rpc.client);
       // A fresh subscription: its first list is the server's state after the restart.
       await shells.lists.until("the list after restart", () => true, 0);
       await shellNodes(page).first().waitFor({ state: "detached" });
@@ -449,8 +449,8 @@ export const plusModal: Scenario = {
       await rpc.close();
       await server.restart();
       await reopen(page);
-      rpc = await connectRpc(server.origin, page);
-      shells = shellList(rpc.client);
+      rpc = await connectApi(server, page);
+      shells = followShells(rpc.client);
 
       // AC-18: the connection drops during the start; nothing is shown and a retry works.
 

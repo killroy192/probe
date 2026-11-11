@@ -7,10 +7,11 @@ import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as Stream from "effect/Stream";
 
-import { withClient, connectRpc, type WsClient } from "../lib/api.ts";
-import { issueBearerToken, saveServerInBrowser } from "../lib/seam.ts";
-import { seedWorkspace } from "../lib/setup.ts";
-import { shellList } from "../lib/shells.ts";
+import { connectApi, serverToken, withClient } from "../lib/api.ts";
+import { runtimePid } from "../lib/files.ts";
+import { saveServerInBrowser } from "../lib/seam.ts";
+import { projectPaths, seedWorkspace, workspaceNames as listNames } from "../lib/setup.ts";
+import { followShells } from "../lib/shells.ts";
 import { check, recorder } from "../lib/waits.ts";
 import type { Scenario } from "../scenario.ts";
 import { REPO_ROOT, type ServerHandle } from "../server.ts";
@@ -21,27 +22,6 @@ const isInside = (child: string, parent: string) => {
   const relative = NodePath.relative(parent, child);
   return relative === "" || (!relative.startsWith("..") && !NodePath.isAbsolute(relative));
 };
-
-async function runtimePid(server: ServerHandle): Promise<number> {
-  const file = NodePath.join(server.home, "userdata", "server-runtime.json");
-  return (JSON.parse(await NodeFSP.readFile(file, "utf8")) as { readonly pid: number }).pid;
-}
-
-const listNames = (client: WsClient) =>
-  client["subscribeWorkspaces"]({}).pipe(
-    Stream.runHead,
-    Effect.map((first) =>
-      Option.match(first, {
-        onNone: () => [],
-        onSome: ({ workspaces }) => workspaces.map(({ name }) => name).toSorted(),
-      }),
-    ),
-  );
-
-const projectPaths = (client: WsClient, name: string) =>
-  client["workspace.open"]({ name }).pipe(
-    Effect.map((detail) => detail.projects.map(({ path }) => path)),
-  );
 
 export const secondServer: Scenario = {
   id: "R1",
@@ -69,14 +49,12 @@ export const secondServer: Scenario = {
     }
 
     // AC-2 and EC-4: seed both servers, one name on both, each with a project in its own home.
-    const token1 = await issueBearerToken(server);
-    const token2 = await issueBearerToken(second);
-    await withClient(second.origin, token2, (client) =>
+    await withClient(second, (client) =>
       Effect.all([seedWorkspace(client, home2, "alpha"), seedWorkspace(client, home2, "shared")]),
     );
-    await withClient(server.origin, token1, (client) => seedWorkspace(client, home1, "shared"));
-    const onSecond = await withClient(second.origin, token2, listNames);
-    const onFirst = await withClient(server.origin, token1, listNames);
+    await withClient(server, (client) => seedWorkspace(client, home1, "shared"));
+    const onSecond = await withClient(second, listNames);
+    const onFirst = await withClient(server, listNames);
     check(
       JSON.stringify(onSecond) === JSON.stringify(["alpha", "shared"]),
       `The second server lists ${JSON.stringify(onSecond)}, not its seeded workspaces.`,
@@ -85,12 +63,9 @@ export const secondServer: Scenario = {
       JSON.stringify(onFirst) === JSON.stringify(["shared"]),
       `The default server lists ${JSON.stringify(onFirst)}; it must hold none of the second server's.`,
     );
-    const sharedOn = async (origin: string, token: string) =>
-      withClient(origin, token, (client) => projectPaths(client, "shared"));
-    const [shared1, shared2] = await Promise.all([
-      sharedOn(server.origin, token1),
-      sharedOn(second.origin, token2),
-    ]);
+    const sharedOn = async (on: ServerHandle) =>
+      withClient(on, (client) => projectPaths(client, "shared"));
+    const [shared1, shared2] = await Promise.all([sharedOn(server), sharedOn(second)]);
     check(
       shared1.every((path) => isInside(path, home1)) &&
         shared2.every((path) => isInside(path, home2)),
@@ -98,16 +73,16 @@ export const secondServer: Scenario = {
     );
 
     // A shell on the second server is ready on that server's own list only.
-    const direct = await connectRpc(second.origin, { bearerToken: token2 });
+    const direct = await connectApi(second, { bearerToken: await serverToken(second) });
     try {
-      const secondShells = shellList(direct.client);
+      const secondShells = followShells(direct.client);
       const opened = await Effect.runPromise(direct.client["shell.open"]({ cwd: home2 }));
       await secondShells.lists.until(
         `shell ${opened.shellId} ready on the second server`,
         (list) => list.some((shell) => shell.shellId === opened.shellId && shell.promptReady),
         0,
       );
-      const firstList = await withClient(server.origin, token1, (client) =>
+      const firstList = await withClient(server, (client) =>
         client.subscribeShells({}).pipe(Stream.runHead),
       );
       check(
@@ -140,7 +115,7 @@ export const secondServer: Scenario = {
     const saved = await saveServerInBrowser(page, second, LABEL);
     // Pushed only by sockets to the second server, which the page opens after the seam saves it.
     await answered.until("the UI to connect to the second server", () => true, 0);
-    const heldList = await withClient(second.origin, saved.bearerToken, listNames);
+    const heldList = await withClient(second, listNames, { bearerToken: saved.bearerToken });
     check(
       JSON.stringify(heldList) === JSON.stringify(["alpha", "shared"]),
       `With the credential the UI holds, the second server lists ${JSON.stringify(heldList)}.`,

@@ -1,4 +1,5 @@
 import type { PointerPage } from "../../browser.ts";
+import { waitFor } from "../waits.ts";
 import { dialog } from "./dialog.ts";
 
 // The folder list floats above the modal, outside the dialog element.
@@ -10,7 +11,7 @@ export async function closeFolderList(page: PointerPage) {
   if (!(await folderList(page).count())) return;
   // While the list is open the page behind it is hidden from role queries, so find it by tag.
   await page.locator('[role="dialog"]:has([data-testid="add-project"]) h2').click();
-  await folderList(page).waitFor({ state: "detached" });
+  await waitFor(folderList(page), "the folder list to close", { state: "detached" });
 }
 
 /** Opens the "Add project to workspace" dialog from the sidebar's Add project icon. */
@@ -19,7 +20,7 @@ export async function openAddFolder(page: PointerPage) {
     .getByRole("navigation", { name: "Workspace" })
     .getByRole("button", { name: "Add project" })
     .click();
-  await dialog(page).getByTestId("add-project").waitFor();
+  await waitFor(dialog(page).getByTestId("add-project"), "the Add project dialog");
 }
 
 /**
@@ -54,7 +55,10 @@ export async function addProject(
     .getByRole("button", { name: isImport ? "Add project" : "Create project", exact: true })
     .click();
   const alert = dialog(page).locator(`[role="alert"]:not([data-attempt="${previous}"])`);
-  await Promise.race([panel.waitFor({ state: "detached" }), alert.waitFor()]);
+  await Promise.race([
+    waitFor(panel, "the Add project dialog to close", { state: "detached" }),
+    waitFor(alert, "the Add project dialog's refusal"),
+  ]);
   if (await panel.count()) return alert.textContent();
   return null;
 }

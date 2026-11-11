@@ -5,6 +5,8 @@ import * as NodePath from "node:path";
 
 import type { StartingScriptChoice, WorkspaceStartingPoint } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
+import * as Option from "effect/Option";
+import * as Stream from "effect/Stream";
 
 import type { PointerPage } from "../browser.ts";
 import type { ScenarioContext } from "../scenario.ts";
@@ -12,11 +14,29 @@ import type { ServerHandle } from "../server.ts";
 import { call, connectApi, serverToken, type WsClient } from "./api.ts";
 import { gitOk } from "./files.ts";
 import { showWorkspace, type ShownPage } from "./navigate.ts";
-import { shellEnded, shellList } from "./shells.ts";
+import { followShells, shellEnded, type ShellFollower } from "./shells.ts";
 import { createTrail, type Trail } from "./trail.ts";
 import { addProject } from "./ui/addProject.ts";
 import { createWorkspace } from "./ui/workspacesMenu.ts";
 import { check } from "./waits.ts";
+
+/** The names of the server's saved workspaces, sorted. */
+export const workspaceNames = (client: WsClient) =>
+  client.subscribeWorkspaces({}).pipe(
+    Stream.runHead,
+    Effect.map((first) =>
+      Option.match(first, {
+        onNone: () => [],
+        onSome: ({ workspaces }) => workspaces.map(({ name }) => name).toSorted(),
+      }),
+    ),
+  );
+
+/** The project paths of the saved workspace `name`. */
+export const projectPaths = (client: WsClient, name: string) =>
+  client["workspace.open"]({ name }).pipe(
+    Effect.map((detail) => detail.projects.map(({ path }) => path)),
+  );
 
 /** Fixtures: a git project with a linked worktree, and a plain folder, in the server's home. */
 export async function projects(server: ServerHandle) {
@@ -148,7 +168,7 @@ function nextSeq(trail: Trail): number {
 export interface Setup {
   readonly client: WsClient;
   /** The server's shell list, followed for as long as the connection is open. */
-  readonly shells: ReturnType<typeof shellList>;
+  readonly shells: ShellFollower;
   readonly folder: (label?: string) => Promise<FolderResult>;
   readonly repo: (options?: {
     readonly label?: string | undefined;
@@ -182,7 +202,7 @@ export async function setupOn(
   const { server, runId, trail } = ctx;
   const rpc = await connectApi(server, as ?? { bearerToken: await serverToken(server) });
   const client = rpc.client;
-  const shells = shellList(client);
+  const shells = followShells(client);
   ctx.onStepEnd?.("the setup connection", rpc.close);
 
   const named = (label: string) => `${label}-${runId}-${nextSeq(trail)}`;

@@ -7,7 +7,7 @@ import * as NodeProcess from "node:process";
 import type { ShellSummary } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 
-import { connectRpc, type WsClient } from "../lib/api.ts";
+import { connectApi, type WsClient } from "../lib/api.ts";
 import { gitOk } from "../lib/files.ts";
 import { layoutSaved, layoutState } from "../lib/navigate.ts";
 import { pageFrames } from "../lib/network.ts";
@@ -18,7 +18,7 @@ import {
   history,
   leaveAgent,
   shellEnded,
-  shellList,
+  followShells,
   survivors,
 } from "../lib/shells.ts";
 import { addProject } from "../lib/ui/addProject.ts";
@@ -93,8 +93,8 @@ export const restartSurvival: Scenario = {
     const page = await openPage();
     await page.setViewportSize({ width: 1200, height: 900 });
     const frames = pageFrames(page);
-    let rpc = await connectRpc(server.origin, page);
-    let shells = shellList(rpc.client);
+    let rpc = await connectApi(server, page);
+    let shells = followShells(rpc.client);
     const latest = (shell: ShellSummary) =>
       shells.current().find((entry) => entry.shellId === shell.shellId);
     const unlisted = (shell: ShellSummary) =>
@@ -111,8 +111,8 @@ export const restartSurvival: Scenario = {
       reloadedFrom = frames.mark();
       await page.reload();
       await shown(page, "sparta");
-      rpc = await connectRpc(server.origin, page);
-      shells = shellList(rpc.client);
+      rpc = await connectApi(server, page);
+      shells = followShells(rpc.client);
       // A fresh subscription: its first list is the server's state after the restart.
       await shells.lists.until("the shell list after the restart", () => true, 0);
     };

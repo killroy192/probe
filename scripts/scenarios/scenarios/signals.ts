@@ -6,7 +6,7 @@ import * as NodePath from "node:path";
 import * as Effect from "effect/Effect";
 
 import { frameHolder } from "../browser.ts";
-import { connectRpc } from "../lib/api.ts";
+import { connectApi } from "../lib/api.ts";
 import {
   restartAndReload,
   layoutSaved,
@@ -16,7 +16,7 @@ import {
   reloadShowing,
 } from "../lib/navigate.ts";
 import { setUp } from "../lib/setup.ts";
-import { shellList } from "../lib/shells.ts";
+import { followShells } from "../lib/shells.ts";
 import { startShell } from "../lib/ui/plusModal.ts";
 import { shellTab } from "../lib/ui/tabs.ts";
 import { shellPanel, shellReady } from "../lib/ui/terminal.ts";
@@ -40,10 +40,10 @@ export const tabSignals: Scenario = {
   run: async ({ server, openPage, runId }) => {
     const plain = await plainFolder(server.home, runId);
     const page = await openPage();
-    let rpc = await connectRpc(server.origin, page);
+    let rpc = await connectApi(server, page);
     let stage = "setup";
     try {
-      const shells = shellList(rpc.client);
+      const shells = followShells(rpc.client);
       await setUp(page, [plain]);
       const hidden = await startShell(page, shells, plain);
       const shown = await startShell(page, shells, plain);
@@ -94,10 +94,10 @@ export const layoutSignal: Scenario = {
     // Both apply from the next load on; the page opened already connected.
     await page.reload();
     await page.getByTestId("workspace-screen").waitFor();
-    const rpc = await connectRpc(server.origin, page);
+    const rpc = await connectApi(server, page);
     let stage = "setup";
     try {
-      const shells = shellList(rpc.client);
+      const shells = followShells(rpc.client);
       await setUp(page, [plain], name);
       const started = [
         await startShell(page, shells, plain),
@@ -174,12 +174,12 @@ export const layoutReload: Scenario = {
     // The route applies from the next load on; the page opened already connected.
     await page.reload();
     await page.getByTestId("workspace-screen").waitFor();
-    const rpc = await connectRpc(server.origin, page);
+    const rpc = await connectApi(server, page);
     let stage = "setup";
     const selected = async (shellId: string) =>
       (await shellTab(page, shellId).getAttribute("aria-selected")) === "true";
     try {
-      const shells = shellList(rpc.client);
+      const shells = followShells(rpc.client);
       await setUp(page, [plain], name);
       const first = await startShell(page, shells, plain);
       const second = await startShell(page, shells, plain);
