@@ -53,29 +53,33 @@ export const typingWaitFails: Scenario = {
     const { page, rpc, shells, plain } = await workspacePage(context);
     try {
       const never = await startShell(page, shells, plain);
-      const message = await failure(
-        "Typing into a shell that is never ready",
-        typeLine(page, "echo typed-t7", { deadline: SELFTEST_SHORT_MS }),
-      );
-      check(
-        message.includes(never.shellId) &&
-          message.includes("ready: starting") &&
-          message.includes(SHORT),
-        `The typing wait's failure does not name the shell, its states and the deadline: ${message}`,
-      );
-      check(
-        !(await history(rpc.client, never.shellId)).includes("typed-t7"),
-        "The typing wait typed into a shell that was not ready.",
-      );
+      await context.trail.stage("type into a shell that is never ready", async () => {
+        const message = await failure(
+          "Typing into a shell that is never ready",
+          typeLine(page, "echo typed-t7", { deadline: SELFTEST_SHORT_MS }),
+        );
+        check(
+          message.includes(never.shellId) &&
+            message.includes("ready: starting") &&
+            message.includes(SHORT),
+          `The typing wait's failure does not name the shell, its states and the deadline: ${message}`,
+        );
+        check(
+          !(await history(rpc.client, never.shellId)).includes("typed-t7"),
+          "The typing wait typed into a shell that was not ready.",
+        );
+      });
 
       // A shell that ends while the wait runs fails it at once, not at its deadline.
-      const ending = shellReady(page, never.shellId);
-      NodeProcess.kill(never.pid!, "SIGKILL");
-      const ended = await failure("Waiting for a shell that ends", ending);
-      check(
-        ended.includes(never.shellId) && ended.includes("ended"),
-        `The wait for a shell that ended does not say so: ${ended}`,
-      );
+      await context.trail.stage("wait for a shell that ends", async () => {
+        const ending = shellReady(page, never.shellId);
+        NodeProcess.kill(never.pid!, "SIGKILL");
+        const ended = await failure("Waiting for a shell that ends", ending);
+        check(
+          ended.includes(never.shellId) && ended.includes("ended"),
+          `The wait for a shell that ended does not say so: ${ended}`,
+        );
+      });
     } finally {
       await rpc.close();
     }
@@ -96,18 +100,20 @@ export const layoutWaitFails: Scenario = {
     try {
       const shell = await startShell(page, shells, plain);
       await layoutSaved(page, name);
-      holder.hold('"workspace.saveTabs"');
-      await closeTab(page, shell.shellId);
-      await layoutState(page, "pending").waitFor();
-      const message = await failure(
-        "Waiting for a held layout save",
-        layoutSaved(page, name, { deadline: SELFTEST_SHORT_MS }),
-      );
-      check(
-        message.includes(name) && message.includes("pending") && message.includes(SHORT),
-        `The layout wait's failure does not name the workspace, its state and the deadline: ${message}`,
-      );
-      holder.release();
+      await context.trail.stage("wait for a held layout save", async () => {
+        holder.hold('"workspace.saveTabs"');
+        await closeTab(page, shell.shellId);
+        await layoutState(page, "pending").waitFor();
+        const message = await failure(
+          "Waiting for a held layout save",
+          layoutSaved(page, name, { deadline: SELFTEST_SHORT_MS }),
+        );
+        check(
+          message.includes(name) && message.includes("pending") && message.includes(SHORT),
+          `The layout wait's failure does not name the workspace, its state and the deadline: ${message}`,
+        );
+        holder.release();
+      });
     } finally {
       await rpc.close();
     }
@@ -124,15 +130,17 @@ export const endCheckFails: Scenario = {
     const survivor = NodeChildProcess.spawn("sleep", ["60"], { stdio: "ignore" });
     try {
       const shell = await startShell(page, shells, plain);
-      await Effect.runPromise(rpc.client["shell.kill"]({ shellId: shell.shellId }));
-      const message = await failure(
-        "The end check of a process that still runs",
-        shellEnded(shells, { shellId: shell.shellId, pid: survivor.pid! }),
-      );
-      check(
-        message.includes(shell.shellId) && message.includes(String(survivor.pid)),
-        `The end check's failure does not name the shell and pid: ${message}`,
-      );
+      await context.trail.stage("check a process that outlived its shell's end", async () => {
+        await Effect.runPromise(rpc.client["shell.kill"]({ shellId: shell.shellId }));
+        const message = await failure(
+          "The end check of a process that still runs",
+          shellEnded(shells, { shellId: shell.shellId, pid: survivor.pid! }),
+        );
+        check(
+          message.includes(shell.shellId) && message.includes(String(survivor.pid)),
+          `The end check's failure does not name the shell and pid: ${message}`,
+        );
+      });
     } finally {
       survivor.kill("SIGKILL");
       await rpc.close();
