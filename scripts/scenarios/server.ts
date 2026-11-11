@@ -30,8 +30,16 @@ export interface ServerHandle {
   readonly stop: () => Promise<void>;
   /** Ends the server at once; throwaway servers have nothing worth flushing. */
   readonly kill: () => Promise<void>;
-  /** Stops the server and starts it again on the same home and port, with `env` on top of the defaults. */
+  /**
+   * Stops the server and starts it again on the same home and port. `env` replaces the start's
+   * `env` for this start only; without it the start's `env` applies again.
+   */
   readonly restart: (options?: { readonly env?: ServerEnv }) => Promise<void>;
+  /**
+   * Resolves when the running server process ends without `stop`, `kill` or `restart` asking it
+   * to, whichever process a restart made current; never for an exit the harness made.
+   */
+  readonly unexpectedExit: () => Promise<UnexpectedExit>;
   /** The last few MiB the server has printed, across restarts. */
   readonly logs: () => string;
   /** How many bytes of log the server has printed so far, across restarts; only ever grows. */
@@ -59,6 +67,42 @@ export interface ServerHandle {
    * whenever a page attached. The server saves a chunk before it sends it to any client.
    */
   readonly rawOutput: (shellId: string) => string;
+}
+
+export interface UnexpectedExit {
+  readonly code: number | null;
+  readonly signal: NodeJS.Signals | null;
+  /** The last few thousand characters that process printed. */
+  readonly tail: string;
+}
+
+interface Exiting {
+  once(
+    event: "close",
+    listener: (code: number | null, signal: NodeJS.Signals | null) => void,
+  ): unknown;
+}
+
+/**
+ * Tells server processes the harness ended from ones that ended by themselves. Only a process
+ * marked `ready` counts: one that ends while starting fails its start instead.
+ */
+export function exitWatch() {
+  let report: (exit: UnexpectedExit) => void = () => {};
+  const unexpected = new Promise<UnexpectedExit>((resolve) => {
+    report = resolve;
+  });
+  const ready = new WeakSet<Exiting>();
+  const expected = new WeakSet<Exiting>();
+  return {
+    unexpectedExit: () => unexpected,
+    watch: (child: Exiting, tail: () => string) =>
+      child.once("close", (code, signal) => {
+        if (ready.has(child) && !expected.has(child)) report({ code, signal, tail: tail() });
+      }),
+    ready: (child: Exiting) => void ready.add(child),
+    expect: (child: Exiting) => void expected.add(child),
+  };
 }
 
 const RESERVED_PREFIXES = ["T3CODE_", "VITE_", "PROBE_"];
@@ -268,6 +312,11 @@ export async function startServer(options: {
   readonly isolateShell?: boolean;
   /** The environment the server would otherwise inherit; tests pass a fake one. */
   readonly ambient?: NodeJS.ProcessEnv;
+  /**
+   * Variables on top of the defaults for every start; `restart({env})` replaces them for that
+   * restart only.
+   */
+  readonly env?: ServerEnv;
   /** Called once the server process exists, before it is ready, so a killed run can stop it. */
   readonly onSpawn?: (pid: number) => void;
   /** Called with each chunk the server prints, across restarts. */
@@ -299,9 +348,16 @@ export async function startServer(options: {
     PROBE_RAW_OUTPUT_DIR: rawOutputDirIn(options.home),
     ...(options.isolateShell === false ? {} : await isolatedShellEnv(options.home)),
   };
-  const envFor = (env: ServerEnv = {}) => childEnv({ ...defaults, ...env }, options.ambient);
+  const startEnv = options.env ?? {};
+  const envFor = (env: ServerEnv) => childEnv({ ...defaults, ...env }, options.ambient);
+  const exits = exitWatch();
+  const end = async (signal?: NodeJS.Signals) => {
+    if (!child) return;
+    exits.expect(child);
+    await stopChild(child, signal);
+  };
 
-  const start = async (env: ServerEnv = {}) => {
+  const start = async (env: ServerEnv) => {
     const spawned = NodeChildProcess.spawn(
       "node",
       [
@@ -319,6 +375,8 @@ export async function startServer(options: {
       { cwd: REPO_ROOT, env: envFor(env), stdio: ["ignore", "pipe", "pipe"] },
     );
     child = spawned;
+    let tail = "";
+    exits.watch(spawned, () => tail);
     // Opened per process and closed once its output ends; a write after the home is gone is harmless.
     const logFd = NodeFS.openSync(logFile, "a");
     spawned.once("close", () => NodeFS.closeSync(logFd));
@@ -329,6 +387,7 @@ export async function startServer(options: {
     try {
       await waitUntilServing(spawned, origin, (chunk) => {
         options.onOutput?.(chunk);
+        tail = (tail + chunk).slice(-LOG_TAIL_CHARS);
         const bytes = Buffer.from(chunk);
         NodeFS.writeSync(logFd, bytes);
         logBytes += bytes.length;
@@ -336,16 +395,18 @@ export async function startServer(options: {
         for (const wake of logWaiters) wake();
       });
     } catch (error) {
+      exits.expect(spawned);
       await stopChild(spawned, "SIGKILL");
       throw error;
     }
+    exits.ready(spawned);
   };
   let lease: PortLease | undefined = (
     await startOnLeasedPort(
       (leased) => {
         port = leased;
         origin = `http://${HOST}:${port}`;
-        return start();
+        return start(startEnv);
       },
       { note: options.note ?? ((line) => NodeProcess.stdout.write(`${line}\n`)) },
     )
@@ -356,12 +417,12 @@ export async function startServer(options: {
   };
 
   const stop = async () => {
-    if (child) await stopChild(child);
+    await end();
     release();
   };
   const shellHostPid = () => shellHostPidIn(options.home);
   const cli = (args: ReadonlyArray<string>) =>
-    runCli(serverBin, [...args, "--base-dir", options.home], envFor());
+    runCli(serverBin, [...args, "--base-dir", options.home], envFor(startEnv));
   return {
     home: options.home,
     origin,
@@ -371,18 +432,19 @@ export async function startServer(options: {
     },
     stop,
     kill: async () => {
-      if (child) await stopChild(child, "SIGKILL");
+      await end("SIGKILL");
       release();
     },
     restart: async (restartOptions) => {
-      if (child) await stopChild(child);
+      await end();
       lease ??= await leasePort({ range: { first: port, last: port } }).catch(() => {
         throw new Error(
           `The server cannot start again on port ${port}: another process took it after the stop.`,
         );
       });
-      await start(restartOptions?.env);
+      await start(restartOptions?.env ?? startEnv);
     },
+    unexpectedExit: exits.unexpectedExit,
     logs: () => logs,
     logMark: () => logBytes,
     logSince: (mark) => bytesFrom(logFile, mark).toString("utf8"),
@@ -453,6 +515,7 @@ export function attachServer(
     stop: refused("a server stop"),
     kill: refused("a server stop"),
     restart: refused("a restart"),
+    unexpectedExit: () => new Promise<never>(() => {}),
     logs: readLogs,
     logMark: () => fileSize(target.logFile),
     logSince: (mark) => bytesFrom(target.logFile, mark).toString("utf8"),
