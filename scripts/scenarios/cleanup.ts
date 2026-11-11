@@ -33,6 +33,8 @@ export interface SandboxRecord {
   readonly startedMs: number;
   /** The bundle the server serves; another time on `dist/index.html` means it was rebuilt since. */
   readonly bundleBuiltMs: number | null;
+  /** Written before the sandbox ends its server, so a run on it ends at once. */
+  readonly stopping?: true;
 }
 
 export interface ProcessIdentity {
@@ -132,6 +134,11 @@ export function openManifest(dir = RUNS_DIR, run?: ProcessIdentity) {
       sandbox = record;
       save();
     },
+    markSandboxStopping: () => {
+      if (sandbox === undefined) return;
+      sandbox = { ...sandbox, stopping: true };
+      save();
+    },
     add: (entry: ManifestEntry) => {
       entries = [...entries.filter((known) => known.pid !== entry.pid), entry];
       save();
@@ -184,6 +191,17 @@ export function findSandbox(
     };
   }
   return { sandbox };
+}
+
+/** True once the sandbox is stopping or gone: it marks its record before it ends its server. */
+export function sandboxEnded(pid: number, dir = RUNS_DIR): boolean {
+  const found = findSandbox(pid, dir);
+  return (
+    "refusal" in found ||
+    found.sandbox.stopping === true ||
+    processStartTime(found.sandbox.serverPid) === null ||
+    !NodeFS.existsSync(found.sandbox.home)
+  );
 }
 
 const isUnder = (child: string, parent: string) => {

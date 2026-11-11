@@ -2,7 +2,6 @@
 // @effect-diagnostics nodeBuiltinImport:off globalDate:off globalTimers:off - Scenario runner owns host processes and directories directly, and times its own runs.
 
 import * as NodeCrypto from "node:crypto";
-import * as NodeFS from "node:fs";
 import * as NodePath from "node:path";
 import * as NodeProcess from "node:process";
 
@@ -18,6 +17,7 @@ import {
   lockSandbox,
   openManifest,
   processStartTime,
+  sandboxEnded,
   type SandboxRecord,
 } from "./cleanup.ts";
 import {
@@ -81,16 +81,6 @@ interface Owned {
 interface SandboxTarget {
   readonly pid: number;
   readonly record: SandboxRecord;
-}
-
-/** True once the sandbox is stopping: its stop kills the server before it removes the home. */
-function sandboxEnded(pid: number): boolean {
-  const found = findSandbox(pid);
-  return (
-    "refusal" in found ||
-    processStartTime(found.sandbox.serverPid) === null ||
-    !NodeFS.existsSync(found.sandbox.home)
-  );
 }
 
 const sandboxEndedError = (pid: number) =>

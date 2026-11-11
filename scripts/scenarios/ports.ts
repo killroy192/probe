@@ -123,3 +123,44 @@ export async function leasePort({
     `No free port in ${range.first}–${range.last}: every one is leased under ${dir} or in use.`,
   );
 }
+
+/** Whether a start failed because another process listens on its port. */
+const portTaken = (error: unknown) =>
+  error instanceof Error && error.message.includes("EADDRINUSE");
+
+/**
+ * Runs `start` on a leased port. When a foreign process took that port first, the start moves to
+ * a newly leased one, at most `MAX_PORT_RESTARTS` times, each move printed with `portTakenLine`.
+ * The lease that served is returned; every other one is released.
+ */
+export async function startOnLeasedPort<T>(
+  start: (port: number) => Promise<T>,
+  {
+    lease = () => leasePort(),
+    note,
+  }: {
+    readonly lease?: () => Promise<PortLease>;
+    readonly note: (line: string) => void;
+  },
+): Promise<{ readonly value: T; readonly lease: PortLease }> {
+  let current = await lease();
+  for (let restarts = 0; ; restarts++) {
+    let failure: unknown;
+    try {
+      return { value: await start(current.port), lease: current };
+    } catch (error) {
+      failure = error;
+    }
+    if (!portTaken(failure) || restarts === MAX_PORT_RESTARTS) {
+      current.release();
+      throw failure;
+    }
+    const taken = current;
+    try {
+      current = await lease();
+    } finally {
+      taken.release();
+    }
+    note(portTakenLine(taken.port, current.port));
+  }
+}
