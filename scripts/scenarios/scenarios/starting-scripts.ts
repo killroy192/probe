@@ -7,7 +7,7 @@ import type { StartingScript } from "@t3tools/contracts";
 import { expected } from "../lib/expect.ts";
 import { readStartingScripts, startingScriptsFile, writeStartingScripts } from "../lib/files.ts";
 import { restartAndReload, showWorkspace } from "../lib/navigate.ts";
-import { shellCountOf } from "../lib/scoped.ts";
+import { shellsOf } from "../lib/scoped.ts";
 import { expectLogged, logEntries } from "../lib/serverLog.ts";
 import { framedPage, framedWorld, type SetupContext } from "../lib/setup.ts";
 import {
@@ -490,6 +490,7 @@ export const missingProgram = defineCheck(import.meta.url, {
       { id: "missing", name: "missing agent", command: "TOKEN=secret missing-cli --flag" },
     ]);
     const { page, setup, repo } = await shownWorld(ctx, "missing-program");
+    const listedFrom = setup.shells.lists.mark();
 
     await trail.stage("AC-1", async () => {
       await openModal(page, repo.path, { script: "missing agent" });
@@ -502,7 +503,18 @@ export const missingProgram = defineCheck(import.meta.url, {
     });
 
     await trail.stage("AC-2", async () => {
-      await shellCountOf(setup.shells, [repo], 0);
+      // A list from before the start also has no shell there: the refused one must come, then go.
+      const { lists } = setup.shells;
+      const added = await lists.until(
+        `the refused shell listed in ${repo.path}`,
+        (list) => shellsOf(list, [repo]).length > 0,
+        listedFrom,
+      );
+      await lists.until(
+        `the refused shell to leave the list of ${repo.path}`,
+        (list) => shellsOf(list, [repo]).length === 0,
+        lists.seen.indexOf(added, listedFrom) + 1,
+      );
       await waitFor(shellNodes(page, repo.path).first(), "the refused shell's tree row to go", {
         state: "detached",
       });

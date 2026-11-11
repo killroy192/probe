@@ -473,7 +473,7 @@ Over `scripts/scenarios/scenarios/*.ts` except the perf files:
 ### Risks for the final phase
 
 - S8 started its API shells after the page showed the workspace (W4's SA-3 note). Its successors now start them before, and a shell started later (the `PRB.T-015 numbering` stage's) waits for its tree row; if the tree misses that list event, the wait fails naming the row.
-- `E2-S4.missing-program` AC-2: the scoped count of 0 can be met by a list from before the refused shell's add event, so it may pass early (as the old scenario could).
+- `E2-S4.missing-program` AC-2: the scoped count of 0 could be met by a list from before the refused shell's add event (as the old scenario's could). Since V6 it waits for a list, after the start, that holds the refused shell, then for a later one without it.
 - `S1.chat-routes-shown` assumes a page load of `/<env>/thread-1` with a workspace shown restores the remembered workspace after the redirect (PRB.T-007); the old S1 page-loaded only with none shown.
 - Lines typed on the page (S2, S3, S4, S6, S7, S8 and E2 stages; lane 4's `S4.many-shells` and `S4.reopen-after-reload` among them) are exposed to the PRB.T-041 typed-chunk defect: recorded, not rerun (master plan U7, D5).
 - The cap: 28 checks count their own server start, the two-restart `S7.lost-host` and the four E2-S1 restart checks most of all (D10: split further if over, no exception).
