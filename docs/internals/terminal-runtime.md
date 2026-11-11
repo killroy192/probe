@@ -62,9 +62,9 @@ files and restores the user's value before the first prompt. Other shells are no
 the command at once.
 
 The same scan, one per shell and ending at the first mark, the shell's end or the 15 seconds,
-also sets the summary's `promptReady`, which clients read to know a shell takes input (a missing
-field, from an older server, means unknown). It is never set on the timeout, so a mark that comes
-later, or one from an unwrapped shell, leaves the shell not ready for good. A restored shell is a
+also sets the summary's `promptReady`, which tells clients the shell has shown its first prompt
+(a missing field, from an older server, means unknown). It is never set on the timeout, so a mark
+that comes later, or one from an unwrapped shell, leaves the shell not ready for good. A restored shell is a
 new process and is scanned again. The registry saves the outcome, because a takeover cannot see
 what the earlier server saw: an adopted shell with no saved outcome is ready if the host's kept
 output holds the mark (printed while no server watched), and is scanned from then on otherwise.
