@@ -52,6 +52,7 @@ const CONNECTION_LOST =
 export const plusModal: Scenario = {
   id: "S2",
   title: "start a shell from the plus modal",
+  needs: { restart: true },
   run: async ({ server, openPage }) => {
     const folders = NodePath.join(server.home, "folders");
     const repo = NodePath.join(folders, "repo");

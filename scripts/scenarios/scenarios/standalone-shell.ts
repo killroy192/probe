@@ -18,6 +18,7 @@ async function openShell(client: WsClient, cwd: string): Promise<ShellSummary> {
 export const standaloneShell: Scenario = {
   id: "T-002",
   title: "standalone shell without a chat thread",
+  needs: { restart: true },
   run: async ({ server, openPage }) => {
     const workspace = NodePath.join(server.home, "workspace");
     await NodeFSP.mkdir(workspace);

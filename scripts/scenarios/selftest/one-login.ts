@@ -5,6 +5,7 @@ import { check } from "../support.ts";
 export const oneLogin: Scenario = {
   id: "T4",
   title: "one login per server",
+  needs: { restart: true, secondServer: true },
   run: async ({ server, openPage, openAnonymousPage, startSecondServer }) => {
     for (const _ of [1, 2, 3]) {
       const page = await openPage();

@@ -39,6 +39,7 @@ async function restoreFromTree(page: PointerPage, shellId: string) {
 export const restoreShell: Scenario = {
   id: "S8",
   title: "restore an ended shell in place, only when the user asks",
+  needs: { restart: true },
   run: async ({ server, openPage }) => {
     const folders = NodePath.join(server.home, "folders");
     const plain = NodePath.join(folders, "plain");

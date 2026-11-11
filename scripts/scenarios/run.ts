@@ -1,7 +1,7 @@
 #!/usr/bin/env node
-// @effect-diagnostics nodeBuiltinImport:off globalDate:off - Scenario runner owns host processes and directories directly, and times its own runs.
+// @effect-diagnostics nodeBuiltinImport:off globalDate:off globalTimers:off - Scenario runner owns host processes and directories directly, and times its own runs.
 
-import * as NodeChildProcess from "node:child_process";
+import * as NodeCrypto from "node:crypto";
 import * as NodeFSP from "node:fs/promises";
 import * as NodePath from "node:path";
 import * as NodeProcess from "node:process";
@@ -9,13 +9,16 @@ import * as NodeProcess from "node:process";
 import type { Browser, BrowserContext } from "playwright-core";
 
 import { launchBrowser, type PointerPage } from "./browser.ts";
-import { bundleState } from "./bundle.ts";
+import { ensureWebBundle } from "./bundle.ts";
 import {
   cleanLeftovers,
+  findSandbox,
   killServerTree,
   type ManifestEntry,
+  lockSandbox,
   openManifest,
   processStartTime,
+  type SandboxRecord,
 } from "./cleanup.ts";
 import {
   createThrowawayHome,
@@ -24,6 +27,7 @@ import {
   refusalReason,
   removeThrowawayHome,
   type RunOptions,
+  strayArgs,
 } from "./environment.ts";
 import { scenarioShell } from "./isolation.ts";
 import {
@@ -32,8 +36,9 @@ import {
   selftestScenarios,
   storyScenarios,
 } from "./registry.ts";
+import { pickScenario, sandboxRefusal, staleSandboxFile } from "./sandboxRules.ts";
 import type { Scenario } from "./scenario.ts";
-import { REPO_ROOT, startServer, type ServerHandle } from "./server.ts";
+import { attachServer, REPO_ROOT, startServer, type ServerHandle } from "./server.ts";
 import { recorderTails, resetRecorders } from "./support.ts";
 
 const TOTAL = 8;
@@ -66,43 +71,6 @@ const write = (line: string) => NodeProcess.stdout.write(`${line}\n`);
 // oxlint-disable-next-line t3code/no-wall-clock-in-tests -- permanent (a): the runner's printed timing
 const clock = () => performance.now();
 const seconds = (fromMs: number) => `${((clock() - fromMs) / 1000).toFixed(1)} s`;
-const fromRepo = (path: string) => NodePath.relative(REPO_ROOT, path);
-
-/** Rebuilds the web bundle when it is missing, older than its sources or `--rebuild` asks. */
-async function ensureWebBundle(options: RunOptions): Promise<void> {
-  const before = bundleState(REPO_ROOT);
-  const reason = options.rebuild
-    ? "--rebuild"
-    : before.state === "missing"
-      ? "no bundle yet"
-      : before.state === "stale" && before.newest !== null
-        ? `${fromRepo(before.newest.path)} is newer`
-        : null;
-  if (reason !== null) {
-    write(`scenarios: building the web bundle (${reason})`);
-    await new Promise<void>((resolve, reject) => {
-      const build = NodeChildProcess.spawn("vp", ["run", "--filter", "@t3tools/web", "build"], {
-        cwd: REPO_ROOT,
-        stdio: ["ignore", "inherit", "inherit"],
-      });
-      build.once("error", (error) =>
-        reject(new Error(`Could not run the web build: ${error.message}`)),
-      );
-      build.once("exit", (code) =>
-        code === 0
-          ? resolve()
-          : reject(new Error(`The web build failed (exit code ${String(code)}).`)),
-      );
-    });
-  }
-  const after = bundleState(REPO_ROOT);
-  const built = after.builtMs === null ? "never" : new Date(after.builtMs).toISOString();
-  write(
-    `scenarios: web bundle ${reason === null ? "current, reused" : "rebuilt"}, built ${built}${
-      after.state === "stale" ? " (a source changed during the build; run again to rebuild)" : ""
-    }`,
-  );
-}
 
 interface Owned {
   readonly label: string;
@@ -160,6 +128,67 @@ async function saveArtifacts(
   return { saved, missing };
 }
 
+interface SandboxTarget {
+  readonly pid: number;
+  readonly record: SandboxRecord;
+}
+
+/** Rejects once the sandbox is gone, so a run on it fails at once instead of on a page timeout. */
+function sandboxEnds(pid: number): Promise<never> {
+  return new Promise((_, reject) => {
+    // oxlint-disable-next-line t3code/no-real-time-wait-in-tests -- permanent (c): the sandbox is not this run's child, so no exit event reaches it
+    const timer = setInterval(() => {
+      if (!("refusal" in findSandbox(pid))) return;
+      clearInterval(timer);
+      reject(
+        new Error(`The sandbox ${pid} ended during the run; no server is started in its place.`),
+      );
+    }, 250);
+    cleanups.push(async () => clearInterval(timer));
+  });
+}
+
+/**
+ * What a run on a sandbox targets, or why it is refused; checked before the sandbox is touched.
+ * Only a registered scenario that needs nothing from its server runs there.
+ */
+function sandboxTarget(
+  argv: ReadonlyArray<string>,
+  options: RunOptions,
+  sandboxPid: number,
+): { readonly target: SandboxTarget; readonly scenario: Scenario } | { readonly refusal: string } {
+  const [stray] = strayArgs(argv);
+  if (stray !== undefined) {
+    const picked = pickScenario(stray, []);
+    return { refusal: "refusal" in picked ? picked.refusal : `${stray} is not an option.` };
+  }
+  for (const flag of ["--rebuild", "--server-bin", "--own-shell-config", "--selftest"]) {
+    if (argv.includes(flag)) {
+      return { refusal: `${flag} does not apply to a sandbox; start a new sandbox instead.` };
+    }
+  }
+  if (options.only === undefined)
+    return { refusal: "--sandbox runs one scenario; name it with --only <id>." };
+  const picked = pickScenario(options.only, [
+    ...scenarios,
+    ...storyScenarios,
+    ...selftestScenarios,
+    ...pickedSelftestScenarios,
+  ]);
+  if ("refusal" in picked) return picked;
+  const refusal = sandboxRefusal(picked.scenario);
+  if (refusal !== undefined) return { refusal };
+  const found = findSandbox(sandboxPid);
+  if ("refusal" in found) return found;
+  const stale = staleSandboxFile(REPO_ROOT, found.sandbox);
+  if (stale !== null) {
+    return {
+      refusal: `${stale} changed since sandbox ${sandboxPid} started, so it would run older code; start a new sandbox.`,
+    };
+  }
+  return { target: { pid: sandboxPid, record: found.sandbox }, scenario: picked.scenario };
+}
+
 interface Outcome {
   readonly error: unknown;
   readonly durationMs: number;
@@ -172,6 +201,7 @@ async function runScenario(
   browser: Browser,
   options: RunOptions,
   artifactsRoot: string,
+  sandbox: SandboxTarget | undefined,
 ): Promise<Outcome> {
   const startedMs = clock();
   resetRecorders();
@@ -213,10 +243,23 @@ async function runScenario(
     return server.handle;
   };
 
+  const attachSandbox = (record: SandboxRecord) => {
+    const handle = attachServer(
+      record,
+      (need) => new Error(`${scenario.id} tried ${need} on the sandbox, a need it did not state.`),
+    );
+    // Listed for the failure artifacts only; the sandbox owns and stops its server.
+    owned.push({ label: "sandbox server", handle, stop: async () => {} });
+    return handle;
+  };
+
   let error: unknown;
   let artifacts: string | undefined;
   try {
-    const server = await startOwnedServer("server", options.serverBin);
+    const server =
+      sandbox === undefined
+        ? await startOwnedServer("server", options.serverBin)
+        : attachSandbox(sandbox.record);
     // One login per server run: the first signed-in page pairs, later ones reuse its session.
     let session: Awaited<ReturnType<BrowserContext["storageState"]>> | undefined;
     const signIn = async (page: PointerPage, context: BrowserContext) => {
@@ -243,13 +286,26 @@ async function runScenario(
       if (new URL(page.url()).pathname.startsWith("/pair")) await signIn(page, context);
       return page;
     };
-    await scenario.run!({
+    const running = scenario.run!({
       server,
+      runId: NodeCrypto.randomBytes(3).toString("hex"),
       openPage: () => newPage(true),
       openAnonymousPage: () => newPage(false),
       startSecondServer: (secondOptions) =>
-        startOwnedServer("second server", secondOptions?.serverBin ?? options.serverBin),
+        sandbox === undefined
+          ? startOwnedServer("second server", secondOptions?.serverBin ?? options.serverBin)
+          : Promise.reject(
+              new Error(
+                `${scenario.id} tried a second server on the sandbox, a need it did not state.`,
+              ),
+            ),
     });
+    if (sandbox === undefined) await running;
+    else {
+      // Once the race is lost, the scenario's own failure is not the one reported.
+      running.catch(() => undefined);
+      await Promise.race([running, sandboxEnds(sandbox.pid)]);
+    }
   } catch (caught) {
     error = caught;
     const dir = NodePath.join(artifactsRoot, scenario.id);
@@ -283,22 +339,44 @@ async function main(): Promise<number> {
     return 2;
   }
   const options = parseArgs(argv);
+  let sandbox: SandboxTarget | undefined;
+  let selected: ReadonlyArray<Scenario>;
+  if (options.sandbox !== undefined) {
+    const refuse = (why: string) => {
+      NodeProcess.stderr.write(`scenarios: refusing to run on the sandbox. ${why}\n`);
+      return 2;
+    };
+    const prepared = sandboxTarget(argv, options, options.sandbox);
+    if ("refusal" in prepared) return refuse(prepared.refusal);
+    const lock = lockSandbox(options.sandbox);
+    if ("refusal" in lock) return refuse(lock.refusal);
+    cleanups.push(async () => lock.release());
+    sandbox = prepared.target;
+    selected = [prepared.scenario];
+  } else {
+    const all = !options.selftest
+      ? [...scenarios, ...storyScenarios]
+      : options.only === undefined
+        ? selftestScenarios
+        : [...selftestScenarios, ...pickedSelftestScenarios];
+    selected = options.only === undefined ? all : all.filter(({ id }) => id === options.only);
+  }
   cleanLeftovers(write);
   manifest = openManifest();
 
-  await ensureWebBundle(options);
+  // The sandbox's server serves the bundle it started with; a run never rebuilds it under it.
+  if (sandbox === undefined) await ensureWebBundle(REPO_ROOT, options.rebuild, write);
+  else {
+    write(
+      `scenarios: on sandbox ${sandbox.pid} (server pid=${sandbox.record.serverPid} home=${sandbox.record.home})`,
+    );
+  }
   const browser = await launchBrowser(options.browser);
   cleanups.push(() => browser.close());
   write(
     `scenarios: ready (shells: ${options.ownShellConfig ? "your own shell config" : `${scenarioShell()}, isolated`})`,
   );
 
-  const all = !options.selftest
-    ? [...scenarios, ...storyScenarios]
-    : options.only === undefined
-      ? selftestScenarios
-      : [...selftestScenarios, ...pickedSelftestScenarios];
-  const selected = options.only === undefined ? all : all.filter(({ id }) => id === options.only);
   if (selected.length === 0) {
     NodeProcess.stderr.write(`scenarios: no scenario has the id ${options.only}.\n`);
     return 2;
@@ -315,7 +393,7 @@ async function main(): Promise<number> {
       write(`PENDING ${label}`);
       continue;
     }
-    const outcome = await runScenario(scenario, browser, options, artifactsRoot);
+    const outcome = await runScenario(scenario, browser, options, artifactsRoot, sandbox);
     const timing = `(${(outcome.durationMs / 1000).toFixed(1)} s, teardown ${Math.round(outcome.teardownMs)} ms)`;
     if (outcome.error === undefined) {
       if (storyScenarios.includes(scenario)) storyPassed += 1;
@@ -330,9 +408,11 @@ async function main(): Promise<number> {
   }
 
   write(
-    options.selftest
-      ? `scenarios: self-test ${passed} passed, ${failed} failed`
-      : `scenarios: ${passed}/${TOTAL} passing, ${pending} pending, ${failed} failed (story checks: ${storyPassed}/${storyScenarios.length} passing)`,
+    sandbox !== undefined
+      ? `scenarios: on sandbox ${sandbox.pid}, ${passed + storyPassed} passed, ${failed} failed`
+      : options.selftest
+        ? `scenarios: self-test ${passed} passed, ${failed} failed`
+        : `scenarios: ${passed}/${TOTAL} passing, ${pending} pending, ${failed} failed (story checks: ${storyPassed}/${storyScenarios.length} passing)`,
   );
   write(`scenarios: total ${seconds(runStartedMs)}`);
   return failed > 0 ? 1 : 0;

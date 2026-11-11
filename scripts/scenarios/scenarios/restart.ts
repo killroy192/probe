@@ -68,6 +68,7 @@ const removeFromTree = killFromTree;
 export const restartSurvival: Scenario = {
   id: "S7",
   title: "keep shells, tabs and output across reloads and server restarts",
+  needs: { restart: true },
   run: async ({ server, openPage }) => {
     const folders = NodePath.join(server.home, "folders");
     const repo = NodePath.join(folders, "repo");

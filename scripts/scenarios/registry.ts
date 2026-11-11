@@ -9,10 +9,12 @@ import { secondServer } from "./scenarios/second-server.ts";
 import { plainShell, startFailures, userScripts } from "./scenarios/starting-scripts.ts";
 import { standaloneShell } from "./scenarios/standalone-shell.ts";
 import { worktrees } from "./scenarios/worktrees.ts";
+import { changedRerun } from "./selftest/changed-rerun.ts";
 import { deliberateFailure } from "./selftest/deliberate-failure.ts";
 import { oneLogin } from "./selftest/one-login.ts";
 import { restartPersistence } from "./selftest/restart-persistence.ts";
 import { secondServerFailure } from "./selftest/second-server-failure.ts";
+import { unstatedNeeds } from "./selftest/unstated-needs.ts";
 import type { Scenario } from "./scenario.ts";
 
 // S1..S8 from PRB.E-001. A scenario without `run` is pending until its story builds it.
@@ -43,4 +45,8 @@ export const selftestScenarios: ReadonlyArray<Scenario> = [
 ];
 
 /** Self-tests that run only when picked with `--only`, so one `--selftest` run stays short. */
-export const pickedSelftestScenarios: ReadonlyArray<Scenario> = [secondServerFailure];
+export const pickedSelftestScenarios: ReadonlyArray<Scenario> = [
+  secondServerFailure,
+  unstatedNeeds,
+  changedRerun,
+];

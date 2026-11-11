@@ -28,8 +28,10 @@ import {
 export const manyShells: Scenario = {
   id: "S4",
   title: "run many shells, each with its own output",
-  run: async ({ server, openPage }) => {
-    const folders = NodePath.join(server.home, "folders");
+  needs: {},
+  run: async ({ server, openPage, runId }) => {
+    const name = `sparta-${runId}`;
+    const folders = NodePath.join(server.home, "folders", runId);
     const repo = NodePath.join(folders, "repo");
     const second = NodePath.join(folders, "second");
     const plain = NodePath.join(folders, "plain");
@@ -49,7 +51,7 @@ export const manyShells: Scenario = {
     let stage = "setup";
 
     try {
-      await createWorkspace(page, "sparta");
+      await createWorkspace(page, name);
       for (const folder of [repo, second, plain]) {
         check((await addProject(page, { import: folder })) === null, `Adding ${folder} failed.`);
       }
@@ -169,7 +171,7 @@ export const manyShells: Scenario = {
       stage = "AC-32";
       const reloadedFrom = frames.mark();
       await page.reload();
-      await page.getByRole("tree").getByRole("treeitem", { level: 1, name: "sparta" }).waitFor();
+      await page.getByRole("tree").getByRole("treeitem", { level: 1, name }).waitFor();
 
       stage = "AC-1";
       for (const shell of [first, plainShell, closed])

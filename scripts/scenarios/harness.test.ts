@@ -17,49 +17,14 @@ import { refusalReason } from "./environment.ts";
 import { agentTypedOnceAfterPrompt, MOCK_AGENT_LINES } from "./fixtures.ts";
 import { connectRpc } from "./rpc.ts";
 import { issueBearerToken } from "./seam.ts";
-import { childEnv, startServer, REPO_ROOT, waitUntilServing } from "./server.ts";
+import { childEnv, startServer, waitUntilServing } from "./server.ts";
+import { spawnScript } from "./spawned.ts";
 import { alive, follow, recorder } from "./support.ts";
 
 const runner = NodeURL.fileURLToPath(new URL("./run.ts", import.meta.url));
 
-interface RunnerRun {
-  readonly child: NodeChildProcess.ChildProcess;
-  /** Resolves with the first output line matching `pattern`. */
-  readonly line: (pattern: RegExp) => Promise<RegExpMatchArray>;
-  readonly done: Promise<{ readonly code: number | null; readonly output: string }>;
-}
-
-function spawnRunner(args: ReadonlyArray<string>, env: NodeJS.ProcessEnv = {}): RunnerRun {
-  const child = NodeChildProcess.spawn("node", [runner, ...args], {
-    cwd: REPO_ROOT,
-    env: { ...process.env, ...env },
-    stdio: ["ignore", "pipe", "pipe"],
-  });
-  let output = "";
-  const waiters: Array<{ pattern: RegExp; resolve: (match: RegExpMatchArray) => void }> = [];
-  const onData = (chunk: Buffer) => {
-    output += chunk.toString();
-    for (const waiter of waiters.slice()) {
-      const match = output.match(waiter.pattern);
-      if (match) {
-        waiters.splice(waiters.indexOf(waiter), 1);
-        waiter.resolve(match);
-      }
-    }
-  };
-  child.stdout.on("data", onData);
-  child.stderr.on("data", onData);
-  return {
-    child,
-    line: (pattern) =>
-      new Promise((resolve) => {
-        const match = output.match(pattern);
-        if (match) resolve(match);
-        else waiters.push({ pattern, resolve });
-      }),
-    done: new Promise((resolve) => child.once("exit", (code) => resolve({ code, output }))),
-  };
-}
+const spawnRunner = (args: ReadonlyArray<string>, env: NodeJS.ProcessEnv = {}) =>
+  spawnScript(runner, args, env);
 
 const scratch = (label: string) => NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), label));
 const missingPath = (name: string) => NodePath.join(NodeOS.tmpdir(), "scenario-missing", name);

@@ -55,6 +55,7 @@ async function navigateInApp(page: PointerPage, path: string) {
 export const boot: Scenario = {
   id: "S1",
   title: "boot and workspaces",
+  needs: { pristineHome: true },
   run: async ({ server, openPage }) => {
     const runtime = JSON.parse(
       await NodeFSP.readFile(NodePath.join(server.home, "userdata", "server-runtime.json"), "utf8"),

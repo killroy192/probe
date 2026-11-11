@@ -5,7 +5,7 @@ parent: PRB.E-005
 phase: 1
 labels: [testing, plan]
 created: 2026-11-09
-updated: 2026-11-09
+updated: 2026-11-10
 ---
 
 # Scenario sandbox: keep a server up and run saved scenarios against it
@@ -171,14 +171,76 @@ Verified by reading the code on 2026-11-10 (the `cocoindex-code` MCP was not ava
 
 | ID   | Statement | Kind (assumption / unknown) | Status (unverified / verified / false) | How and when to verify | Owner |
 | ---- | --------- | --------------------------- | -------------------------------------- | ---------------------- | ----- |
-| SA-1 | `@playwright/test` 1.60.0 runs with the cached `chromium_headless_shell-1223` and needs no browser download (epic A-5). | assumption | unverified | Spike, first step of this story (AC-1). | author |
-| SA-2 | Scenarios that pick their own names and folders per run can share one server one after another (epic A-4, sequential case). By desk reading, S4 and S5 need nothing but per-run names; S6 also matches the whole process table (`kill-shell.ts:34-44`), so it is not safe while another run is live; S1 needs a pristine home; E2-S4 changes the server's starting-script list, server-wide state. | assumption | unverified | Check, second step of this story (AC-2). | author |
-| SA-3 | The server API can seed both fixtures (workspace, project, plain shells) with no UI. `seedWorkspace` already does workspaces and projects (`fixtures.ts:72-84`); shells are unchecked. | assumption | unverified | Plan stage; AC-5. | author |
-| SA-4 | Stopping the sandbox's own process can end the server, the shell host and its shells, which the sandbox records. | assumption | unverified | Harness test (AC-7). | author |
-| SA-5 | The existing leftover cleanup already leaves a live sandbox alone if the sandbox owns its manifest as a runner (`cleanup.ts:179`); a scenario run against the sandbox must not record the sandbox's server in its own manifest. | assumption | unverified | Harness test (AC-16). | author |
+| SA-1 | `@playwright/test` 1.60.0 runs with the cached `chromium_headless_shell-1223` and needs no browser download (epic A-5). | assumption | verified (2026-11-10, Handoff) | Spike, first step of this story (AC-1). | author |
+| SA-2 | Scenarios that pick their own names and folders per run can share one server one after another (epic A-4, sequential case); verified for S5 then S4 (2026-11-10, Handoff). By desk reading, S4 and S5 need nothing but per-run names; S6 also matches the whole process table (`kill-shell.ts:34-44`), so it is not safe while another run is live; S1 needs a pristine home; E2-S4 changes the server's starting-script list, server-wide state. | assumption | verified (2026-11-10): S5 then S4, Handoff AC-2; `sandbox.test.ts` runs both on one server | Check, second step of this story (AC-2). Verified 2026-11-10 for S5 then S4. | author |
+| SA-3 | The server API can seed both fixtures (workspace, project, plain shells) with no UI. `seedWorkspace` already does workspaces and projects (`fixtures.ts:72-84`); shells are unchecked. | assumption | verified (2026-11-10): `workspace.startShell` starts the plain shells; `sandbox.test.ts` checks both fixtures over the API | Plan stage; AC-5. | author |
+| SA-4 | Stopping the sandbox's own process can end the server, the shell host and its shells, which the sandbox records. | assumption | verified (2026-11-10): `sandbox.test.ts` start/stop test, also with `--keep-home` | Harness test (AC-7). | author |
+| SA-5 | The existing leftover cleanup already leaves a live sandbox alone if the sandbox owns its manifest as a runner (`cleanup.ts:179`); a scenario run against the sandbox must not record the sandbox's server in its own manifest. | assumption | verified (2026-11-10): `sandbox.test.ts` cleanup test; a run on a sandbox records no server | Harness test (AC-16). | author |
 | SA-6 | A running server serves a bundle rebuilt after it started correctly (`http.ts` reads files per request but loads the asset manifest once). This story refuses either way (EC-7); relaxing that for web-only changes is later work. | assumption | unverified | Not needed for this story; read `http.ts` if a later story wants the relaxation. | author |
-| SU-1 | Fixtures beyond `workspace` and `shells`; later stories add what they need. | unknown | unverified | Plan stage, and later stories. | TBD (author, plan stage) |
-| SU-2 | The command names (the analysis proposes `scenarios:sandbox`), the run-against-sandbox form, and the printed format (one JSON line or key=value lines). | unknown | unverified | Plan stage; must be readable without scraping logs and be one line each in the rules file. | TBD (author, plan stage) |
-| SU-3 | Whether the A-5 spike's files are kept in the repo (as the seed of PRB.T-040) or only its transcript. | unknown | unverified | Decide at the spike, record in the handoff. | TBD (author, at the spike) |
+| SU-1 | Fixtures beyond `workspace` and `shells`; later stories add what they need. | decision | decided (author, 2026-11-10): `workspace` and `shells` only; later stories add theirs to `sandboxFixtures` in `fixtures.ts` | Plan stage, and later stories. | TBD (author, plan stage) |
+| SU-2 | The command names (the analysis proposes `scenarios:sandbox`), the run-against-sandbox form, and the printed format (one JSON line or key=value lines). | decision | decided (author, 2026-11-10): `vp run scenarios:sandbox`, `vp run test:scenarios -- --sandbox <pid> --only <id>`, one `sandbox: <key>=<value>` line per fact | Plan stage; must be readable without scraping logs and be one line each in the rules file. | TBD (author, plan stage) |
+| SU-3 | Whether the A-5 spike's files are kept in the repo (as the seed of PRB.T-040) or only its transcript. | decision | decided (author, 2026-11-10): transcript only; no `@playwright/test` dependency is added here | Handoff. | author |
 | SU-4 | If A-4 is false: whether the sandbox gives each scenario a fresh workspace or refuses scenarios that leave state behind (epic Fallback). | decision | decided (user, 2026-11-10): a fresh workspace per scenario | Applies only if AC-2 finds A-4 false. | user |
 | SU-5 | Whether stopping a sandbox can keep its home for post-mortem debugging. Failure artifacts are saved outside the home already. | decision | decided (user, 2026-11-10): yes, as an opt-in at start; the default removes the home | AC-7 | user |
+
+## Handoff
+
+### AC-1, the A-5 spike (2026-11-10): A-5 is true
+
+`@playwright/test` 1.60.0 runs one test against the cached `chromium_headless_shell-1223` with no browser download. Done outside the repo (a scratch folder, `npm install @playwright/test@1.60.0` with `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1`); the run had `PLAYWRIGHT_DOWNLOAD_HOST` pointed at a closed loopback port, so any download would have failed. The test set page content, asserted a heading with `expect(...).toBeVisible()`, and ran with `trace: "on"`. `~/.cache/ms-playwright` (listing with times and `du`) was identical before and after. Transcript (Node 26.12.1, Linux devcontainer):
+
+```
+$ node node_modules/@playwright/test/cli.js --version
+Version 1.60.0
+$ PLAYWRIGHT_DOWNLOAD_HOST=http://127.0.0.1:9 PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 node node_modules/@playwright/test/cli.js test
+(node) [DEP0205] DeprecationWarning: `module.register()` is deprecated. Use `module.registerHooks()` instead.
+Running 1 test using 1 worker
+browser version: 148.0.7778.0
+executable: /home/vscode/.cache/ms-playwright/chromium-1223/chrome-linux/chrome
+  ✓  1 tests/a5.spec.mjs:2:1 › opens a page in the cached headless shell (104ms)
+  1 passed (526ms)
+exit=0
+test-results/…/trace.zip written
+cache unchanged
+```
+
+For PRB.T-040: `browserType().executablePath()` names the full `chromium-1223` build, which is not installed, but a headless launch uses the headless shell and works; do not check that path. Node 26 prints the `DEP0205` warning on every worker start. A trace is written, so FR-6's trace is available. No Fallback.
+
+### AC-2, the A-4 check (2026-11-10): A-4 is true for S5 then S4
+
+The sandbox's first slice is built and was used for the check: `vp run scenarios:sandbox` (`scripts/scenarios/sandbox.ts`) starts one server on a throwaway home, records itself (origin, home, server pid, log file) in its own run manifest, prints `sandbox: <key>=<value>` lines with its own pid first, and stays up until its pid is stopped; `vp run test:scenarios -- --sandbox <pid> --only <id>` runs one saved scenario against it (`attachServer` in `server.ts`: no server started, restart/stop/second server/stopping the shell host fail naming the need). S4 and S5 were scoped first: `ScenarioContext.runId` is new for every run, and both put it in their workspace name (`sparta-<runId>`) and folders (`<home>/folders/<runId>/…`). No throwaway script was written.
+
+One sandbox (pid 65745, server pid 65756), then S5, then S4, each run once:
+
+```
+PASS    S5 close a tab and reopen it from the tree (8.0 s, teardown 4 ms)
+PASS    S4 run many shells, each with its own output (16.9 s, teardown 5 ms)
+```
+
+The server pid was 65756 before, between and after. What S4 met: S5's workspace `sparta-5529b9` with its plain project and two shells still running with their tabs closed; S4 made `sparta-723c87` beside it. S4's assertions that could see other state (six tabs, tabs and selection after a reload, the tree after a reload, the shell list) all held. Stopping pid 65745 ended the server, the shell host and all six shells, and removed the home, the manifest and the log file. No Fallback; SU-4's branch does not apply.
+
+### The rest of the sandbox (after the go-ahead, 2026-11-10)
+
+Built on the first slice, all in `scripts/scenarios`. The commands and rules are in `.agents/rules/scenarios.md` ("Registering a scenario", "The sandbox").
+
+- Every scenario states `needs` in its own file (`Scenario.needs`, `scenario.ts`). Accepted on a sandbox: S4, S5 and the self-tests T2, T5, T6. Refused: S1 (`pristineHome`); S2, S3, S7, S8, T-002, E2-S1, E2-S3, T1 (`restart`); R1, T3 (`secondServer`); T4 (both); S6 and E2-S4 (`unshared`, naming PRB.T-039). A test keeps every registered scenario stating its needs.
+- The refusals (`sandboxRules.ts`, `sandboxTarget` in `run.ts`) all run before the sandbox is touched: a script path or an unknown id, a stated need, no stated needs, a record that is not a live loopback throwaway sandbox (`findSandbox`), a source or bundle newer than the sandbox (`staleSandboxFile`: web, server and their workspace packages, the harness files the sandbox loaded), a second run (`lockSandbox`). A run that tries what it did not state fails naming it (`attachServer`); a run whose sandbox ends fails at once and starts no server.
+- Named fixtures (`sandboxFixtures` in `fixtures.ts`, for PRB.T-038's library) take the `runId` and build over the API: `workspace` and `shells`. `selftest-fails` is a self-test fixture, accepted but not listed.
+- T2 now fails in a named stage with an expected and a found value. T5 (tries each need it did not state) and T6 (names a workspace and folder by its run, with a note the test changes between runs, for AC-13) are picked self-tests.
+- The sandbox exits when its server ends on its own, prints `shell-host-pid` when the first shell host appears, and `--keep-home` leaves the home.
+
+Not done: the lock takeover after a killed run is not atomic. Two runs taking over the same dead lock at the same instant could both run; one run per sandbox is the normal use, so it is left.
+
+### Verification (2026-11-10)
+
+- `scripts/scenarios/sandbox.test.ts`: 13 tests (6 unit, 7 spawned), first run 12/12, then the four tests changed after verification 4/4 (14 to 27 s each). Covers AC-3 to AC-20 and AC-24.
+- `vp run test:scenarios -- --selftest`: T1 and T4 pass, T2 fails by design (with its stage, expected and found), as before.
+- `vp run check:changed`, after rebasing on PRB.T-036's merge (`112548d01`): every step passes, tests 144/144 in 5 files. The `harness.test.ts` SIGKILL cleanup failure seen before the rebase was PRB.T-036's, fixed on `main`. The rebase needed one change: the sandbox's server handle (`attachServer`) reads raw shell output (`rawOutput`, new on `main`) from the sandbox's home, as a harness server does.
+- No scenario or test failed because of a product bug.
+- AC-22 walkthrough (2026-11-11, a fresh agent session working from `.agents/rules/scenarios.md`): it started a sandbox, ran `S5` (PASS 7.4 s), then `S4` (PASS 17.4 s) on the same server pid, with no server start. `--only scripts/scenarios/scenarios/workspaceUi.ts` was refused as a path to a script, and `--only S7` was refused because it restarts the server; both exited 2 without touching the server. `kill <pid>` ended the sandbox, server and shell host and removed the home. No file was written in the checkout. Gaps it hit, now closed in the rules file: which scenarios a sandbox accepts (`needs: {}` in the scenario's file), waiting for `ready`, a script path is given to `--only`, and when `shell-host-pid` prints. S4's 17.4 s on a shared machine is not a cap result.
+- verify-story-implementation: fail on AC-13 (fixed since by T6 and its test), AC-22 and the full-suite half of AC-23; no gate scored 0.
+
+- AC-23 full suite (2026-11-11, on the branch rebased on `main` 7be34739b): `vp run test:scenarios` passed every scenario, S1 to S8, T-002, R1, E2-S3, E2-S1 and E2-S4 ("8/8 passing, story checks: 5/5 passing", 321.3 s). The `--selftest` run above was before the rebase.
+
+Nothing is open.
+
