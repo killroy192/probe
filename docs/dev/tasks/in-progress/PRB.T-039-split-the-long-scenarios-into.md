@@ -479,6 +479,10 @@ Over `scripts/scenarios/scenarios/*.ts` except the perf files:
 - The cap: 28 checks count their own server start, the two-restart `S7.lost-host` and the four E2-S1 restart checks most of all (D10: split further if over, no exception).
 - SA-7 (macOS `ps`, `/tmp` link) for the marker and the release stays open until PRB.T-040's macOS run.
 
+### Product defects found in verification
+
+- **"Create workspace" appears late and moves the Workspaces menu under the pointer** (original story PRB.T-003). Symptom: right after a page load, the sidebar's Workspaces menu and the start screen show no "Create workspace" until the page learns its write permission, then insert it above "Open workspace"; a submenu opened in that window shuts and the highlight jumps to "Create workspace". Scenarios: `S3.fork-remembered` (V3 rerun 1) and `E2-S4.exiting-command` (V3 full run 2), both the first scenario on a fresh shared server. Artifacts: `/tmp/probe-scenario-artifacts/2026-11-11T05-37-41-502Z-82729/S3.fork-remembered/`, `/tmp/probe-scenario-artifacts/2026-11-11T05-40-41-857Z-93488/E2-S4.exiting-command/` (traces show the item missing at the click and present at the failure). Suspected cause: `canChange` (`workspaceEnvironment.create.permissionAtom`) resolves after the workspace list, and `WorkspaceSidebar`/`WorkspaceScreen` render the gated items only once it does. The harness now waits for the item before using the menu (`lib/ui/workspacesMenu.ts`).
+
 ### Deviations from the plan
 
 - `restartAndReload` now always returns after the new connection's first shell list and takes `{ env?, lostHost? }`, where its fifth argument was `env`. Lanes 6 and 7 had each built the same lost-host restart (server stop, host stop, start) and first-list wait; both now call it.
