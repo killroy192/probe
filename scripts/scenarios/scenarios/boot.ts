@@ -6,37 +6,47 @@ import * as NodePath from "node:path";
 
 import type { PointerPage } from "../browser.ts";
 import { environmentId } from "../lib/api.ts";
-import { runtimePid } from "../lib/files.ts";
-import { unlessRoot } from "../lib/report.ts";
+import { expected } from "../lib/expect.ts";
+import { revokeWrite, runtimePid } from "../lib/files.ts";
+import { closeWorkspacesMenu, expectMenuOffers } from "../lib/scoped.ts";
+import { setupOn, world } from "../lib/setup.ts";
+import { followWorkspaces, waitForPath } from "../lib/t039-1.ts";
 import { alert } from "../lib/ui/dialog.ts";
 import { workspaceShown } from "../lib/ui/tree.ts";
-import { fillCreateWorkspace, openWorkspacesMenu } from "../lib/ui/workspacesMenu.ts";
-import { check } from "../lib/waits.ts";
+import {
+  createWorkspace,
+  fillCreateWorkspace,
+  openWorkspace,
+  openWorkspacesMenu,
+  removeWorkspace,
+} from "../lib/ui/workspacesMenu.ts";
+import { waitFor } from "../lib/waits.ts";
 import { defineCheck } from "../scenario.ts";
+import type { ServerHandle } from "../server.ts";
 
 const screen = (page: PointerPage) => page.getByTestId("workspace-screen");
 const treeRoot = (page: PointerPage) => page.getByRole("tree").getByRole("treeitem");
+const startButton = (page: PointerPage, name: "Create workspace" | "Open workspace") =>
+  screen(page).getByRole("button", { name });
+const menuItem = (page: PointerPage, name: string) =>
+  page.getByRole("menu").last().getByRole("menuitem", { name, exact: true });
 
 async function shownWorkspace(page: PointerPage, name: string) {
   await workspaceShown(page, name);
-  check((await treeRoot(page).count()) === 1, `The tree should show only the root "${name}".`);
+  expected({
+    what: `rows in the tree of the empty workspace ${name}`,
+    expected: 1,
+    found: await treeRoot(page).count(),
+  });
 }
 
 async function onStartScreen(page: PointerPage) {
-  await screen(page).getByRole("button", { name: "Create workspace" }).waitFor();
-  check((await page.getByRole("tree").count()) === 0, "The start screen should show no tree.");
-}
-
-/** The names in the open menu, after it settles on the expected list. */
-async function menuNames(page: PointerPage, expected: ReadonlyArray<string>) {
-  for (const name of expected) await page.getByRole("menuitem", { name, exact: true }).waitFor();
-  return page.getByRole("menuitem").allTextContents();
-}
-
-async function closeMenu(page: PointerPage) {
-  // An empty spot of the main pane, away from the sidebar's controls.
-  await page.mouse.click(900, 600);
-  await page.getByRole("menu").first().waitFor({ state: "detached" });
+  await waitFor(startButton(page, "Create workspace"), "the start screen");
+  expected({
+    what: "trees on the start screen",
+    expected: 0,
+    found: await page.getByRole("tree").count(),
+  });
 }
 
 /** Client-side navigation, the way an in-app link or the back button reaches an address. */
@@ -46,192 +56,323 @@ async function navigateInApp(page: PointerPage, path: string) {
     `window.history.pushState({}, "", ${JSON.stringify(path)});
      window.dispatchEvent(new PopStateEvent("popstate"));`,
   );
-  await page.waitForURL((url) => url.pathname === "/");
+  await waitForPath(page, "/", `${path} to redirect to /`);
 }
 
-export const boot = defineCheck(import.meta.url, {
-  id: "S1",
-  title: "boot and workspaces",
+/** A page load of `path`, the way a bookmark or a typed-in address reaches it. */
+async function loadAddress(page: PointerPage, path: string) {
+  await page.goto(new URL(path, page.url()).href);
+  await waitForPath(page, "/", `the page load of ${path} to redirect to /`);
+}
+
+const workspacesDir = (server: ServerHandle) =>
+  NodePath.join(server.home, "userdata", "workspaces");
+
+/** Writes a workspace file straight into the server's folder, as a user or another tool would. */
+async function seedWorkspace(server: ServerHandle, name: string, contents: string) {
+  const path = NodePath.join(workspacesDir(server), `${name}.json`);
+  await NodeFSP.writeFile(path, contents);
+  return path;
+}
+
+/** The 13 chat-era addresses; each is reached in the app once, split over the two route checks. */
+async function chatAddresses(server: ServerHandle): Promise<ReadonlyArray<string>> {
+  const envId = await environmentId(server.origin);
+  return [
+    `/${envId}/thread-1`,
+    "/draft/draft-1",
+    "/new?prompt=hello",
+    "/pull-requests",
+    "/usage",
+    "/welcome",
+    "/projects/project-1",
+    "/settings/chat",
+    "/settings/threads",
+    "/settings/archived",
+    "/settings/providers",
+    "/settings/scheduled-tasks",
+    "/guest",
+  ];
+}
+const SHOWN_ADDRESSES = 7;
+
+export const startScreen = defineCheck(import.meta.url, {
+  id: "S1.start-screen",
+  title: "the first page is the start screen, offering only Open and Create workspace",
   needs: { pristineHome: true },
-  covers: [
-    "S1 AC-1",
-    "S1 AC-2",
-    "S1 AC-3",
-    "S1 AC-4",
-    "S1 AC-5",
-    "S1 AC-6",
-    "S1 AC-7",
-    "S1 AC-8",
-    "S1 AC-9",
-    "S1 AC-10",
-    "S1 AC-11",
-    "S1 AC-12",
-    "S1 AC-13",
-    "S1 AC-14",
-    "S1 AC-15",
-    "S1 AC-16",
-    "S1 AC-17",
-    "S1 AC-20",
-  ],
+  covers: ["S1 AC-1"],
   run: async ({ server, openPage, trail }) => {
-    check(
-      (await runtimePid(server)) === server.pid(),
-      `The server using ${server.home} is not the one this run started.`,
-    );
-    check(
-      !(await NodeFSP.realpath(server.home)).startsWith(NodePath.join(NodeOS.homedir(), ".t3")),
-      `The throwaway home ${server.home} is inside ~/.t3.`,
-    );
-    const workspacesDir = NodePath.join(server.home, "userdata", "workspaces");
-    const seed = (file: string, contents: string) =>
-      NodeFSP.writeFile(NodePath.join(workspacesDir, file), contents);
-    // A folder on disk that removing a workspace must leave alone (AC-5).
-    const folder = NodePath.join(server.home, "project-folder");
-    await NodeFSP.mkdir(folder);
-    // A project gives chat shortcuts something to start a thread in, had they stayed installed (AC-12).
-    await server.cli(["project", "add", folder, "--title", "project-folder"]);
-    const envId = await environmentId(server.origin);
-    const chatAddresses = [
-      `/${envId}/thread-1`,
-      "/draft/draft-1",
-      "/new?prompt=hello",
-      "/pull-requests",
-      "/usage",
-      "/welcome",
-      "/projects/project-1",
-      "/settings/chat",
-      "/settings/threads",
-      "/settings/archived",
-      "/settings/providers",
-      "/settings/scheduled-tasks",
-      "/guest",
-    ];
-
+    await trail.stage("the harness's server and home", async () => {
+      expected({
+        what: `the pid of the server using ${server.home}`,
+        expected: server.pid(),
+        found: await runtimePid(server),
+      });
+      const home = await NodeFSP.realpath(server.home);
+      expected({
+        what: `whether the throwaway home ${home} is inside ~/.t3`,
+        expected: false,
+        found: home.startsWith(NodePath.join(NodeOS.homedir(), ".t3")),
+      });
+    });
     const page = await openPage();
-    check(
-      !(await page.getByText("Something went wrong.").count()),
-      "The first page shows an error state.",
-    );
-
-    // AC-1: the start screen offers only "Open workspace" and "Create workspace".
     await trail.stage("AC-1", async () => {
       await onStartScreen(page);
-      const buttons = await screen(page).getByRole("button").allTextContents();
-      check(
-        buttons.length === 2 && buttons.some((label) => label.includes("Open workspace")),
-        `The start screen should offer only Open and Create workspace, got ${JSON.stringify(buttons)}.`,
-      );
-      check(
-        (await page.getByRole("navigation", { name: "Threads" }).count()) === 0,
-        "The chat thread sidebar is shown.",
-      );
+      expected({
+        what: "error states on the first page",
+        expected: 0,
+        found: await page.getByText("Something went wrong.").count(),
+      });
+      const labels = await screen(page).getByRole("button").allTextContents();
+      expected({
+        what: "the start screen's buttons",
+        expected: ["Create workspace", "Open workspace"],
+        found: labels
+          .map((label) =>
+            label.includes("Open workspace")
+              ? "Open workspace"
+              : label.includes("Create workspace")
+                ? "Create workspace"
+                : label.trim(),
+          )
+          .toSorted(),
+      });
+      expected({
+        what: "chat thread sidebars",
+        expected: 0,
+        found: await page.getByRole("navigation", { name: "Threads" }).count(),
+      });
       // The app sidebar stays, holding the workspace; its chat utilities do not.
-      await page.getByRole("navigation", { name: "Workspace" }).waitFor();
+      await waitFor(page.getByRole("navigation", { name: "Workspace" }), "the workspace sidebar");
       for (const label of ["Pull requests", "Usage"]) {
-        check(
-          (await page.getByRole("button", { name: label }).count()) === 0,
-          `The sidebar offers ${label}.`,
-        );
+        expected({
+          what: `"${label}" buttons in the sidebar`,
+          expected: 0,
+          found: await page.getByRole("button", { name: label }).count(),
+        });
       }
     });
+  },
+});
 
-    // AC-13: an empty or file-unsafe name is refused with a reason.
-    await trail.stage("AC-13", async () => {
-      await screen(page).getByRole("button", { name: "Create workspace" }).click();
-      check(
-        (await fillCreateWorkspace(page, "")) === "Enter a name.",
-        "An empty name was not refused.",
-      );
-      await screen(page).getByRole("button", { name: "Create workspace" }).click();
-      check(
-        (await fillCreateWorkspace(page, "a/b")) !== null,
-        "A name with a slash was not refused.",
-      );
-    });
-
-    // AC-2: create "sparta"; it is the root of an empty tree.
+export const createFromStartScreen = defineCheck(import.meta.url, {
+  id: "S1.create-workspace",
+  title: "a workspace created from the start screen is the root of an empty tree",
+  needs: {},
+  covers: ["S1 AC-2"],
+  run: async ({ runId, openPage, trail }) => {
+    const page = await openPage();
+    const name = `sparta-${runId}`;
     await trail.stage("AC-2", async () => {
-      await screen(page).getByRole("button", { name: "Create workspace" }).click();
-      check((await fillCreateWorkspace(page, "sparta")) === null, "Creating sparta failed.");
-      await shownWorkspace(page, "sparta");
+      await onStartScreen(page);
+      await createWorkspace(page, name, { from: "start screen" });
+      await shownWorkspace(page, name);
     });
+  },
+});
 
-    // AC-14: the same name in any case is refused.
-    await trail.stage("AC-14", async () => {
+export const nameRefusals = defineCheck(import.meta.url, {
+  id: "S1.name-refusals",
+  title: "an empty, file-unsafe or taken name is refused with a reason",
+  needs: {},
+  // Both are the create dialog's refusals of a name; only the taken one needs a workspace.
+  covers: ["S1 AC-13", "S1 AC-14"],
+  run: async (ctx) => {
+    const page = await ctx.openPage();
+    const setup = await setupOn(ctx, { as: page });
+    const ws = await setup.workspace("sparta");
+    await ctx.trail.stage("AC-13", async () => {
+      await onStartScreen(page);
+      await startButton(page, "Create workspace").click();
+      expected({
+        what: "the refusal of an empty name",
+        expected: "Enter a name.",
+        found: await fillCreateWorkspace(page, ""),
+      });
+      await startButton(page, "Create workspace").click();
+      expected({
+        what: "whether a name with a slash is refused",
+        expected: true,
+        found: (await fillCreateWorkspace(page, "a/b")) !== null,
+      });
+    });
+    await ctx.trail.stage("AC-14", async () => {
+      const taken = ws.name.toUpperCase();
+      await openWorkspace(page, ws.name);
+      await shownWorkspace(page, ws.name);
       await openWorkspacesMenu(page);
       await page.getByRole("menuitem", { name: "Create workspace" }).click();
-      const taken = await fillCreateWorkspace(page, "Sparta");
-      check(taken?.includes("already exists") === true, `A taken name was not refused: ${taken}`);
+      const refusal = await fillCreateWorkspace(page, taken);
+      expected({
+        what: `whether creating ${taken} is refused as taken`,
+        expected: true,
+        found: refusal?.includes("already exists") ?? "no refusal",
+      });
     });
+  },
+});
 
-    // AC-3: a second workspace from the Workspaces button is shown and both are listed.
-    await trail.stage("AC-3", async () => {
-      await openWorkspacesMenu(page);
-      await page.getByRole("menuitem", { name: "Create workspace" }).click();
-      check((await fillCreateWorkspace(page, "athens")) === null, "Creating athens failed.");
-      await shownWorkspace(page, "athens");
-      await openWorkspacesMenu(page, "Open workspace");
-      await menuNames(page, ["athens", "sparta"]);
+export const secondWorkspace = defineCheck(import.meta.url, {
+  id: "S1.second-workspace",
+  title: "a second workspace from the Workspaces menu is listed, and switching shows each once",
+  needs: {},
+  // One switch flow: create a second, list both, switch back, then choose the shown one again.
+  covers: ["S1 AC-3", "S1 AC-4", "S1 AC-8", "S1 AC-9"],
+  run: async (ctx) => {
+    const { workspace: sparta, shown } = await world(ctx, { projects: [], page: true });
+    const page = shown!.page;
+    const athens = `athens-${ctx.runId}`;
+    await ctx.trail.stage("AC-3", async () => {
+      await createWorkspace(page, athens);
+      await shownWorkspace(page, athens);
+      await expectMenuOffers(page, "Open workspace", { includes: [athens, sparta.name] });
     });
-
-    // AC-4, AC-8: switch back to sparta.
-    await trail.stage("AC-4, AC-8", async () => {
-      await page.getByRole("menuitem", { name: "sparta", exact: true }).click();
-      await shownWorkspace(page, "sparta");
+    await ctx.trail.stage("AC-4, AC-8", async () => {
+      await openWorkspace(page, sparta.name);
+      await shownWorkspace(page, sparta.name);
     });
+    await ctx.trail.stage("AC-9", async () => {
+      await openWorkspace(page, sparta.name);
+      await shownWorkspace(page, sparta.name);
+      await openWorkspacesMenu(page, "Open workspace");
+      await waitFor(menuItem(page, sparta.name), `"Open workspace" to offer ${sparta.name}`);
+      expected({
+        what: `entries for ${sparta.name} after choosing it while shown`,
+        expected: 1,
+        found: await menuItem(page, sparta.name).count(),
+      });
+      await closeWorkspacesMenu(page);
+    });
+  },
+});
 
-    // AC-9: choosing the shown workspace changes nothing and adds no entry.
-    await trail.stage("AC-9", async () => {
-      await openWorkspacesMenu(page, "Open workspace");
-      await page.getByRole("menuitem", { name: "sparta", exact: true }).click();
-      await shownWorkspace(page, "sparta");
-      await openWorkspacesMenu(page, "Open workspace");
-      const afterReopen = await menuNames(page, ["sparta"]);
-      check(
-        afterReopen.filter((name) => name === "sparta").length === 1,
-        `Expected one sparta entry, got ${JSON.stringify(afterReopen)}.`,
+export const removeOther = defineCheck(import.meta.url, {
+  id: "S1.remove-other",
+  title: "removing another workspace keeps the shown one and leaves its folder on disk",
+  needs: {},
+  covers: ["S1 AC-5"],
+  run: async (ctx) => {
+    const { workspace: kept, shown, setup } = await world(ctx, { projects: [], page: true });
+    const page = shown!.page;
+    const other = await setup.workspace("athens");
+    const folder = await setup.folder("athens-project");
+    await setup.project(other, folder);
+    const names = followWorkspaces(setup.client);
+    await ctx.trail.stage("AC-5", async () => {
+      const from = names.mark();
+      await removeWorkspace(page, other.name);
+      await names.until(
+        `the server to stop listing ${other.name}`,
+        (list) => !list.includes(other.name),
+        from,
       );
-      await closeMenu(page);
+      await shownWorkspace(page, kept.name);
+      await expectMenuOffers(page, "Open workspace", {
+        includes: [kept.name],
+        excludes: [other.name],
+      });
+      expected({
+        what: `whether the removed workspace's folder ${folder.path} is on disk`,
+        expected: true,
+        found: await NodeFSP.access(folder.path).then(
+          () => true,
+          (error: unknown) => String(error),
+        ),
+      });
     });
+  },
+});
 
-    // AC-5: removing the other workspace keeps sparta shown and the folder on disk.
-    await trail.stage("AC-5", async () => {
-      await openWorkspacesMenu(page, "Remove workspace");
-      await page.getByRole("menuitem", { name: "athens", exact: true }).click();
-      await shownWorkspace(page, "sparta");
-      await openWorkspacesMenu(page, "Open workspace");
-      check(
-        !(await menuNames(page, ["sparta"])).includes("athens"),
-        "athens is still listed after removal.",
+export const removeShown = defineCheck(import.meta.url, {
+  id: "S1.remove-shown",
+  title: "removing the shown workspace returns to the start screen, which lists the rest",
+  needs: {},
+  covers: ["S1 AC-6"],
+  run: async (ctx) => {
+    const { workspace: removed, shown, setup } = await world(ctx, { projects: [], page: true });
+    const page = shown!.page;
+    const rest = await setup.workspace("rest");
+    const names = followWorkspaces(setup.client);
+    await ctx.trail.stage("AC-6", async () => {
+      const from = names.mark();
+      await removeWorkspace(page, removed.name);
+      await names.until(
+        `the server to stop listing ${removed.name}`,
+        (list) => !list.includes(removed.name),
+        from,
       );
-      await closeMenu(page);
-      await NodeFSP.access(folder);
+      await onStartScreen(page);
+      await startButton(page, "Open workspace").click();
+      await waitFor(menuItem(page, rest.name), `the start screen to offer ${rest.name}`);
+      await waitFor(
+        menuItem(page, removed.name),
+        `the start screen to stop offering ${removed.name}`,
+        { state: "detached" },
+      );
+      const offered = await page.getByRole("menu").last().getByRole("menuitem").allTextContents();
+      const offeredNames = offered.map((name) => name.trim());
+      expected({
+        what: "which of the scenario's workspaces the start screen offers",
+        expected: [rest.name],
+        found: [rest.name, removed.name].filter((name) => offeredNames.includes(name)),
+      });
+      await closeWorkspacesMenu(page);
     });
+  },
+});
 
-    // AC-10 (automated part): settings opens from the sidebar footer and lists no chat page.
-    await trail.stage("AC-10", async () => {
+export const settingsNoChat = defineCheck(import.meta.url, {
+  id: "S1.settings-no-chat",
+  title: "settings opens from the sidebar footer and lists no chat page",
+  needs: {},
+  covers: ["S1 AC-10"],
+  run: async (ctx) => {
+    const { workspace: ws, shown } = await world(ctx, { projects: [], page: true });
+    const page = shown!.page;
+    await ctx.trail.stage("AC-10", async () => {
       await page.getByRole("button", { name: "Settings" }).click();
-      await page.waitForURL((url) => url.pathname.startsWith("/settings"));
       const section = (path: string) => page.locator(`[data-settings-section="${path}"]`);
-      await section("/settings/connections").waitFor();
+      await waitFor(section("/settings/connections"), "the Connections settings section");
       for (const path of [
         "/settings/chat",
         "/settings/threads",
         "/settings/providers",
         "/settings/snap-shot",
       ]) {
-        check((await section(path).count()) === 0, `Settings lists ${path}.`);
+        expected({
+          what: `settings sections for ${path}`,
+          expected: 0,
+          found: await section(path).count(),
+        });
       }
       await page.goBack();
-      await shownWorkspace(page, "sparta");
+      await shownWorkspace(page, ws.name);
     });
+  },
+});
 
-    // AC-11 with a workspace shown, AC-12: chat addresses and chat shortcuts change nothing.
-    await trail.stage("AC-11 with a workspace shown, AC-12", async () => {
-      for (const address of chatAddresses) {
+export const chatRoutesShown = defineCheck(import.meta.url, {
+  id: "S1.chat-routes-shown",
+  title: "with a workspace shown, chat addresses and chat shortcuts change nothing",
+  needs: {},
+  // One page showing a workspace: chat addresses and chat shortcuts both leave it shown.
+  covers: ["S1 AC-11 with a workspace shown", "S1 AC-12"],
+  run: async (ctx) => {
+    const { workspace: ws, shown, setup } = await world(ctx, { projects: [], page: true });
+    const page = shown!.page;
+    const addresses = (await chatAddresses(ctx.server)).slice(0, SHOWN_ADDRESSES);
+    // A project gives chat shortcuts something to start a thread in, had they stayed installed (AC-12).
+    const folder = await setup.folder("chat-project");
+    await ctx.server.cli(["project", "add", folder.path, "--title", `chat-project-${ctx.runId}`]);
+    await ctx.trail.stage("AC-11 with a workspace shown", async () => {
+      for (const address of addresses) {
         await navigateInApp(page, address);
-        await shownWorkspace(page, "sparta");
+        await shownWorkspace(page, ws.name);
       }
+      await loadAddress(page, addresses[0]!);
+      await shownWorkspace(page, ws.name);
+    });
+    await ctx.trail.stage("AC-12", async () => {
       // Count every navigation the page starts, so a working chat shortcut is caught even though
       // the draft address it opens would redirect back to "/".
       await page.evaluate(`(() => {
@@ -256,91 +397,153 @@ export const boot = defineCheck(import.meta.url, {
           await page.evaluate(`window.dispatchEvent(new KeyboardEvent("keydown", ${init}))`);
         }
       }
-      const navigations = await page.evaluate("window.__probeNavigations");
-      check(navigations === 0, `Chat shortcuts started ${String(navigations)} navigations.`);
-      await shownWorkspace(page, "sparta");
-    });
-
-    // AC-20, AC-7: a reload shows the same workspace (PRB.T-007) and keeps every saved one
-    // listed; a seeded one opens.
-    await trail.stage("AC-20, AC-7", async () => {
-      await seed("delphi.json", '{"version":1}');
-      await page.reload();
-      await shownWorkspace(page, "sparta");
-      await openWorkspacesMenu(page, "Open workspace");
-      await menuNames(page, ["delphi", "sparta"]);
-      await page.getByRole("menuitem", { name: "delphi", exact: true }).click();
-      await shownWorkspace(page, "delphi");
-    });
-
-    // AC-15: an invalid or unreadable workspace stays listed and is refused when chosen.
-    await trail.stage("AC-15", async () => {
-      await seed("broken.json", "not json");
-      await seed("locked.json", '{"version":1}');
-      const refusedOnOpen = async (name: string) => {
-        await openWorkspacesMenu(page, "Open workspace");
-        await page.getByRole("menuitem", { name, exact: true }).click();
-        await alert(page, `Workspace "${name}" cannot be opened`).waitFor();
-        await shownWorkspace(page, "delphi");
-      };
-      await refusedOnOpen("broken");
-      await unlessRoot("S1", "AC-15 unreadable workspace", async () => {
-        await NodeFSP.chmod(NodePath.join(workspacesDir, "locked.json"), 0o000);
-        await refusedOnOpen("locked");
+      expected({
+        what: "navigations the chat shortcuts started",
+        expected: 0,
+        found: await page.evaluate("window.__probeNavigations"),
       });
-    });
-
-    // AC-16, AC-17: when the folder cannot change, create and remove say why and the list stays.
-    await trail.stage("AC-16, AC-17", async () => {
-      await unlessRoot("S1", "AC-16, AC-17 folder that cannot change", async () => {
-        await NodeFSP.chmod(workspacesDir, 0o555);
-        try {
-          await openWorkspacesMenu(page);
-          await page.getByRole("menuitem", { name: "Create workspace" }).click();
-          const refused = await fillCreateWorkspace(page, "olympia");
-          check(refused?.includes("Could not create") === true, `Create did not fail: ${refused}`);
-          await openWorkspacesMenu(page, "Remove workspace");
-          await page.getByRole("menuitem", { name: "sparta", exact: true }).click();
-          await alert(page, "Could not remove").waitFor();
-          await openWorkspacesMenu(page, "Open workspace");
-          const unchanged = await menuNames(page, ["broken", "delphi", "locked", "sparta"]);
-          check(!unchanged.includes("olympia"), "A refused workspace was listed.");
-          await closeMenu(page);
-        } finally {
-          await NodeFSP.chmod(workspacesDir, 0o755);
-        }
-      });
-    });
-
-    // AC-6: removing the shown workspace returns to the start screen, which lists the rest.
-    await trail.stage("AC-6", async () => {
-      await openWorkspacesMenu(page, "Remove workspace");
-      await page.getByRole("menuitem", { name: "delphi", exact: true }).click();
-      await onStartScreen(page);
-      await screen(page).getByRole("button", { name: "Open workspace" }).click();
-      const remaining = await menuNames(page, ["broken", "locked", "sparta"]);
-      check(!remaining.includes("delphi"), "The removed workspace is still listed.");
-    });
-
-    // AC-15 from the start screen: the reason shows and the start screen stays.
-    await trail.stage("AC-15 from the start screen", async () => {
-      await page.getByRole("menuitem", { name: "broken", exact: true }).click();
-      await alert(page, 'Workspace "broken" cannot be opened').waitFor();
-      await onStartScreen(page);
-    });
-
-    // AC-11 with no workspace shown: each old chat address lands on the start screen. The redirect
-    // is the same for a page load, so two typed-in addresses stand for bookmarks.
-    await trail.stage("AC-11 with no workspace shown", async () => {
-      for (const address of chatAddresses) {
-        await navigateInApp(page, address);
-        await onStartScreen(page);
-      }
-      for (const address of [chatAddresses[0]!, "/settings/threads"]) {
-        await page.goto(new URL(address, page.url()).href);
-        await page.waitForURL((url) => url.pathname === "/");
-        await onStartScreen(page);
-      }
+      await shownWorkspace(page, ws.name);
     });
   },
 });
+
+export const chatRoutesStartScreen = defineCheck(import.meta.url, {
+  id: "S1.chat-routes-start-screen",
+  title: "with no workspace shown, each chat address lands on the start screen",
+  needs: {},
+  covers: ["S1 AC-11 with none shown"],
+  run: async (ctx) => {
+    const page = await ctx.openPage();
+    const addresses = (await chatAddresses(ctx.server)).slice(SHOWN_ADDRESSES);
+    await ctx.trail.stage("AC-11 with none shown", async () => {
+      await onStartScreen(page);
+      for (const address of addresses) {
+        await navigateInApp(page, address);
+        await onStartScreen(page);
+      }
+      // The redirect is the same for a page load, so one typed-in address stands for bookmarks.
+      await loadAddress(page, "/settings/threads");
+      await onStartScreen(page);
+    });
+  },
+});
+
+export const reloadKeepsSaved = defineCheck(import.meta.url, {
+  id: "S1.reload-keeps-saved",
+  title: "a reload shows the same workspace and keeps every saved one listed, a seeded one too",
+  needs: { serverWide: "writes into the server's workspaces folder" },
+  // One reload: it shows the same workspace (AC-20) and its list keeps every saved one (AC-7).
+  covers: ["S1 AC-20", "S1 AC-7"],
+  run: async (ctx) => {
+    const { workspace: ws, shown } = await world(ctx, { projects: [], page: true });
+    const page = shown!.page;
+    const delphi = `delphi-${ctx.runId}`;
+    await ctx.trail.stage("AC-20, AC-7", async () => {
+      await seedWorkspace(ctx.server, delphi, '{"version":1}');
+      await page.reload();
+      await shownWorkspace(page, ws.name);
+      await expectMenuOffers(page, "Open workspace", { includes: [delphi, ws.name] });
+      await openWorkspace(page, delphi);
+      await shownWorkspace(page, delphi);
+    });
+  },
+});
+
+export const invalidWorkspace = defineCheck(import.meta.url, {
+  id: "S1.invalid-workspace",
+  title: "an invalid or unreadable workspace stays listed and is refused when chosen",
+  needs: { serverWide: "writes into the server's workspaces folder" },
+  covers: ["S1 AC-15"],
+  run: async (ctx) => {
+    const broken = `broken-${ctx.runId}`;
+    const locked = `locked-${ctx.runId}`;
+    await seedWorkspace(ctx.server, broken, "not json");
+    const lockedFile = await seedWorkspace(ctx.server, locked, '{"version":1}');
+    const { workspace: ws, shown } = await world(ctx, { projects: [], page: true });
+    const page = shown!.page;
+    const refusedOnOpen = async (name: string) => {
+      await openWorkspace(page, name);
+      await waitFor(
+        alert(page, `Workspace "${name}" cannot be opened`),
+        `the refusal to open ${name}`,
+      );
+      await shownWorkspace(page, ws.name);
+    };
+    await ctx.trail.stage("AC-15 from the menu", async () => {
+      await refusedOnOpen(broken);
+      await revokeWrite(
+        ctx,
+        lockedFile,
+        "AC-15 unreadable workspace",
+        () => refusedOnOpen(locked),
+        { unreadable: true },
+      );
+    });
+    // A page of its own, so the menu's refusal toast cannot answer for this one.
+    await ctx.trail.stage("AC-15 from the start screen", async () => {
+      const fresh = await ctx.openPage();
+      await onStartScreen(fresh);
+      await startButton(fresh, "Open workspace").click();
+      await menuItem(fresh, broken).click();
+      await waitFor(
+        alert(fresh, `Workspace "${broken}" cannot be opened`),
+        `the start screen's refusal to open ${broken}`,
+      );
+      await onStartScreen(fresh);
+    });
+  },
+});
+
+export const folderUnwritable = defineCheck(import.meta.url, {
+  id: "S1.folder-unwritable",
+  title: "when the workspaces folder cannot change, create and remove say why and the list stays",
+  needs: { serverWide: "makes the workspaces folder read-only" },
+  // One read-only folder refuses both changes: the create (AC-16) and the remove (AC-17).
+  covers: ["S1 AC-16", "S1 AC-17"],
+  run: async (ctx) => {
+    const { workspace: ws, shown } = await world(ctx, { projects: [], page: true });
+    const page = shown!.page;
+    const olympia = `olympia-${ctx.runId}`;
+    await ctx.trail.stage("AC-16, AC-17", async () => {
+      await revokeWrite(
+        ctx,
+        workspacesDir(ctx.server),
+        "AC-16, AC-17 folder that cannot change",
+        async () => {
+          await openWorkspacesMenu(page);
+          await page.getByRole("menuitem", { name: "Create workspace" }).click();
+          const refusal = await fillCreateWorkspace(page, olympia);
+          expected({
+            what: `whether creating ${olympia} in a read-only folder is refused`,
+            expected: true,
+            found: refusal?.includes("Could not create") ?? "no refusal",
+          });
+          await removeWorkspace(page, ws.name);
+          await waitFor(alert(page, "Could not remove"), `the refusal to remove ${ws.name}`);
+          await expectMenuOffers(page, "Open workspace", {
+            includes: [ws.name],
+            excludes: [olympia],
+          });
+        },
+      );
+    });
+  },
+});
+
+export const successors = [
+  startScreen,
+  createFromStartScreen,
+  nameRefusals,
+  secondWorkspace,
+  removeOther,
+  removeShown,
+  settingsNoChat,
+  chatRoutesShown,
+  chatRoutesStartScreen,
+  reloadKeepsSaved,
+  invalidWorkspace,
+  folderUnwritable,
+];
+
+// temporary: PRB.T-039 10A removes this alias.
+export const boot = startScreen;
