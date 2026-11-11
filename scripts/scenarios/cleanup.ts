@@ -11,7 +11,10 @@ import * as NodeProcess from "node:process";
  * with SIGKILL can be cleaned up by the next one. Only these recorded pids, and pids written into
  * the run's own throwaway homes, are ever stopped; nothing is matched by name or path.
  */
-export const RUNS_DIR = NodePath.join(NodeOS.tmpdir(), "probe-scenario-runs");
+export const RUNS_DIR =
+  // A harness test gives its runs a folder of their own, so a concurrent run's sweep cannot take
+  // the leftovers the test expects its own cleaner to report.
+  NodeProcess.env.SCENARIO_RUNS_DIR || NodePath.join(NodeOS.tmpdir(), "probe-scenario-runs");
 
 export interface ManifestEntry {
   readonly kind: "server";

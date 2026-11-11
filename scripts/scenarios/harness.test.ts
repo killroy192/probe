@@ -721,7 +721,12 @@ describe("scenario launcher", () => {
     "reports a scenario whose worker was killed, runs the next, and sweeps what it left",
     () =>
       Effect.promise(async () => {
-        const run = spawnRunner(["--selftest", "--workers", "1", ...only("T35", "T16")]);
+        // Runs of their own: another test's launcher would otherwise sweep the dead worker first.
+        const runsDir = scratch("scenario-runs-");
+        removedAtEnd(runsDir);
+        const run = spawnRunner(["--selftest", "--workers", "1", ...only("T35", "T16")], {
+          SCENARIO_RUNS_DIR: runsDir,
+        });
         const [, serverPid, home] = await run.line(/shared server pid=(\d+) home=(\S+)/);
         const [, shellPid, hostPid] = await run.line(/T35 shell pid=(\d+) host=(\d+)/);
         // The worker started the shared server; its parent is Playwright, whose parent is this launcher.

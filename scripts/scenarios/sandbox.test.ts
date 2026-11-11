@@ -239,13 +239,13 @@ const passLine = (id: string) =>
   new RegExp(`^PASS\\s+${id} .* \\(\\d+\\.\\d s, teardown \\d+ ms\\)$`, "m");
 
 /** The sandbox server's workspaces (with their projects) and shells, read over its API. */
-async function apiState(sandbox: Sandbox) {
+async function apiState(sandbox: Sandbox, runsDir = RUNS_DIR) {
   const handle = attachServer(
     {
       home: sandbox.facts.home!,
       origin: sandbox.facts.origin!,
       serverPid: Number(sandbox.facts["server-pid"]),
-      logFile: sandboxLogFile(sandbox.pid),
+      logFile: sandboxLogFile(sandbox.pid, runsDir),
     },
     (need) => new Error(`The test tried ${need}.`),
   );
@@ -764,17 +764,20 @@ describe("sandbox", () => {
 
   it.live("leaves a live sandbox to other cleanups and cleans one killed with SIGKILL", () =>
     Effect.promise(async () => {
-      const live = await startSandbox();
+      // Runs of their own: another test's launcher would otherwise sweep the killed sandbox first.
+      const runsDir = scratch("scenario-runs-");
+      const env = { SCENARIO_RUNS_DIR: runsDir };
+      const live = await startSandbox([], env);
       const pidsOf = async (sandbox: Sandbox) => [
         Number(sandbox.facts["server-pid"]),
         Number(sandbox.facts["shell-host-pid"]),
-        ...(await apiState(sandbox)).shells.map(({ pid }) => pid!),
+        ...(await apiState(sandbox, runsDir)).shells.map(({ pid }) => pid!),
       ];
       const listed = scratch("scenario-list-");
       let next: Sandbox | undefined;
       try {
         for (const cleaner of ["suite", "sandbox"] as const) {
-          const killed = await startSandbox(["--fixture", "shells"]);
+          const killed = await startSandbox(["--fixture", "shells"], env);
           const left = await pidsOf(killed);
           killed.spawned.child.kill("SIGKILL");
           await killed.spawned.done;
@@ -783,32 +786,30 @@ describe("sandbox", () => {
           let output: string;
           if (cleaner === "suite") {
             // A launcher run that only lists cleans up first, and starts no server or browser.
-            const run = await spawnScript(launcherBin, [
-              "--selftest",
-              "--only",
-              "T16",
-              "--list",
-              "--artifacts",
-              listed,
-            ]).done;
+            const run = await spawnScript(
+              launcherBin,
+              ["--selftest", "--only", "T16", "--list", "--artifacts", listed],
+              env,
+            ).done;
             assert.strictEqual(run.code, 0, run.output);
             output = run.output;
           } else {
-            next = await startSandbox();
+            next = await startSandbox([], env);
             output = next.spawned.output();
           }
           assert.include(output, `cleaned up after run ${killed.pid}`);
           for (const pid of left)
             assert.isTrue(await gone(pid), `${pid} survived the ${cleaner} start`);
           assert.isFalse(NodeFS.existsSync(killed.facts.home!));
-          assert.isFalse(NodeFS.existsSync(sandboxLogFile(killed.pid)));
+          assert.isFalse(NodeFS.existsSync(sandboxLogFile(killed.pid, runsDir)));
           assert.isTrue((await fetch(live.facts.origin!)).ok);
-          assert.isTrue("sandbox" in findSandbox(live.pid));
+          assert.isTrue("sandbox" in findSandbox(live.pid, runsDir));
         }
       } finally {
         await live.stop();
         await next?.stop();
         NodeFS.rmSync(listed, { recursive: true, force: true });
+        NodeFS.rmSync(runsDir, { recursive: true, force: true });
       }
     }),
   );
