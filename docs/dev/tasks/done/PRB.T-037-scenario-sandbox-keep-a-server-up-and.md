@@ -46,3 +46,4 @@ Every scenario run cold-started its own Probe server, so agents who wanted a liv
 - Converting the refused scenarios for a shared server: PRB.T-039.
 - The run lock's takeover after a killed run is not atomic: two runs taking over the same dead lock at the same instant could both run. Left as is because a sandbox normally has one user. Untracked.
 - Whether a running server correctly serves a bundle rebuilt after it started is unverified. The sandbox refuses a run after a rebuild either way, so allowing web-only changes on a live sandbox would need that check first. Untracked.
+- The sandbox-ended race (a scenario failing on the vanished home before the 250 ms poll) was fixed on `main` on 2026-11-11. Still open: a scenario failing during the server's up-to-5 s SIGTERM shutdown, with the server alive and the home present, reports its own error. Untracked.

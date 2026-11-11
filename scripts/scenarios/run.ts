@@ -2,6 +2,7 @@
 // @effect-diagnostics nodeBuiltinImport:off globalDate:off globalTimers:off - Scenario runner owns host processes and directories directly, and times its own runs.
 
 import * as NodeCrypto from "node:crypto";
+import * as NodeFS from "node:fs";
 import * as NodeFSP from "node:fs/promises";
 import * as NodePath from "node:path";
 import * as NodeProcess from "node:process";
@@ -133,16 +134,27 @@ interface SandboxTarget {
   readonly record: SandboxRecord;
 }
 
+/** True once the sandbox is stopping: its stop kills the server before it removes the home. */
+function sandboxEnded(pid: number): boolean {
+  const found = findSandbox(pid);
+  return (
+    "refusal" in found ||
+    processStartTime(found.sandbox.serverPid) === null ||
+    !NodeFS.existsSync(found.sandbox.home)
+  );
+}
+
+const sandboxEndedError = (pid: number) =>
+  new Error(`The sandbox ${pid} ended during the run; no server is started in its place.`);
+
 /** Rejects once the sandbox is gone, so a run on it fails at once instead of on a page timeout. */
 function sandboxEnds(pid: number): Promise<never> {
   return new Promise((_, reject) => {
     // oxlint-disable-next-line t3code/no-real-time-wait-in-tests -- permanent (c): the sandbox is not this run's child, so no exit event reaches it
     const timer = setInterval(() => {
-      if (!("refusal" in findSandbox(pid))) return;
+      if (!sandboxEnded(pid)) return;
       clearInterval(timer);
-      reject(
-        new Error(`The sandbox ${pid} ended during the run; no server is started in its place.`),
-      );
+      reject(sandboxEndedError(pid));
     }, 250);
     cleanups.push(async () => clearInterval(timer));
   });
@@ -304,7 +316,9 @@ async function runScenario(
     else {
       // Once the race is lost, the scenario's own failure is not the one reported.
       running.catch(() => undefined);
-      await Promise.race([running, sandboxEnds(sandbox.pid)]);
+      await Promise.race([running, sandboxEnds(sandbox.pid)]).catch((caught) => {
+        throw sandboxEnded(sandbox.pid) ? sandboxEndedError(sandbox.pid) : caught;
+      });
     }
   } catch (caught) {
     error = caught;

@@ -13,7 +13,15 @@ import * as Option from "effect/Option";
 import * as Stream from "effect/Stream";
 
 import { launchBrowser } from "./browser.ts";
-import { findSandbox, lockSandbox, processStartTime, RUNS_DIR, sandboxLogFile } from "./cleanup.ts";
+import {
+  findSandbox,
+  killServerTree,
+  lockSandbox,
+  type ManifestEntry,
+  processStartTime,
+  RUNS_DIR,
+  sandboxLogFile,
+} from "./cleanup.ts";
 import { parseSandboxArgs, strayArgs } from "./environment.ts";
 import {
   pickedSelftestScenarios,
@@ -696,6 +704,7 @@ describe("sandbox", () => {
     () =>
       Effect.promise(async () => {
         const sandbox = await startSandbox();
+        let frozen = false;
         try {
           const killed = onSandbox(sandbox, "S4");
           await killed.line(/scenarios: ready/);
@@ -711,10 +720,16 @@ describe("sandbox", () => {
             assert.isTrue(await gone(pid), `browser process ${pid} survived`);
           assert.isTrue((await fetch(sandbox.facts.origin!)).ok);
 
-          // The killed run's lock is taken over; the sandbox ends under the next run.
+          // The killed run's lock is taken over; the sandbox ends under the next run. Frozen
+          // inside its stop's steps, its server and home are gone while its record stays.
           const orphaned = onSandbox(sandbox, "S4");
           await orphaned.line(/scenarios: ready/);
-          await sandbox.stop();
+          process.kill(sandbox.pid, "SIGSTOP");
+          frozen = true;
+          const { entries } = JSON.parse(
+            NodeFS.readFileSync(NodePath.join(RUNS_DIR, `${sandbox.pid}.json`), "utf8"),
+          ) as { readonly entries: ReadonlyArray<ManifestEntry> };
+          killServerTree(entries[0]!);
           const { code, output } = await orphaned.done;
           assert.strictEqual(code, 1);
           assert.include(
@@ -724,6 +739,7 @@ describe("sandbox", () => {
           assert.notInclude(output, "S4 server pid=");
           assert.match(output, /artifacts: \S+/);
         } finally {
+          if (frozen) process.kill(sandbox.pid, "SIGCONT");
           await sandbox.stop();
         }
       }),

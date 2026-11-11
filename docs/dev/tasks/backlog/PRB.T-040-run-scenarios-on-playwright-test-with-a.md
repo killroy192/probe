@@ -210,7 +210,7 @@ Order (epic, user decision 2026-11-10): PRB.T-037, PRB.T-038, PRB.T-043, PRB.T-0
 | SA-9  | Nothing in `apps/mobile` or `apps/desktop` uses the harness, so this story changes nothing there | assumption | verified | grep for `scripts/scenarios` in `apps/mobile` and `apps/desktop`, no hit, 2026-11-10 | author |
 | SA-10 | The harness runs on macOS as on Linux (epic A-16) | assumption | unverified | AC-26, one macOS run by the developer | developer |
 | SU-1  | The default and upper bound for the number of workers on the devcontainer and on a Mac | unknown | unverified | TBD (author, plan stage): chosen from PRB.T-036's baseline and the shape PRB.T-039 leaves | author |
-| SU-2  | N for the flake loop (epic U-2) | unknown | unverified | TBD (epic owner, end of PRB.T-036); AC-15 cannot run until it is set | epic owner |
+| SU-2  | N for the flake loop (epic U-2) | unknown | decided | N = 3 (user, 2026-11-11) | epic owner |
 | SU-3  | Whether the serial perf run, like the cap gate, first asks the user to confirm that nothing in the background slows the machine | decision | decided (user, 2026-11-10): yes, the serial perf run is started only after the user confirms the machine is quiet, like the cap gate | Rules file and the perf command's AC | user |
 | SU-4  | How a failing scenario's log lines are picked out of a shared server's log for its artifacts (EC-11) | unknown | unverified | TBD (author, plan stage); AC-9 | author |
 | SU-5  | Whether a scenario run against the sandbox goes through the new runner or through the sandbox's own entry point | unknown | unverified | TBD (author, plan stage, after PRB.T-037 lands); AC-14 | author |
