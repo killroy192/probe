@@ -5,7 +5,7 @@ parent:
 phase: 1
 labels: [testing]
 created: 2026-11-09
-updated: 2026-11-09
+updated: 2026-11-11
 ---
 
 # Fast, deterministic scenario tests
