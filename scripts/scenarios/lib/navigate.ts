@@ -76,15 +76,24 @@ export async function layoutSaved(
  */
 export async function reloadShowing(page: PointerPage, name: string) {
   await layoutSaved(page, name);
+  await reloadOnto(page, name);
+}
+
+/** `reloadShowing` for a caller that waited for the layout saved itself. */
+async function reloadOnto(page: PointerPage, name: string) {
   const remembered = await page.evaluate(() =>
     Object.keys(localStorage).some((key) => key.startsWith("probe:shown-workspace:")),
   );
   await page.reload();
   if (!remembered) {
-    await page
-      .getByTestId("workspace-screen")
-      .getByRole("button", { name: "Open workspace" })
-      .click();
+    const screen = page.getByTestId("workspace-screen");
+    // "Create workspace" joins the start screen once the page learns it may change workspaces,
+    // moving "Open workspace" and shutting a menu opened before; harness pages may.
+    await waitFor(
+      screen.getByRole("button", { name: "Create workspace" }),
+      "the start screen to offer Create workspace after the reload",
+    );
+    await screen.getByRole("button", { name: "Open workspace" }).click();
     await page.getByRole("menuitem", { name, exact: true }).click();
   }
   await workspaceShown(page, name, " after the reload");
@@ -111,7 +120,8 @@ export async function restartAndReload(
     await ctx.server.stopShellHost();
   }
   await ctx.server.restart(env === undefined ? undefined : { env });
-  await reloadShowing(page, name);
+  // The layout was saved before the stop, and nothing on the page changed it since.
+  await reloadOnto(page, name);
   const setup = await setupOn(ctx, { as: page });
   await setup.shells.lists.until("the shell list after the restart", () => true, 0);
   return setup;
