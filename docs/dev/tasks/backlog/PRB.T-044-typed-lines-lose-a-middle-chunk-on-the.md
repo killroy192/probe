@@ -10,6 +10,10 @@ updated: 2026-11-11
 
 # Typed lines lose a middle chunk on the way to the shell
 
+> **Out of PRB.E-001 (user decision, 2026-11-12).** Not reproduced by hand, so it does not block
+> closing the epic. It stays open in the backlog until it shows up again. Its `parent` still reads
+> PRB.E-001 because `tm` cannot change a parent; treat it as having none.
+
 ## Symptom
 
 A line typed into a shell's tab sometimes reaches the shell with a contiguous piece from its middle
