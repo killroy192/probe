@@ -287,6 +287,8 @@ function FolderPathField({
           onOpenChange={(open, details) => {
             // Picking a folder walks into it, so the list stays open for the next pick.
             if (!open && details.reason === "item-press") return;
+            // A cached listing can name folders deleted since; list again on every opening.
+            if (open && !listOpen) query.refresh();
             setListOpen(open);
           }}
           value={value}
