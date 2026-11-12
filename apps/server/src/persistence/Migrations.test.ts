@@ -142,7 +142,10 @@ describe("runMigrations", () => {
       const exit = yield* Effect.exit(startup);
 
       assert.isTrue(Exit.isFailure(exit));
-      assert.include(String(exit), `this build does not know migrations ${newerMigrationId}_NewerMigration`);
+      assert.include(
+        String(exit),
+        `this build does not know migrations ${newerMigrationId}_NewerMigration`,
+      );
       assert.include(String(exit), "probe-server start");
       assert.deepStrictEqual(yield* fs.readFile(dbPath), before);
     }).pipe(Effect.provide(NodeServices.layer)),
