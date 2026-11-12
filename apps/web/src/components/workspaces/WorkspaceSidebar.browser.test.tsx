@@ -7,7 +7,11 @@ import { SidebarProvider } from "../ui/sidebar";
 import { WorkspaceScreen } from "./WorkspaceScreen";
 import { WorkspaceSidebar } from "./WorkspaceSidebar";
 
-const mock = vi.hoisted(() => ({ permission: "pending" as "pending" | "allowed" | "denied" }));
+const mock = vi.hoisted(() => ({
+  permission: "pending" as "pending" | "allowed" | "denied",
+  /** Whether the shown workspace's one project is on disk; null shows no workspace. */
+  projectExists: null as boolean | null,
+}));
 
 vi.mock("../../state/workspaces", () => ({
   useWorkspaces: (): Partial<WorkspacesView> => ({
@@ -17,7 +21,20 @@ vi.mock("../../state/workspaces", () => ({
     canChange: mock.permission === "allowed",
     canChangeKnown: mock.permission !== "pending",
     canStartShell: true,
-    shown: null,
+    shown:
+      mock.projectExists === null
+        ? null
+        : ({
+            name: "sparta",
+            projects: [
+              { path: "/folders/plain", isGitRepository: false, exists: mock.projectExists },
+            ],
+            lastStarts: {},
+            tabs: { shellIds: [], activeShellId: null },
+          } as unknown as WorkspacesView["shown"]),
+    startingScripts: async () => [],
+    projectGit: async () => ({ error: "not a repository" }),
+    activateShell: () => undefined,
     restoring: false,
     layoutError: null,
     tabs: { shellIds: [], activeShellId: null },
@@ -33,8 +50,9 @@ vi.mock("../sidebar/SidebarChrome", () => ({
   SidebarChromeFooter: () => null,
 }));
 
-const setup = (permission: typeof mock.permission) => {
+const setup = (permission: typeof mock.permission, projectExists: boolean | null = null) => {
   mock.permission = permission;
+  mock.projectExists = projectExists;
 };
 
 const sidebar = () => (
@@ -59,6 +77,20 @@ describe("WorkspaceSidebar", () => {
 
     await expect.element(page.getByRole("menuitem", { name: "sparta" })).toBeVisible();
     await expect.element(createItem()).not.toHaveAttribute("aria-disabled");
+  });
+
+  it("keeps the Create shell dialog open when its folder is found deleted meanwhile", async () => {
+    setup("allowed", true);
+    await using screen = await render(sidebar());
+
+    await userEvent.click(page.getByRole("button", { name: "Create shell in plain" }));
+    await expect.element(page.getByRole("heading", { name: "Create shell" })).toBeVisible();
+
+    mock.projectExists = false;
+    await screen.rerender(sidebar());
+
+    await expect.element(page.getByText("moved")).toBeVisible();
+    await expect.element(page.getByRole("heading", { name: "Create shell" })).toBeVisible();
   });
 
   it("offers no way to create a workspace without write permission", async () => {
