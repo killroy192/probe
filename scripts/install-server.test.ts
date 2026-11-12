@@ -188,7 +188,10 @@ const fixture = async () => {
       leftovers: [
         ...(await NodeFSP.readdir(path("install/build")).catch(() => [])),
         ...(await NodeFSP.readdir(install).catch(() => [])).filter(
-          (name) => name === "install.lock" || name.startsWith(".current."),
+          (name) =>
+            name === "install.lock" ||
+            name.startsWith(".current.") ||
+            name.startsWith(".probe-server."),
         ),
       ],
       clones:
@@ -226,6 +229,10 @@ describe.skipIf(HostProcess.Platform.defaultValue() !== "linux")("install-server
     const first = await (await fx.run({ piped: true })).result;
     expect(first.code, first.output).toBe(0);
     expect(first.output).toContain(`0.1.5 (${commit.slice(0, 7)})`);
+    expect(first.output).toContain(`${fx.install}/probe-server start --port <port>`);
+    expect(await NodeFSP.readlink(fx.path("install/probe-server"))).toBe(
+      "current/scripts/probe-server.sh",
+    );
     expect(await fx.state()).toEqual({
       complete: [commit],
       current: `versions/${commit}`,

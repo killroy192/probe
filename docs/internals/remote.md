@@ -167,6 +167,12 @@ launcher owns it; a server it discovered already running must survive a client
 disconnect. Reconnection restores the forward before opening the application
 transport.
 
+An installed server is launched by [`scripts/probe-server.sh`](../../scripts/probe-server.sh),
+which has the same rule: stop only a server its own launch record names. It takes a pid as the
+server only while `/proc/<pid>/cmdline` shows `bin.mjs serve` with that `--base-dir`, so changing
+how `serve` is invoked or retitling the process breaks its running check. It sets
+`PROBE_STARTUP_PAIRING=0` because the server's output goes to a log on disk.
+
 Remote servers can outlive several client releases. Clients must use advertised
 capabilities and handle their absence, rather than assume their own version
 describes the server. Process replacement belongs to the launcher's
