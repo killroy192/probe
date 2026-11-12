@@ -6,13 +6,18 @@
 #   probe-server status [--base-dir <state folder>]
 #   probe-server pair   [--base-dir <state folder>]
 #   probe-server stop   [--base-dir <state folder>]
+#   probe-server uninstall [--remove-data] [--base-dir <state folder>]
 #
 # Defaults: bind 127.0.0.1, state folder ~/.probe, and with no port the server
 # picks a free one from 3773. The server's output goes to <state folder>/probe-server.log.
+# uninstall removes the install this file lives in or, run from elsewhere, the one in
+# PROBE_INSTALL_DIR (default ${XDG_DATA_HOME:-~/.local/share}/probe); it exits 0 when
+# nothing is installed.
 
 READY_SECONDS="${PROBE_SERVER_READY_SECONDS:-30}"
 STOP_SECONDS="${PROBE_SERVER_STOP_SECONDS:-30}"
 INSTALL_SCRIPT_URL="https://raw.githubusercontent.com/killroy192/probe/main/scripts/install-server.sh"
+COMMAND_SCRIPT_URL="https://raw.githubusercontent.com/killroy192/probe/main/scripts/probe-server.sh"
 
 COMMAND=""
 PORT=""
@@ -27,6 +32,7 @@ VERSION=""
 LOG=""
 LAUNCH=""
 RUNTIME=""
+REMOVE_DATA=""
 
 say() {
   printf '%s\n' "$*"
@@ -40,6 +46,7 @@ die() {
 usage() {
   die "Usage: $0 start [--port <port>] [--host <bind address>] [--base-dir <state folder>]
        $0 status|pair|stop [--base-dir <state folder>]
+       $0 uninstall [--remove-data] [--base-dir <state folder>]
 ${1:-}" 2
 }
 
@@ -50,12 +57,18 @@ have() {
 parse_args() {
   COMMAND="${1:-}"
   case "$COMMAND" in
-    start | stop | status | pair) shift ;;
+    start | stop | status | pair | uninstall) shift ;;
     '' | -h | --help | help) usage ;;
     *) usage "Unknown command: $COMMAND" ;;
   esac
   while [ $# -gt 0 ]; do
     option="$1"
+    if [ "$option" = --remove-data ]; then
+      [ "$COMMAND" = uninstall ] || usage "--remove-data only applies to uninstall."
+      REMOVE_DATA=1
+      shift
+      continue
+    fi
     case "$option" in
       --*=*)
         value="${option#*=}"
@@ -92,14 +105,18 @@ parse_args() {
 }
 
 # The install is the build this file lives in, also when it runs through the link.
-locate_install() {
+locate_self() {
   self="$0"
   case "$self" in */*) ;; *) self="$(command -v "$self")" ;; esac
   SELF="$(readlink -f "$self" 2>/dev/null)" || SELF=""
   BUILD="$(dirname "$(dirname "$SELF")")"
   ROOT="$(dirname "$(dirname "$BUILD")")"
-  COMMIT="$(cat "$BUILD/.install-complete" 2>/dev/null)"
   have node || die "Node.js is not on PATH; the installed Probe server needs it."
+}
+
+locate_install() {
+  locate_self
+  COMMIT="$(cat "$BUILD/.install-complete" 2>/dev/null)"
   if [ -z "$SELF" ] || [ -z "$COMMIT" ] || [ "$(basename "$BUILD")" != "$COMMIT" ] ||
     [ ! -f "$BUILD/apps/server/dist/bin.mjs" ]; then
     say "The Probe server is not installed, or its install is incomplete (looked in ${BUILD:-$0})." >&2
@@ -159,6 +176,14 @@ print("host", fromRuntime ? (runtime.host ?? "") : launch.host);
 print("port", fromRuntime ? runtime.port : launch.port);
 print("launch_pid", launch.pid);
 print("launch_root", launch.root);
+// The build that runs: the launch record names it; for a server started otherwise, its bin.mjs does.
+let build = "";
+if (pid !== undefined && String(launch.pid) === String(pid) && launch.build) build = launch.build;
+else if (pid !== undefined) {
+  const bin = read(`/proc/${pid}/cmdline`).split("\0").find((arg) => path.basename(arg) === "bin.mjs");
+  build = path.resolve(bin, "../../../..");
+}
+print("build", build);
 '
 
 SERVER_PID=""
@@ -166,6 +191,7 @@ SERVER_HOST=""
 SERVER_PORT=""
 LAUNCH_PID=""
 LAUNCH_ROOT=""
+RUNNING_BUILD=""
 
 inspect() {
   SERVER_PID=""
@@ -173,6 +199,7 @@ inspect() {
   SERVER_PORT=""
   LAUNCH_PID=""
   LAUNCH_ROOT=""
+  RUNNING_BUILD=""
   facts="$(node -e "$INSPECT" "$STATE" "$RUNTIME" "$LAUNCH")" || die "Cannot read the server records in $STATE."
   while IFS='=' read -r key value; do
     case "$key" in
@@ -181,6 +208,7 @@ inspect() {
       port) SERVER_PORT="$value" ;;
       launch_pid) LAUNCH_PID="$value" ;;
       launch_root) LAUNCH_ROOT="$value" ;;
+      build) RUNNING_BUILD="$value" ;;
     esac
   done <<EOF
 $facts
@@ -362,12 +390,74 @@ print_next() {
   say "  Stop:         $0 stop --base-dir $STATE"
 }
 
+# Labels the complete versions under the install root, newest first, and the
+# current and running builds as "<version> (<commit>)".
+VERSIONS='
+const fs = require("node:fs");
+const path = require("node:path");
+const [root, running] = process.argv.slice(1);
+const label = (dir) => {
+  let version = "unknown";
+  try { version = JSON.parse(fs.readFileSync(path.join(dir, "apps/server/package.json"), "utf8")).version ?? version; } catch {}
+  return `${version} (${path.basename(dir).slice(0, 7)})`;
+};
+let current = "";
+try { current = path.resolve(root, fs.readlinkSync(path.join(root, "current"))); } catch {}
+let names = [];
+try { names = fs.readdirSync(path.join(root, "versions")); } catch {}
+const installed = names
+  .map((name) => path.join(root, "versions", name))
+  .flatMap((dir) => {
+    try {
+      const marker = path.join(dir, ".install-complete");
+      return fs.readFileSync(marker, "utf8").trim() === path.basename(dir) ? [[dir, fs.statSync(marker).mtimeMs]] : [];
+    } catch { return []; }
+  })
+  .sort((a, b) => b[1] - a[1])
+  .map(([dir]) => {
+    const tags = [dir === current && "current", running && dir === path.resolve(running) && "running"].filter(Boolean);
+    return tags.length === 0 ? label(dir) : label(dir).replace(/\)$/, `, ${tags.join(", ")})`);
+  });
+console.log(`current=${current ? label(current) : ""}`);
+console.log(`current_dir=${current}`);
+console.log(`running=${running ? label(running) : ""}`);
+console.log(`installed=${installed.join(", ")}`);
+'
+
+CURRENT_LABEL=""
+CURRENT_DIR=""
+RUNNING_LABEL=""
+INSTALLED=""
+
+versions() {
+  CURRENT_LABEL=""
+  CURRENT_DIR=""
+  RUNNING_LABEL=""
+  INSTALLED=""
+  facts="$(node -e "$VERSIONS" "$ROOT" "${1:-}")" || return 0
+  while IFS='=' read -r key value; do
+    case "$key" in
+      current) CURRENT_LABEL="$value" ;;
+      current_dir) CURRENT_DIR="$value" ;;
+      running) RUNNING_LABEL="$value" ;;
+      installed) INSTALLED="$value" ;;
+    esac
+  done <<EOF
+$facts
+EOF
+}
+
 status() {
   inspect
+  versions "$RUNNING_BUILD"
   say "$(version_line)"
   say "  Install:      $BUILD"
+  say "  Installed:    ${INSTALLED:-none}"
   if [ -n "$SERVER_PID" ]; then
     say "  Running:      yes (pid $SERVER_PID)"
+    if [ "$RUNNING_BUILD" != "$CURRENT_DIR" ]; then
+      say "  Note: the server runs $RUNNING_LABEL, not the installed current ${CURRENT_LABEL:-version}; stop and start it to switch."
+    fi
     print_details "$SERVER_HOST" "$SERVER_PORT"
     exit 0
   fi
@@ -431,8 +521,204 @@ EOF
   fi
 }
 
+# What stands in the way of removing the install and the state folder, read from
+# /proc only (never to signal anything): server processes and shell hosts running
+# a bin.mjs from this install, a running install, the state folder's shell host,
+# and mount points at or inside the state folder.
+UNINSTALL_FACTS='
+const fs = require("node:fs");
+const path = require("node:path");
+const [root, given] = process.argv.slice(1);
+const read = (file) => { try { return fs.readFileSync(file, "utf8"); } catch { return ""; } };
+const alive = (pid) => /^[1-9][0-9]*$/.test(pid) && read(`/proc/${pid}/stat`) !== "" && !/^\d+ \(.*\) [ZX]/s.test(read(`/proc/${pid}/stat`));
+const args = (pid) => read(`/proc/${pid}/cmdline`).split("\0");
+const ours = [path.join(root, "versions") + path.sep, path.join(root, "build") + path.sep];
+for (const pid of fs.readdirSync("/proc").filter((name) => /^\d+$/.test(name))) {
+  if (pid === String(process.pid) || !alive(pid)) continue;
+  const argv = args(pid);
+  const entry = argv.findIndex((arg) => path.basename(arg) === "bin.mjs" && ours.some((dir) => arg.startsWith(dir)));
+  if (entry < 0) continue;
+  const command = argv[entry + 1];
+  if (command === "__shell-host") console.log(`host=${pid} ${argv[entry + 2] ?? ""}`);
+  if (command !== "serve" && command !== "start") continue;
+  let baseDir = "";
+  for (let index = entry + 2; index < argv.length; index += 1) {
+    if (argv[index] === "--base-dir") baseDir = argv[index + 1] ?? "";
+    else if (argv[index].startsWith("--base-dir=")) baseDir = argv[index].slice(11);
+  }
+  console.log(`server=${pid} ${baseDir}`);
+}
+const installer = read(path.join(root, "install.lock")).trim();
+if (alive(installer)) console.log(`installer=${installer}`);
+if (given) {
+  const state = fs.existsSync(given) ? fs.realpathSync(given) : given;
+  const userdata = path.join(state, "userdata");
+  let pidFiles = [];
+  try { pidFiles = fs.readdirSync(userdata).filter((name) => /^shell-host-v\d+\.pid$/.test(name)); } catch {}
+  for (const file of pidFiles) {
+    const pid = read(path.join(userdata, file)).trim();
+    if (alive(pid) && args(pid).includes("__shell-host")) console.log(`state_host=${pid}`);
+  }
+  const unescape = (field) => field.replace(/\\([0-7]{3})/g, (_, code) => String.fromCharCode(parseInt(code, 8)));
+  for (const line of read("/proc/self/mountinfo").split("\n")) {
+    const point = line.split(" ")[4];
+    if (point === undefined) continue;
+    const mounted = unescape(point);
+    if (mounted === state) console.log("state_mounted=1");
+    if (mounted === state || mounted.startsWith(state + path.sep)) console.log(`mount=${mounted}`);
+  }
+}
+'
+
+REMOVED=""
+FAILED=""
+
+# Removes one path the install made and records the outcome.
+remove() {
+  [ -e "$1" ] || [ -L "$1" ] || return 0
+  if reason="$(rm -rf -- "$1" 2>&1)" && [ ! -e "$1" ] && [ ! -L "$1" ]; then
+    REMOVED="$REMOVED  Removed: $1${2:+ ($2)}
+"
+  else
+    reason="$(printf '%s\n' "$reason" | head -n 1)"
+    FAILED="$FAILED  Could not remove $1: ${reason:-it is still there}
+    Fix: chmod -R u+w '$1' && rm -rf '$1' (with sudo if another user owns it).
+"
+  fi
+}
+
+# Empties a mount point: the folder itself belongs to the mount and stays.
+remove_contents() {
+  for entry in "$1"/* "$1"/.[!.]* "$1"/..?*; do
+    remove "$entry"
+  done
+}
+
+uninstall() {
+  locate_self
+  if [ "$(basename "$(dirname "$BUILD")")" != versions ]; then
+    ROOT="${PROBE_INSTALL_DIR:-${XDG_DATA_HOME:-${HOME:-}/.local/share}/probe}"
+    ROOT="$(node -p "const fs = require('node:fs'); const p = require('node:path').resolve(process.argv[1]); fs.existsSync(p) ? fs.realpathSync(p) : p" "$ROOT")" ||
+      die "Cannot read the install folder path $ROOT."
+  fi
+  case "$ROOT" in /?*) ;; *) die "The install folder ${ROOT:-(none)} is not an absolute path; set PROBE_INSTALL_DIR." ;; esac
+  data=""
+  if [ -n "$REMOVE_DATA" ]; then
+    locate_state
+    data="$STATE"
+  fi
+
+  servers=""
+  hosts=""
+  installer=""
+  state_host=""
+  mounts=""
+  state_mounted=""
+  facts="$(node -e "$UNINSTALL_FACTS" "$ROOT" "$data")" || die "Cannot read the running processes from /proc."
+  while IFS='=' read -r key value; do
+    case "$key" in
+      server) servers="$servers $value
+" ;;
+      host) hosts="$hosts${hosts:+, }pid ${value%% *}" ;;
+      installer) installer="$value" ;;
+      state_host) state_host="$value" ;;
+      mount) mounts="$mounts$value
+" ;;
+      state_mounted) state_mounted=1 ;;
+    esac
+  done <<EOF
+$facts
+EOF
+
+  if [ -n "$installer" ]; then
+    die "An install into $ROOT is running (pid $installer). Nothing was removed; run uninstall again when it has finished."
+  fi
+  if [ -n "$servers" ]; then
+    say "A Probe server from $ROOT is still running. Nothing was removed. Stop it first, then run uninstall again:" >&2
+    while read -r pid base; do
+      [ -n "$pid" ] || continue
+      say "  pid $pid: $ROOT/probe-server stop${base:+ --base-dir $base}" >&2
+    done <<EOF
+$servers
+EOF
+    exit 1
+  fi
+  if [ -n "$data" ]; then
+    inspect
+    if [ -n "$SERVER_PID" ]; then
+      die "A Probe server runs for $STATE (pid $SERVER_PID). Nothing was removed; stop it first, then run uninstall again."
+    fi
+    if [ -n "$state_host" ]; then
+      say "The shell host of $STATE still runs (pid $state_host) with its shells. Nothing was removed." >&2
+      die "End those shells, or stop the host with: kill $state_host (this ends its shells); then run uninstall again."
+    fi
+  fi
+
+  versions ""
+  nothing=1
+  for entry in versions build logs current probe-server; do
+    if [ -e "$ROOT/$entry" ] || [ -L "$ROOT/$entry" ]; then nothing=""; fi
+  done
+  if [ -n "$nothing" ]; then
+    say "Nothing is installed in $ROOT; nothing to remove there."
+  else
+    # The command link goes first, so a partial uninstall cannot start a half-removed build.
+    remove "$ROOT/probe-server"
+    remove "$ROOT/current"
+    remove "$ROOT/build"
+    remove "$ROOT/versions" "$INSTALLED"
+    remove "$ROOT/logs"
+    for leftover in "$ROOT/install.lock" "$ROOT"/.current.* "$ROOT"/.probe-server.*; do
+      remove "$leftover"
+    done
+    if rmdir "$ROOT" 2>/dev/null; then
+      REMOVED="$REMOVED  Removed: $ROOT (it was empty)
+"
+    elif [ -z "$FAILED" ]; then
+      REMOVED="$REMOVED  Kept:    $ROOT (it holds files the install did not make)
+"
+    fi
+  fi
+
+  if [ -n "$data" ] && [ -d "$STATE" ]; then
+    if [ -n "$mounts" ]; then
+      while IFS= read -r mount; do
+        [ -n "$mount" ] || continue
+        say "Note: $mount is a mount point; it may be a folder of the host machine, and its contents are removed there too."
+      done <<EOF
+$mounts
+EOF
+    fi
+    if [ -n "$state_mounted" ]; then
+      remove_contents "$STATE"
+      REMOVED="$REMOVED  Emptied: $STATE (the mount point itself stays)
+"
+    else
+      remove "$STATE" "state folder"
+    fi
+  fi
+
+  [ -z "$nothing" ] && say "Uninstalled the Probe server from $ROOT."
+  printf '%s' "$REMOVED"
+  if [ -z "$data" ]; then
+    say "  Kept:    state folders such as ~/.probe (workspaces, database, shell data). To remove one too:"
+    say "           curl -fsSL $COMMAND_SCRIPT_URL | sh -s uninstall --remove-data --base-dir <state folder>"
+  fi
+  say "  Kept:    Node.js, Vite+ and its package cache."
+  if [ -n "$hosts" ]; then
+    say "  Note: a shell host from this install still runs ($hosts); its shells keep running until they end."
+  fi
+  if [ -n "$FAILED" ]; then
+    printf '%s' "$FAILED" >&2
+    exit 1
+  fi
+  exit 0
+}
+
 main() {
   parse_args "$@"
+  # uninstall deletes this file; it runs from functions read in full before main starts.
+  if [ "$COMMAND" = uninstall ]; then uninstall; fi
   locate_install
   locate_state
   "$COMMAND"

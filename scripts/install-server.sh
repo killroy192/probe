@@ -16,7 +16,8 @@
 # Layout under the install root: build/ (staging, removed on success or by the
 # next run), versions/<commit>/ (a complete install, with .install-complete),
 # current (a link swapped atomically), probe-server (a link to the start, stop,
-# status and pair command in current), logs/.
+# status, pair and uninstall command in current), logs/. A newer build installs
+# beside the older ones; only `probe-server uninstall` removes versions.
 
 PROBE_REPO="${PROBE_REPO:-https://github.com/killroy192/probe.git}"
 PROBE_REF="${PROBE_REF:-main}"
@@ -270,6 +271,7 @@ take_lock() {
 print_summary() {
   say "$1"
   say "  Folder:  $ROOT/versions/$2"
+  if [ -n "${3:-}" ]; then say "$3"; fi
   say "  Start:   $ROOT/probe-server start --port <port> --host <bind address> --base-dir <state folder>"
   say "  Status:  $ROOT/probe-server status --base-dir <state folder>"
   say "  Pairing: $ROOT/probe-server pair --base-dir <state folder>"
@@ -409,8 +411,14 @@ main() {
   else
     say "[5/5] switch: $(printf '%.7s' "$commit") is built already; make it current"
   fi
+  previous="$(readlink "$ROOT/current" 2>/dev/null)"
   switch_to "$commit" || fail "Cannot point $ROOT/current at versions/$commit."
-  print_summary "Installed Probe server $(package_version "$ROOT/versions/$commit") ($(printf '%.7s' "$commit"))." "$commit"
+  restart=""
+  # The script cannot tell which state folders have a server running, so it always says this.
+  if [ -n "$previous" ] && [ "$previous" != "versions/$commit" ]; then
+    restart="  Restart: a running server keeps $(package_version "$ROOT/$previous") ($(printf '%.7s' "${previous#versions/}")) until you stop and start it; nothing was stopped."
+  fi
+  print_summary "Installed Probe server $(package_version "$ROOT/versions/$commit") ($(printf '%.7s' "$commit"))." "$commit" "$restart"
 }
 
 # The whole script is parsed before main runs, so a cut-off download runs nothing
