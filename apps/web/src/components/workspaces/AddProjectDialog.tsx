@@ -4,7 +4,8 @@ import {
 } from "@t3tools/client-runtime/state/filesystem";
 import { type EnvironmentId, folderNameProblem } from "@t3tools/contracts";
 import { CornerLeftUpIcon, FolderIcon, FolderOpenIcon } from "lucide-react";
-import { useState } from "react";
+import { RegistryContext } from "@effect/atom-react";
+import { useContext, useState } from "react";
 
 import { isElectron } from "../../env";
 import { readLocalApi } from "../../localApi";
@@ -191,6 +192,14 @@ const parentFolder = (path: string) => {
   return cut <= 0 ? "/" : `${trimmed.slice(0, cut)}/`;
 };
 
+/** The folder the browser lists for `value`: the home folder when empty, else the typed folder. */
+const listedDirectory = (value: string, canReadFiles: boolean) => {
+  if (!canReadFiles) return null;
+  if (value.trim().length === 0) return "~/";
+  const browse = getFilesystemBrowsePath(value, "", canReadFiles);
+  return browse.isBrowsing && browse.directoryPath.length > 0 ? browse.directoryPath : null;
+};
+
 /**
  * A path field over a browser of the server's folders. The browser lists the folder the field
  * points at (the home folder when empty) while the field has focus, so a folder can be picked
@@ -216,18 +225,13 @@ function FolderPathField({
   const access = useFilesystemReadAccess(environmentId);
   const browse = getFilesystemBrowsePath(value, "", access.canReadFiles);
   const empty = value.trim().length === 0;
-  const directory = !access.canReadFiles
-    ? null
-    : empty
-      ? "~/"
-      : browse.isBrowsing && browse.directoryPath.length > 0
-        ? browse.directoryPath
-        : null;
-  const query = useEnvironmentQuery(
-    environmentId === null || directory === null
+  const directory = listedDirectory(value, access.canReadFiles);
+  const browseAtom = (folder: string | null) =>
+    environmentId === null || folder === null
       ? null
-      : filesystemEnvironment.browse({ environmentId, input: { partialPath: directory } }),
-  );
+      : filesystemEnvironment.browse({ environmentId, input: { partialPath: folder } });
+  const query = useEnvironmentQuery(browseAtom(directory));
+  const registry = useContext(RegistryContext);
   // Each folder is a new query; showing the last listing until the next arrives avoids a
   // flash of an empty list.
   const [lastListing, setLastListing] = useState(query.data);
@@ -287,10 +291,19 @@ function FolderPathField({
           onOpenChange={(open, details) => {
             // Picking a folder walks into it, so the list stays open for the next pick.
             if (!open && details.reason === "item-press") return;
+            // A cached listing can name folders deleted since; list again on every opening.
+            if (open && !listOpen) query.refresh();
             setListOpen(open);
           }}
           value={value}
-          onValueChange={(next) => onChange(next)}
+          onValueChange={(next) => {
+            // A folder listed recently may be cached; list it again when the open list moves to it.
+            const nextDirectory = listedDirectory(next, access.canReadFiles);
+            const nextAtom =
+              listOpen && nextDirectory !== directory ? browseAtom(nextDirectory) : null;
+            if (nextAtom !== null) registry.refresh(nextAtom);
+            onChange(next);
+          }}
         >
           <AutocompleteInput placeholder="/path/to/folder" spellCheck={false} />
           <AutocompletePopup>
