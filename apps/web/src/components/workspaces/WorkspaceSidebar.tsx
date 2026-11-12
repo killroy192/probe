@@ -214,11 +214,8 @@ export function WorkspaceSidebar() {
         <>
           <StartShellDialog
             key={`create:${view.shown.name}:${creatingIn ?? ""}`}
-            project={
-              view.shown.projects.find(
-                (project) => project.path === creatingIn && project.exists,
-              ) ?? null
-            }
+            // Stays open on a folder found deleted meanwhile, so its refused start can say why.
+            project={view.shown.projects.find((project) => project.path === creatingIn) ?? null}
             onOpenChange={(open) => {
               if (!open) setCreatingIn(null);
             }}
