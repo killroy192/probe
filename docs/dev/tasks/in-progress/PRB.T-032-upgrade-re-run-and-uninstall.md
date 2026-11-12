@@ -3,7 +3,7 @@ id: PRB.T-032
 type: story
 parent: PRB.E-004
 phase: 2
-labels: [remote, implement]
+labels: [remote, verify]
 created: 2026-11-09
 updated: 2026-11-12
 ---
@@ -181,3 +181,11 @@ kill-safety at each phase; this story adds what is missing and tests the upgrade
 - **AC-16:** mount detection was checked read-only against the container's bind mount
   `/workspaces/probe` (`state_mounted` and nested mounts reported); removing a mounted state folder
   was not run, since this container cannot mount a scratch folder.
+
+Real run in the dev container, 2026-11-12 (merge `027756241`): a server started from build `8ef79f6`; the
+branch build `c653457` installed in 66 s with the restart note and the server left running; status
+listed the three versions, marked current and running, and said they differ; uninstall refused with
+the stop command and removed nothing. After stop and start the new build ran. A same-commit re-run
+took 80 ms (AC-15). `uninstall --remove-data` removed the versions, links, logs, the empty root and
+the state folder; a second uninstall said nothing is installed. No process left behind. AC-5 (a
+shell kept across the version switch) needs a client and stays for PRB.T-033.
