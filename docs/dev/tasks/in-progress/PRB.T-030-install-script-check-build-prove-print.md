@@ -3,7 +3,7 @@ id: PRB.T-030
 type: story
 parent: PRB.E-004
 phase: 2
-labels: [remote, implement]
+labels: [remote, verify]
 created: 2026-11-09
 updated: 2026-11-12
 ---
@@ -197,3 +197,27 @@ Made 2026-11-12 from the PRB.T-029 findings; the user auto-approves the recommen
   Revisit with the release package (PRB.T-035).
 - **Tests:** `scripts/install-server.test.ts`, Linux only, runs the script with a fixture repository,
   a fake `vp` whose build writes a tiny server, and a restricted `PATH` for missing tools.
+
+## Verification notes
+
+Merged 2026-11-12 (`774ec10a6`, `06b8d0588`, merge `c6ec20814`). `scripts/install-server.test.ts`:
+19 tests pass (root, eleven contract rows incl. several problems at once, build and proof failure,
+kills during fetch, build and switch, two runs at once); `check:changed` green.
+
+Real run in the dev container (linux-arm64, 10 CPUs, 16 GB, pnpm store already warm), piped from
+`sh`, `PROBE_REPO=/workspaces/probe PROBE_REF=main`, commit `d45c31b`:
+
+- Cold install 99 s, exit 0, final block 8 lines; install folder 4.0 GB, `build/` removed.
+- Re-run: "already installed; nothing changed", under 1 s (AC-8, AC-17).
+- The moved install (`current/apps/server/dist/bin.mjs serve`) answered 200 in 1.7 s on a
+  throwaway state folder; no process left behind.
+
+Deviations from the plan (subagent, accepted): `PROBE_REF` is a branch or tag, not a bare commit;
+a run for an already complete commit skips the disk, memory and registry checks; the memory floor is
+3,900,000 kB so a 4 GB machine passes. `docs/internals/remote.md` needed no change (AC-18): it covers
+only the desktop SSH path, which stays.
+
+Handoff: still manual — AC-2 and AC-15 on x64 (PRB.T-033), AC-6 (no network), AC-11, AC-13 (a real
+`curl` once `main` is pushed: GitHub `main` lags this checkout), AC-14 (home diff), AC-19 (missing
+compiler on a real image), AC-16 (the SSH decision, recorded under Plan decisions). The printed
+start, stop and pairing commands become real in PRB.T-031.
