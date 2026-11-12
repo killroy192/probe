@@ -106,6 +106,15 @@ const ensureSpawnHelper = () => {
   }
 };
 
+// Not rmSync: it lstats first, which fails with ENOTSUP on a dead socket on a Docker Desktop Mac mount.
+const removeSocket = (socketPath: string) => {
+  try {
+    NodeFS.unlinkSync(socketPath);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+  }
+};
+
 const isAlive = (socketPath: string) =>
   new Promise<boolean>((resolve) => {
     const probe = NodeNet.connect(socketPath);
@@ -135,7 +144,7 @@ export async function startShellHost(options: ShellHostOptions): Promise<Running
   const pidPath = shellHostPidPath(options.stateDir);
   const idleMs = options.idleMs ?? DEFAULT_IDLE_MS;
   if (await isAlive(socketPath)) return null;
-  NodeFS.rmSync(socketPath, { force: true });
+  removeSocket(socketPath);
   ensureSpawnHelper();
   const nodePty = requireNodePty("node-pty") as typeof import("node-pty");
 
@@ -156,7 +165,7 @@ export async function startShellHost(options: ShellHostOptions): Promise<Running
     for (const session of sessions.values()) {
       if (session.exit === null) session.pty.kill("SIGHUP");
     }
-    NodeFS.rmSync(socketPath, { force: true });
+    removeSocket(socketPath);
     try {
       if (NodeFS.readFileSync(pidPath, "utf8").trim() === String(process.pid)) {
         NodeFS.rmSync(pidPath, { force: true });
@@ -337,7 +346,7 @@ export async function runShellHostCli(args: ReadonlyArray<string>): Promise<void
       shellHostLogPath(stateDir),
       `${new Date().toISOString()} could not start: ${error instanceof Error ? (error.stack ?? error.message) : String(error)}\n`,
     );
-    NodeFS.rmSync(shellHostSocketPath(stateDir), { force: true });
+    removeSocket(shellHostSocketPath(stateDir));
     process.exit(1);
   }
   if (host === null) return;

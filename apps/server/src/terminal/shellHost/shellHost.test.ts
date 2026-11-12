@@ -6,13 +6,16 @@ import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
 
 import { it as effectIt } from "@effect/vitest";
-import { afterEach, describe, expect, it } from "vite-plus/test";
+import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
 import * as Effect from "effect/Effect";
 
 import { HostConnection, type HostPtyProcess, make } from "./client.ts";
 import { KeptOutput, startShellHost, type RunningShellHost } from "./host.ts";
 import { encodeLine, lineReader, shellHostSocketPath } from "./protocol.ts";
+
+vi.mock("node:fs", { spy: true });
+const actualFS = await vi.importActual<typeof NodeFS>("node:fs");
 
 const cleanups: Array<() => void> = [];
 afterEach(() => {
@@ -189,6 +192,26 @@ describe("shell host", () => {
     expect(await startShellHost({ stateDir: dir })).toBeNull();
     await host.finished;
     expect(NodeFS.existsSync(shellHostSocketPath(dir))).toBe(false);
+  });
+
+  it("starts over a dead host's socket file that cannot be lstat-ed, as on a Docker Desktop Mac mount", async () => {
+    const dir = stateDir();
+    const socketPath = shellHostSocketPath(dir);
+    NodeFS.writeFileSync(socketPath, "");
+    vi.mocked(NodeFS.rmSync).mockImplementation((path, options) => {
+      if (path === socketPath)
+        throw Object.assign(
+          new Error(`ENOTSUP: operation not supported on socket, lstat '${path}'`),
+          {
+            code: "ENOTSUP",
+          },
+        );
+      actualFS.rmSync(path, options);
+    });
+    cleanups.unshift(() => vi.mocked(NodeFS.rmSync).mockImplementation(actualFS.rmSync));
+    await start(dir);
+    const shell = await spawnSh(await connect(dir), dir, "echo ready");
+    await outputContains(shell, "", "ready");
   });
 
   it("puts the socket in the temp folder when the state folder's path is too long", () => {
