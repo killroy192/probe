@@ -168,8 +168,9 @@ Suggested order: 5 (native arm64, the quickest shakedown), 1, 2, 3, 4, then the 
 2. **Tag an older commit for the upgrade extra** (needs a branch or tag, not a commit):
    `git tag t033-base c6534570b && git push origin t033-base` (the PRB.T-032 commit; it has the
    scripts). Delete the tag after the runs if you like.
-3. **Docker Desktop:** Settings > Resources > Memory at least 8 GB (the build peaks near 3.7 GiB).
-   Settings > General > "Use Rosetta for x86_64/amd64 emulation on Apple Silicon" on.
+3. **Docker Desktop:** 8 GB or more for the VM (15 GB is fine); turn on Settings > General > "Use
+   Rosetta for x86_64/amd64 emulation on Apple Silicon". Each run's container is limited with
+   `--cpus 2 --memory 6g` (the build peaks near 3.7 GiB; the 2 CPUs match the guardrail target).
 4. **x64 on this Mac.** Runs 1 to 3 are linux-x64 and run under Rosetta with `--platform
    linux/amd64`. The arm64 install took 53 to 99 s natively (PRB.T-030 to PRB.T-032); expect a few
    times that emulated. Rosetta runs Node and the native modules; QEMU (Rosetta off) is far slower
@@ -229,7 +230,7 @@ AC-10 (mounted); PRB.T-032 AC-15, AC-16; PRB.T-034 AC-7.
 ```sh
 mkdir -p "$RUNS/r1/code" "$RUNS/r1/state"
 git init -q -b main "$RUNS/r1/code/demo" && git -C "$RUNS/r1/code/demo" commit -q --allow-empty -m init
-docker run -d --init --platform linux/amd64 --name probe-r1 -p 127.0.0.1:3881:3881 \
+docker run -d --init --cpus 2 --memory 6g --platform linux/amd64 --name probe-r1 -p 127.0.0.1:3881:3881 \
   -v "$RUNS/r1/code:$RUNS/r1/code" -v "$RUNS/r1/state:/probe-state" \
   probe-target:ubuntu-amd64 sleep infinity
 docker exec -u dev probe-r1 sh -c "curl -fsSL $INSTALL_URL | sh"                       # paste (whole output)
@@ -291,7 +292,7 @@ the container); PRB.T-032 AC-8, AC-11 (uninstall twice); epic sign-off (Claude C
 ```sh
 mkdir -p "$RUNS/r2/code"
 git init -q -b main "$RUNS/r2/code/demo" && git -C "$RUNS/r2/code/demo" commit -q --allow-empty -m init
-docker run -d --init --platform linux/amd64 --name probe-r2 -p 127.0.0.1:3882:3882 \
+docker run -d --init --cpus 2 --memory 6g --platform linux/amd64 --name probe-r2 -p 127.0.0.1:3882:3882 \
   -v "$RUNS/r2/code:$RUNS/r2/code" probe-target:ubuntu-amd64 sleep infinity
 docker cp "$PROBE_SRC/scripts/install-server.sh" probe-r2:/tmp/install-server.sh
 docker exec -u dev probe-r2 sh /tmp/install-server.sh                                  # paste
@@ -322,7 +323,7 @@ docker rm -f probe-r2
 Covers AC-3, AC-7, AC-11, AC-12 (Debian); PRB.T-030 AC-14 (writes only where expected).
 
 ```sh
-docker run -d --init --platform linux/amd64 --name probe-r3 -p 127.0.0.1:3883:3883 \
+docker run -d --init --cpus 2 --memory 6g --platform linux/amd64 --name probe-r3 -p 127.0.0.1:3883:3883 \
   probe-target:debian12-amd64 sleep infinity
 docker exec -u dev probe-r3 touch /tmp/probe-marker
 docker exec -u dev probe-r3 sh -c "curl -fsSL $INSTALL_URL | sh"                       # paste
@@ -390,7 +391,7 @@ Covers AC-5, AC-9, AC-11, AC-12; PRB.T-030 AC-2 (arm64), AC-3 (root, real), AC-6
 AC-2, AC-18.
 
 ```sh
-docker run -d --init --platform linux/arm64 --name probe-r5 \
+docker run -d --init --cpus 2 --memory 6g --platform linux/arm64 --name probe-r5 \
   -p 127.0.0.1:3885:3885 -p 127.0.0.1:3886:3886 probe-target:ubuntu-arm64 sleep infinity
 docker exec -u root probe-r5 sh -c "curl -fsSL $INSTALL_URL | sh"                      # paste (refused as root, nothing installed)
 docker exec -u dev probe-r5 sh -c "curl -fsSL $INSTALL_URL | sh"                       # paste
@@ -436,7 +437,7 @@ Cleanup: end the shells, `stop`, `uninstall --remove-data --base-dir /home/dev/.
 Not a KPI run. Native arm64, older tag first, then `main`.
 
 ```sh
-docker run -d --init --platform linux/arm64 --name probe-up -p 127.0.0.1:3887:3887 probe-target:ubuntu-arm64 sleep infinity
+docker run -d --init --cpus 2 --memory 6g --platform linux/arm64 --name probe-up -p 127.0.0.1:3887:3887 probe-target:ubuntu-arm64 sleep infinity
 docker exec -u dev probe-up sh -c "curl -fsSL $INSTALL_URL | PROBE_REF=t033-base sh" | tail -1
 docker exec -u dev probe-up "$P" start --port 3887 --host 0.0.0.0 --base-dir /home/dev/.probe
 pair_open probe-up /home/dev/.probe 3887
