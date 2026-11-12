@@ -3,7 +3,7 @@ id: PRB.T-057
 type: bug
 parent: PRB.E-004
 phase: 2
-labels: [remote]
+labels: [remote, verify]
 created: 2026-11-12
 updated: 2026-11-12
 ---
