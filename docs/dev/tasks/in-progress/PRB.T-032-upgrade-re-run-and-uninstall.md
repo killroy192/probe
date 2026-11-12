@@ -169,3 +169,15 @@ kill-safety at each phase; this story adds what is missing and tests the upgrade
   says it may be a host folder before removing it. A second uninstall says nothing is installed.
 - **Migration (AC-12):** read the server's migration rules and record what an older server does with
   a newer database; no policy change here.
+
+## Verification notes
+
+- **AC-12 (read, 2026-11-12):** an older `serve` does not refuse a database a newer build migrated:
+  `runMigrations` (`apps/server/src/persistence/Migrations.ts`) skips ids up to the highest recorded,
+  logs "Database migration history diverges from this build" for the unknown ones and runs on the
+  newer schema; nothing is rolled back, but the old build may fail on or write against it. Only the
+  service preflight (`apps/server/src/cloud/servicePreflight.ts`) refuses, and the target does not
+  use it; so AC-12's "reported failure" is not met, and the guide says going back is unsupported.
+- **AC-16:** mount detection was checked read-only against the container's bind mount
+  `/workspaces/probe` (`state_mounted` and nested mounts reported); removing a mounted state folder
+  was not run, since this container cannot mount a scratch folder.

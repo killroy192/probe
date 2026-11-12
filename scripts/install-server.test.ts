@@ -1,7 +1,8 @@
-// @effect-diagnostics nodeBuiltinImport:off - Drives the real shell installer against a local repository fixture.
+// @effect-diagnostics nodeBuiltinImport:off globalFetch:off - Drives the real shell installer against a local repository fixture.
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import * as NodeChildProcess from "node:child_process";
 import * as NodeFSP from "node:fs/promises";
+import * as NodeNet from "node:net";
 import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
 import { describe, expect, it } from "vite-plus/test";
@@ -35,6 +36,18 @@ const TOOLS = [
 ];
 const BUILD_TOOLS = ["make", "g++", "python3"];
 
+const freePort = () =>
+  new Promise<number>((resolve) => {
+    const server = NodeNet.createServer();
+    server.listen(0, "127.0.0.1", () => {
+      const { port } = server.address() as NodeNet.AddressInfo;
+      server.close(() => resolve(port));
+    });
+  });
+
+const answers = async (port: number) =>
+  (await fetch(`http://127.0.0.1:${port}/.well-known/t3/environment`)).status === 200;
+
 const which = (tool: string) =>
   NodeChildProcess.execFileSync("/bin/sh", ["-c", `command -v ${tool}`], {
     encoding: "utf8",
@@ -45,7 +58,7 @@ const port = Number(process.argv[process.argv.indexOf("--port") + 1]);
 http.createServer((request, response) => {
   response.statusCode = request.url === "/.well-known/t3/environment" ? 200 : 404;
   response.end("{}");
-}).listen(port, "127.0.0.1");
+}).listen(port, "127.0.0.1", () => console.log("listening"));
 `;
 const EXITING_SERVER = `process.exit(1);\n`;
 
@@ -76,6 +89,7 @@ interface RunOptions {
 const fixture = async () => {
   const root = await NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "probe-install-server-"));
   const children = new Set<NodeChildProcess.ChildProcess>();
+  const servers = new Set<NodeChildProcess.ChildProcess>();
   const path = (...parts: Array<string>) => NodePath.join(root, ...parts);
   const repo = path("repo");
   const install = path("install");
@@ -172,6 +186,39 @@ const fixture = async () => {
     return { child, result, printed };
   };
 
+  // A server the user started from an installed version; the install must leave it running.
+  const serve = async (commit: string) => {
+    const port = await freePort();
+    const child = NodeChildProcess.spawn(
+      process.execPath,
+      [path("install/versions", commit, "apps/server/dist/bin.mjs"), "serve", "--port", `${port}`],
+      { stdio: ["ignore", "pipe", "ignore"] },
+    );
+    servers.add(child);
+    await new Promise<void>((resolve) =>
+      child.stdout.on("data", (chunk: Buffer) => {
+        if (chunk.toString().includes("listening")) resolve();
+      }),
+    );
+    return { child, port };
+  };
+
+  // Every path under the install root but the logs, with link targets and markers.
+  const files = async () => {
+    const entries = await NodeFSP.readdir(install, { recursive: true });
+    const listed = [];
+    for (const entry of entries.filter((name) => !name.startsWith("logs")).toSorted()) {
+      const full = NodePath.join(install, entry);
+      const stat = await NodeFSP.lstat(full);
+      listed.push(
+        stat.isSymbolicLink()
+          ? `${entry} -> ${await NodeFSP.readlink(full)}`
+          : `${entry} ${stat.mtimeMs}`,
+      );
+    }
+    return listed;
+  };
+
   const state = async () => {
     const versions = await NodeFSP.readdir(path("install/versions")).catch(() => []);
     const complete = [];
@@ -204,6 +251,8 @@ const fixture = async () => {
     install,
     commit,
     run,
+    serve,
+    files,
     state,
     // A run killed at a gate dies with its whole process group.
     kill: (child: NodeChildProcess.ChildProcess) => process.kill(-child.pid!, "SIGKILL"),
@@ -211,6 +260,7 @@ const fixture = async () => {
     release: () => NodeFSP.writeFile(path("release"), "x"),
     async [Symbol.asyncDispose]() {
       for (const child of children) process.kill(-child.pid!, "SIGKILL");
+      for (const child of servers) child.kill("SIGKILL");
       await NodeFSP.rm(root, { recursive: true, force: true });
     },
   };
@@ -222,7 +272,7 @@ const installed = async (fx: Awaited<ReturnType<typeof fixture>>, env = {}) => {
 };
 
 describe.skipIf(HostProcess.Platform.defaultValue() !== "linux")("install-server.sh", () => {
-  it("builds, proves and switches when piped, and a re-run of that commit neither clones nor changes anything", async () => {
+  it("builds, proves and switches when piped, and a re-run of that commit neither clones, changes anything nor stops a running server", async () => {
     await using fx = await fixture();
     const commit = await fx.commit("0.1.5");
 
@@ -230,6 +280,8 @@ describe.skipIf(HostProcess.Platform.defaultValue() !== "linux")("install-server
     expect(first.code, first.output).toBe(0);
     expect(first.output).toContain(`0.1.5 (${commit.slice(0, 7)})`);
     expect(first.output).toContain(`${fx.install}/probe-server start --port <port>`);
+    expect(first.output).not.toContain("Restart:");
+    expect(first.output.trimEnd().split("\n").length).toBeLessThanOrEqual(15);
     expect(await NodeFSP.readlink(fx.path("install/probe-server"))).toBe(
       "current/scripts/probe-server.sh",
     );
@@ -240,10 +292,15 @@ describe.skipIf(HostProcess.Platform.defaultValue() !== "linux")("install-server
       clones: 1,
     });
 
+    const server = await fx.serve(commit);
+    const before = await fx.files();
     const again = await (await fx.run()).result;
     expect(again.code, again.output).toBe(0);
-    expect(again.output).toMatch(/nothing changed/);
+    expect(again.output).toMatch(/already installed; nothing changed/);
+    expect(again.output).not.toContain("Restart:");
     expect(await fx.state()).toMatchObject({ complete: [commit], clones: 1 });
+    expect(await fx.files()).toEqual(before);
+    expect(await answers(server.port)).toBe(true);
   });
 
   it.each<[string, RunOptions, ReadonlyArray<string>]>([
@@ -301,6 +358,7 @@ describe.skipIf(HostProcess.Platform.defaultValue() !== "linux")("install-server
     const previous = await fx.commit("0.1.5");
     await installed(fx);
     await fx.commit("0.1.6");
+    const server = await fx.serve(previous);
 
     const { code, output } = await (
       await fx.run({
@@ -316,20 +374,24 @@ describe.skipIf(HostProcess.Platform.defaultValue() !== "linux")("install-server
     expect(code, output).not.toBe(0);
     const log = /Log: (\S+)/.exec(output)?.[1];
     expect(log && (await NodeFSP.stat(log)).isFile()).toBe(true);
+    expect(output).not.toContain("Restart:");
     expect(await fx.state()).toMatchObject({
       complete: [previous],
       current: `versions/${previous}`,
       leftovers: [],
     });
+    expect(await answers(server.port)).toBe(true);
+    expect(await answers((await fx.serve(previous)).port)).toBe(true);
   });
 
   it.each(["fetch", "build", "switch"])(
-    "repairs a run killed during %s on the next run",
+    "keeps the old install running when an upgrade is killed during %s, and the next run installs beside it and asks for a restart",
     async (phase) => {
       await using fx = await fixture();
       const previous = await fx.commit("0.1.5");
       await installed(fx);
       const next = await fx.commit("0.1.6");
+      const server = await fx.serve(previous);
 
       const killed = await fx.run({ env: { PROBE_TEST_GATE: phase } });
       await fx.ready();
@@ -337,11 +399,18 @@ describe.skipIf(HostProcess.Platform.defaultValue() !== "linux")("install-server
       fx.kill(killed.child);
       await killed.result;
       expect((await fx.state()).current).toBe(`versions/${previous}`);
+      expect(await answers((await fx.serve(previous)).port)).toBe(true);
 
-      await installed(fx);
+      const upgrade = await (await fx.run()).result;
+      expect(upgrade.code, upgrade.output).toBe(0);
+      expect(upgrade.output).toContain(
+        `Restart: a running server keeps 0.1.5 (${previous.slice(0, 7)}) until you stop and start it; nothing was stopped.`,
+      );
+      expect(upgrade.output.trimEnd().split("\n").length).toBeLessThanOrEqual(15);
       const after = await fx.state();
       expect(after).toMatchObject({ current: `versions/${next}`, leftovers: [] });
       expect(after.complete.toSorted()).toEqual([previous, next].toSorted());
+      expect(await answers(server.port)).toBe(true);
     },
   );
 

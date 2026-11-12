@@ -10,13 +10,22 @@ import { describe, expect, it } from "vite-plus/test";
 
 const SCRIPT = NodePath.resolve(import.meta.dirname, "probe-server.sh");
 const COMMIT = "0123456789abcdef0123456789abcdef01234567";
+const NEWER = "fedcba9876543210fedcba9876543210fedcba98";
 
 // Mirrors the real server: a runtime record in the real shape, the readiness path,
-// a startup token unless PROBE_STARTUP_PAIRING=0, and `pair` in its own process.
+// a startup token unless PROBE_STARTUP_PAIRING=0, `pair` in its own process, and a
+// shell host that writes its pid file into the state folder it is given.
 const FAKE_SERVER = `import * as fs from "node:fs";
 import * as http from "node:http";
 import * as path from "node:path";
 const args = process.argv.slice(2);
+if (args[0] === "__shell-host") {
+  fs.appendFileSync(process.env.FAKE_PIDS, process.pid + "\\n");
+  fs.mkdirSync(args[1], { recursive: true });
+  fs.writeFileSync(path.join(args[1], "shell-host-v1.pid"), process.pid + "\\n");
+  setInterval(() => {}, 1 << 30);
+  console.log("hosting");
+} else {
 const flag = (name) => (args.includes(name) ? args[args.indexOf(name) + 1] : undefined);
 const runtimePath = path.join(flag("--base-dir"), "userdata", "server-runtime.json");
 if (args[0] === "pair") {
@@ -50,6 +59,7 @@ process.on("SIGTERM", () => {
   fs.rmSync(runtimePath, { force: true });
   process.exit(0);
 });
+}
 `;
 
 interface Result {
@@ -105,8 +115,12 @@ const fixture = async () => {
   });
 
   // Detached, so a test can end the "session" by killing the command's process group.
-  const spawn = (args: ReadonlyArray<string>, extra: Record<string, string> = {}) => {
-    const child = NodeChildProcess.spawn(command, args, {
+  const spawn = (
+    args: ReadonlyArray<string>,
+    extra: Record<string, string> = {},
+    script = command,
+  ) => {
+    const child = NodeChildProcess.spawn(script, args, {
       detached: true,
       env: env(extra),
       stdio: ["ignore", "pipe", "pipe"],
@@ -120,8 +134,15 @@ const fixture = async () => {
     });
     return { child, result };
   };
-  const run = (args: ReadonlyArray<string>, extra: Record<string, string> = {}) =>
-    spawn(args, extra).result;
+  const run = (args: ReadonlyArray<string>, extra: Record<string, string> = {}, script?: string) =>
+    spawn(args, extra, script).result;
+
+  const untilPrinted = (child: NodeChildProcess.ChildProcess, text: string) =>
+    new Promise<void>((resolve) =>
+      child.stdout!.on("data", (chunk: Buffer) => {
+        if (chunk.toString().includes(text)) resolve();
+      }),
+    );
 
   const pids = async () =>
     (await NodeFSP.readFile(path("pids"), "utf8").catch(() => ""))
@@ -160,12 +181,36 @@ const fixture = async () => {
         { env: env({}), stdio: ["ignore", "pipe", "ignore"] },
       );
       others.add(child);
-      await new Promise<void>((resolve) =>
-        child.stdout.on("data", (chunk: Buffer) => {
-          if (chunk.toString().includes("listening")) resolve();
-        }),
-      );
+      await untilPrinted(child, "listening");
       return child.pid!;
+    },
+    // The detached shell host a server of this build starts for the state folder.
+    startShellHost: async () => {
+      const child = NodeChildProcess.spawn(
+        process.execPath,
+        [
+          NodePath.join(build, "apps/server/dist/bin.mjs"),
+          "__shell-host",
+          NodePath.join(state, "userdata"),
+        ],
+        { env: env({}), stdio: ["ignore", "pipe", "ignore"] },
+      );
+      others.add(child);
+      await untilPrinted(child, "hosting");
+      return child;
+    },
+    // What install-server.sh leaves after a newer build: it beside the old one, current on it.
+    upgrade: async () => {
+      const newer = path("install/versions", NEWER);
+      await NodeFSP.cp(build, newer, { recursive: true });
+      await NodeFSP.writeFile(
+        NodePath.join(newer, "apps/server/package.json"),
+        JSON.stringify({ version: "0.1.6" }),
+      );
+      await NodeFSP.writeFile(NodePath.join(newer, ".install-complete"), `${NEWER}\n`);
+      await NodeFSP.utimes(NodePath.join(build, ".install-complete"), 1, 1);
+      await NodeFSP.symlink(`versions/${NEWER}`, path("install/.current"));
+      await NodeFSP.rename(path("install/.current"), path("install/current"));
     },
     async [Symbol.asyncDispose]() {
       // Every fake server records its pid at start; these are the only processes killed.
@@ -399,4 +444,115 @@ describe.skipIf(HostProcess.Platform.defaultValue() !== "linux")("probe-server.s
     }
     expect(await fx.pids()).toEqual([]);
   });
+  it("shows the running build beside the installed versions after an upgrade until a restart", async () => {
+    await using fx = await fixture();
+    const old = `0.1.5 (${COMMIT.slice(0, 7)}`;
+    const newer = `0.1.6 (${NEWER.slice(0, 7)}`;
+    expect((await fx.run(["start", "--base-dir", fx.state])).code).toBe(0);
+
+    await fx.upgrade();
+    const before = await fx.run(["status", "--base-dir", fx.state]);
+    expect(before.code, before.output).toBe(0);
+    expect(before.output).toContain(`Installed:    ${newer}, current), ${old}, running)`);
+    expect(before.output).toContain(
+      `Note: the server runs ${old}), not the installed current ${newer}); stop and start it to switch.`,
+    );
+
+    expect((await fx.run(["stop", "--base-dir", fx.state])).code).toBe(0);
+    expect((await fx.run(["start", "--base-dir", fx.state])).code).toBe(0);
+    const after = await fx.run(["status", "--base-dir", fx.state]);
+    expect(after.output).toContain(`Installed:    ${newer}, current, running), ${old})`);
+    expect(after.output).not.toContain("Note: the server runs");
+  });
+
+  it("uninstalls only once no server runs, keeps the state folder unless asked, and refuses data under a live shell host", async () => {
+    await using fx = await fixture();
+    const root = fx.path("install");
+    const listing = async (dir: string) => {
+      const entries = await NodeFSP.readdir(dir, { recursive: true }).catch(() => null);
+      if (entries === null) return null;
+      return Promise.all(
+        entries.toSorted().map(async (entry) => {
+          const full = NodePath.join(dir, entry);
+          const stat = await NodeFSP.lstat(full);
+          return stat.isFile() ? `${entry}: ${await NodeFSP.readFile(full, "utf8")}` : entry;
+        }),
+      );
+    };
+    await NodeFSP.mkdir(fx.path("install/build"));
+    await NodeFSP.mkdir(fx.path("install/logs"));
+    await NodeFSP.writeFile(fx.path("install/logs/install.log"), "built\n");
+    expect((await fx.run(["start", "--base-dir", fx.state])).code).toBe(0);
+    const server = (await fx.runtime())!.pid;
+    const shellHost = await fx.startShellHost();
+    const host = shellHost.pid!;
+    await NodeFSP.mkdir(NodePath.join(fx.state, "userdata/workspaces"), { recursive: true });
+    await NodeFSP.writeFile(NodePath.join(fx.state, "userdata/workspaces/w.json"), "{}");
+
+    const installed = await listing(root);
+    const refused = await fx.run(["uninstall"]);
+    expect(refused.code).not.toBe(0);
+    expect(refused.output).toContain("still running. Nothing was removed. Stop it first");
+    expect(refused.output).toContain(
+      `pid ${server}: ${root}/probe-server stop --base-dir ${fx.state}`,
+    );
+    expect(await listing(root)).toEqual(installed);
+
+    expect((await fx.run(["stop", "--base-dir", fx.state])).code).toBe(0);
+    const kept = await listing(fx.state);
+    const removed = await fx.run(["uninstall"]);
+    expect(removed.code, removed.output).toBe(0);
+    for (const line of [
+      `Removed: ${root}/probe-server`,
+      `Removed: ${root}/current`,
+      `Removed: ${root}/build`,
+      `Removed: ${root}/versions (0.1.5 (${COMMIT.slice(0, 7)}, current))`,
+      `Removed: ${root}/logs`,
+      `Removed: ${root} (it was empty)`,
+      "Kept:    state folders such as ~/.probe",
+      `a shell host from this install still runs (pid ${host})`,
+    ]) {
+      expect(removed.output).toContain(line);
+    }
+    expect(await listing(root)).toBeNull();
+    expect(await listing(fx.state)).toEqual(kept);
+    expect(serving(host)).toBe(true);
+
+    // The command is gone with the install; the script fetched again finds nothing.
+    const env = { PROBE_INSTALL_DIR: root };
+    const again = await fx.run(["uninstall"], env, SCRIPT);
+    expect(again.code, again.output).toBe(0);
+    expect(again.output).toContain(`Nothing is installed in ${root}`);
+
+    const data = ["uninstall", "--remove-data", "--base-dir", fx.state];
+    const busy = await fx.run(data, env, SCRIPT);
+    expect(busy.code).not.toBe(0);
+    expect(busy.output).toContain(`The shell host of ${fx.state} still runs (pid ${host})`);
+    expect(await listing(fx.state)).toEqual(kept);
+
+    shellHost.kill("SIGKILL");
+    await new Promise((resolve) => shellHost.once("exit", resolve));
+    const wiped = await fx.run(data, env, SCRIPT);
+    expect(wiped.code, wiped.output).toBe(0);
+    expect(wiped.output).toContain(`Removed: ${fx.state} (state folder)`);
+    expect(await listing(fx.state)).toBeNull();
+  });
+
+  // Root removes a read-only folder anyway.
+  it.skipIf(process.getuid?.() === 0)(
+    "names what it could not remove and the fix, and exits non-zero",
+    async () => {
+      await using fx = await fixture();
+      const locked = NodePath.join(fx.build, "apps");
+      await NodeFSP.chmod(locked, 0o555);
+      const result = await fx.run(["uninstall"]);
+      await NodeFSP.chmod(locked, 0o755);
+
+      const versions = fx.path("install/versions");
+      expect(result.code).not.toBe(0);
+      expect(result.output).toContain(`Could not remove ${versions}: `);
+      expect(result.output).toContain(`Fix: chmod -R u+w '${versions}' && rm -rf '${versions}'`);
+      expect(result.output).not.toContain(`Removed: ${fx.path("install")} (it was empty)`);
+    },
+  );
 });

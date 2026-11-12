@@ -171,13 +171,21 @@ An installed server is launched by [`scripts/probe-server.sh`](../../scripts/pro
 which has the same rule: stop only a server its own launch record names. It takes a pid as the
 server only while `/proc/<pid>/cmdline` shows `bin.mjs serve` with that `--base-dir`, so changing
 how `serve` is invoked or retitling the process breaks its running check. It sets
-`PROBE_STARTUP_PAIRING=0` because the server's output goes to a log on disk.
+`PROBE_STARTUP_PAIRING=0` because the server's output goes to a log on disk. Its `uninstall`
+finds servers and shell hosts of the install the same way, by a `bin.mjs` under
+`<install root>/versions/` in `/proc/<pid>/cmdline`.
+
+An installed server upgrades by replace-and-restart, not through the launcher's
+[update protocol](./server-updates.md): the target has no service manager, so
+[`scripts/install-server.sh`](../../scripts/install-server.sh) installs the new build beside the old
+one and switches `current`, and the user stops and starts the server. There is no trial and no
+database snapshot; nothing refuses an older build on a database a newer one migrated.
 
 Remote servers can outlive several client releases. Clients must use advertised
 capabilities and handle their absence, rather than assume their own version
-describes the server. Process replacement belongs to the launcher's
-[update protocol](./server-updates.md); the connection runtime handles the
-resulting disconnect.
+describes the server. For a service install, process replacement belongs to the
+launcher's [update protocol](./server-updates.md); either way the connection runtime
+handles the resulting disconnect.
 
 ### Desktop without a local environment
 
