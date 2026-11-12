@@ -3,7 +3,7 @@ id: PRB.T-031
 type: story
 parent: PRB.E-004
 phase: 2
-labels: [remote, implement]
+labels: [remote, verify]
 created: 2026-11-09
 updated: 2026-11-12
 ---
@@ -194,3 +194,33 @@ Made 2026-11-12; the user auto-approves the recommended options.
 - **SSH code:** not shared, as in PRB.T-030 (AC-19).
 - **Tests:** `scripts/probe-server.test.ts` with a fake server that writes the runtime record; the
   real server is checked by hand.
+
+## Verification notes
+
+Merged 2026-11-12 (`9efc2dbb5`, `8ef79f6ec`, merge `3fb038b53`). Tests: `scripts/probe-server.test.ts` (10, a fake
+server), `startupAccess.test.ts` (startup token off with `PROBE_STARTUP_PAIRING=0`),
+`install-server.test.ts` (19); `check:changed` green.
+
+Real run in the dev container (linux-arm64), 2026-11-12:
+
+- `install-server.sh` with no settings cloned GitHub `main` (`0698905`) into
+  `~/.local/share/probe` in 56 s; the branch build was then installed beside it in 53 s and made
+  current (two folders under `versions/`).
+- `start --host 0.0.0.0 --port 14998` on a throwaway state folder: ready, printed version, address
+  placeholder, port, bind, state folder, log. `status` running; `start` again reused it; `pair`
+  printed a one-use token; `POST /api/auth/browser-session` with it on the container address
+  returned 200 (AC-9 without a published port). The token was not in the log; the log has only the
+  "startup pairing is off" line (AC-8). `stop` stopped it and said shells keep running; a second
+  `stop` said nothing runs, exit 1.
+- `start` with no port picked 3773, ready in 2.0 s (AC-17).
+
+Decisions made while building (subagent, accepted): `status` exits 3 when stopped; `setsid` when
+present; the browser-mode `pairingUrl:` line is off with the same variable; the log and launch
+record are `<state>/probe-server.log` and `<state>/probe-server.launch`; `pair` mints the token in
+its own process, so the running server never logs it.
+
+Handoff: still manual — AC-2 (published port on a Docker host), AC-10 (mounted and container state),
+AC-11 (shells smoke), AC-18 (container restart), all natural in PRB.T-033. Known gap: a server
+started by another tool with `T3CODE_HOME` instead of `--base-dir` is not seen as running; start
+then fails through the ownership lock with the log path rather than a clear refusal. After an
+upgrade, `status` shows the installed build's version, not the running server's (PRB.T-032).
