@@ -16,13 +16,13 @@ run these commands on the machine that will host T3 Code:
 | Restart                         | `t3 service restart`   |
 | Stop and remove from startup    | `t3 service uninstall` |
 
-Uninstalling the service leaves your projects, threads, and settings intact.
+Uninstalling the service leaves your workspaces, projects, and settings intact.
 Running `t3 service install` again repairs a service that `t3 service status`
 reports as broken.
 
 `t3 update` downloads the newest release on your channel and switches `t3`
-and the service to it. Restarting interrupts running agent turns, terminals,
-and remote clients, so it asks first; answer no and the service keeps running
+and the service to it. Restarting on the new version can end running shells
+and disconnects remote clients, so it asks first; answer no and the service keeps running
 the old version until you run `t3 service restart`. Pass `--yes` from a
 script. A server you started by hand is left running; stop and start it again
 to pick up the new version. Wait for any remote update already in progress
@@ -36,8 +36,8 @@ updates, so the installer and `t3 update` ask for confirmation before
 installing one.
 
 `t3 uninstall` removes the background service, the `t3` launcher, and the
-downloaded versions after showing you the list and asking once. Your projects,
-threads, and settings under `~/.t3/userdata` are kept, along with `service.env`
+downloaded versions after showing you the list and asking once. Your workspaces,
+projects, and settings under `~/.t3/userdata` are kept, along with `service.env`
 under T3 home. Pass `--yes` from a script.
 
 ## Local network access

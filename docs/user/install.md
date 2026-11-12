@@ -5,8 +5,9 @@ desktop, web, or mobile app. Set up the machine where the agents will work first
 
 ## Requirements
 
-You need an installed, authenticated provider before starting a thread. You can
-launch T3 Code and configure providers afterwards.
+Agents run as command-line tools in shells on the server's machine. Install and
+sign in to each agent CLI you want, such as Claude Code, on that machine. You can
+launch T3 Code first and install agents afterwards.
 
 ## Command line
 
@@ -115,19 +116,6 @@ Choose a WSL distro in **Settings → Sharing & access** to run agents and proje
 there. Install the provider CLIs inside that distro. T3 Code installs its own
 server runtime there automatically; the first launch after an app update can
 take longer.
-
-### Open a project from a terminal
-
-With the desktop app already running on the same machine:
-
-```bash
-t3 app
-```
-
-This opens a new thread for the current directory, adding the project if needed.
-Pass a path, such as `t3 app ../my-project`, to open another directory. It requires
-the desktop app, so a standalone server or an SSH session is not enough. If the
-command cannot reach the app, start or update the desktop app and try again.
 
 ## Mobile app
 

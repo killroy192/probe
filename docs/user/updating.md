@@ -32,17 +32,13 @@ If a desktop app restarts on its old version, T3 Code tells you the update did
 not apply. It does not install that version again on its own, even when another
 device asks. Use the update button on that machine to retry.
 
-The confirmation counts the running threads that the restarts will interrupt,
-and how many can resume afterwards. See **Continue threads after restarts**
-below.
-
 ## Switch between Stable and Nightly
 
 In the desktop app, change **Settings → About → Update track**. T3 Code shows each
 connected machine it will move and each one it skips, then moves them in one
 step. Remote servers install the latest release on the new track. Remote desktop
-apps reinstall on the new track. This app reinstalls last. Your threads,
-settings, and data stay.
+apps reinstall on the new track. This app reinstalls last. Your settings
+and data stay.
 
 A background service cannot move to an older release remotely. When Stable is
 older than its Nightly, run `t3 update --channel stable --allow-downgrade` on
@@ -61,28 +57,11 @@ checks.
 
 ## Before you update
 
-Server updates restart the connection and can interrupt active agents and
-terminal commands. Saved threads, settings, and project files remain.
-
-**Settings → Maintenance → Continue threads after restarts** is on by default.
-It resumes supported active threads after an update, crash, or machine
-restart. Changes are saved to connected environments that support this setting;
-update older servers first. If a supported environment was offline or has a
-different value, use **Apply to all** in Settings after it connects.
-T3 Code must start again on that machine;
-the setting does not enable automatic startup. Terminal commands may still be
-interrupted, and threads without saved provider resume state need a new message.
-A thread that finished its turn to wait on a subagent, a background task, or a
-command or monitor the agent said it was waiting on is woken and told that this work
-stopped. Other background shells and monitors, such as a dev server and its
-watchdog, do not wake it; the thread learns about them with your next message.
-A thread is not resumed while it waits for your approval, answer, or secret, or
-while it is archived, snoozed, or settled. After three automatic resumes in a row,
-the thread waits for your next message.
-
-Updates from the previous orchestration system preserve conversation transcripts but cannot carry
-every kind of runtime history forward. Read [Threads from older T3 Code versions](./thread-migration.md)
-before continuing an important older thread.
+Server updates restart the server and the connection. A plain restart leaves
+your shells running, but an update can end them: they stay in the tree marked
+"ended", and **Restore** starts a fresh shell in the same folder with no agent
+started in it. See [Reloads and restarts](./workspaces.md#reloads-and-restarts).
+Settings and project files remain.
 
 ## When versions don't match
 
@@ -142,22 +121,6 @@ could not start" window instead of the app. If a newer version is available,
 choose **Update** to install it. If not, the window links to the last version
 that started on your computer. Download and install it to go back. Use **Copy
 details** to include the error in a bug report.
-
-## Update providers
-
-**Settings → Providers** shows provider updates for the selected environment.
-**Update all** updates every outdated provider on every connected environment
-at once. Hover it to see which providers it will update. Providers that only
-offer a manual update command are not included.
-
-After a successful provider CLI update, T3 Code refreshes model discovery for
-every enabled instance of that provider using its own configuration. Connected
-clients receive the refreshed catalogs automatically. Provider update checks
-must be enabled to download the latest T3 Code model catalog.
-
-Provider updates do not restart running chats. An existing session can keep
-using the previous CLI until it ends. If discovery fails, check the provider
-status and refresh it again.
 
 ## Mobile updates
 

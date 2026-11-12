@@ -1,5 +1,8 @@
 # Keyboard focus
 
+> **Not relevant in the terminal-first build.** This page describes chat, which Probe hides
+> ([Workspaces](./workspaces.md)). It is kept for history until the chat code is removed.
+
 The command palette keeps focus while open. Closing it returns focus to the composer in chat,
 or to the previous control on other pages. Choosing a workspace focus command moves to that
 area instead. Opening Pull Requests moves focus into that page.
