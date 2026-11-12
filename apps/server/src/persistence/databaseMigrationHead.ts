@@ -2,9 +2,7 @@
 import * as NodeFS from "node:fs";
 import * as NodeSqlite from "node:sqlite";
 
-import { migrationManifest } from "./Migrations.ts";
-
-export const BUILD_MIGRATION_HEAD = Math.max(...migrationManifest.map(([id]) => id));
+import { BUILD_MIGRATION_HEAD } from "./Migrations.ts";
 
 /** Migrations the database records, read-only. A missing or new database records none; one that
  * exists but cannot be read is null, since its history is unknown. */

@@ -156,6 +156,33 @@ const migrationEntries = [
 
 export const migrationManifest = migrationEntries.map(([id, name]) => [id, name] as const);
 
+export const BUILD_MIGRATION_HEAD = Math.max(...migrationManifest.map(([id]) => id));
+
+/** Recorded migrations newer than this build, as `id_name`: a newer build migrated the database. */
+export const newerMigrations = (
+  recorded: ReadonlyArray<{ readonly id: number; readonly name: string }>,
+): ReadonlyArray<string> =>
+  recorded.filter(({ id }) => id > BUILD_MIGRATION_HEAD).map(({ id, name }) => `${id}_${name}`);
+
+/** Fails before any write when a newer build migrated this database; its schema is unknown here. */
+export const assertNoNewerMigrations = Effect.fn("assertNoNewerMigrations")(function* () {
+  const sql = yield* SqlClient.SqlClient;
+  const tables = yield* sql`
+    SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'effect_sql_migrations'
+  `;
+  if (tables.length === 0) return;
+  const recorded = yield* sql<{
+    readonly migration_id: number;
+    readonly name: string;
+  }>`SELECT migration_id, name FROM effect_sql_migrations ORDER BY migration_id`;
+  const newer = newerMigrations(recorded.map((row) => ({ id: row.migration_id, name: row.name })));
+  if (newer.length === 0) return;
+  return yield* new Migrator.MigrationError({
+    kind: "BadState",
+    message: `This database was migrated by a newer Probe build: this build does not know migrations ${newer.join(", ")}. Nothing was changed. Start the newer Probe version that migrated it; for an installed server, run \`probe-server start\`, which starts the current version (\`probe-server status\` lists the installed versions).`,
+  });
+});
+
 const makeMigrationLoader = (throughId?: number) =>
   Migrator.fromRecord(
     Object.fromEntries(
@@ -209,6 +236,7 @@ export interface RunMigrationsOptions {
 export const runMigrations = Effect.fn("runMigrations")(function* ({
   toMigrationInclusive,
 }: RunMigrationsOptions = {}) {
+  yield* assertNoNewerMigrations();
   const includesV2 =
     toMigrationInclusive === undefined || toMigrationInclusive >= FIRST_V2_MIGRATION_ID;
   const previewMigrations = includesV2 ? yield* reconcileV2PreviewMigration() : [];
