@@ -25,7 +25,7 @@ A Probe user runs one installation script inside a Linux container or on a remot
 
 ## KPI
 
-Proposed by the author, not yet agreed (no human interview was possible): the metric, target and dates below need the user's yes.
+Adopted 2026-11-12 (the user auto-approves the recommended options): 5 of 5 runs; cold install and start within 5 minutes on a 2-CPU target with 6 GB free disk and 4 GB memory; re-run at most 5 s. Measured in this repo's dev container (arm64): 53 to 99 s cold, 80 ms re-run (PRB.T-030 to PRB.T-032).
 
 | Metric | Kind | Baseline | Target | Measured how and where | By when |
 | --- | --- | --- | --- | --- | --- |
@@ -219,8 +219,8 @@ Alternatives considered: a published Linux server package with no toolchain on t
 
 - Q-1: Where do Linux release packages come from, and who builds the arm64 one? Moved to deferred story 7; not needed for Done when. Owner: user, TBD (user, 2026-11-15).
 - Q-2: Is a remote Mac (or Windows) machine ever a target? Settled as proposed: Linux only (this epic).
-- Q-3: Who implements worktree locking (the worktree-creation code, PRB.E-003, or a later ticket)? Outside this epic's Done when; here it is guide text only (FR-15). Owner: author. TBD (author, 2026-11-15).
-- Q-4: Is the proposed KPI (5 runs of 5, plus the time guardrail) what the user wants to be held to, and by when? Owner: user. TBD (user, 2026-11-15).
+- Q-3: Who implements worktree locking? Decided 2026-11-12: a later ticket outside phase 2's critical path; here it is guide text only (FR-15).
+- Q-4: Settled 2026-11-12: the KPI and guardrail as written above; measured when PRB.T-033 runs.
 
 Settled (user, 2026-11-09): the install script refuses to run as root (`docker exec` needs `-u` to the non-root user); the script is delivered as a file copied in or by a one-line `curl` of the script from the repository; the server is built inside the target; a container is a remote server and the user sets up the container or machine and agent logins.
 
