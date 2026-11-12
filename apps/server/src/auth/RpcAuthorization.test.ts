@@ -55,6 +55,7 @@ describe("RPC authorization scopes", () => {
       WS_METHODS.terminalObserve,
       WS_METHODS.subscribeTerminalMetadata,
       WS_METHODS.subscribeShells,
+      WS_METHODS.shellViewChanged,
     ]) {
       expect(requiredScopeForRpcMethod(method)).toBe(AuthTerminalReadScope);
     }

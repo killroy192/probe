@@ -194,6 +194,7 @@ const RPC_AGGREGATES = {
   [WS_METHODS.shellAttach]: "terminal",
   [WS_METHODS.shellWrite]: "terminal",
   [WS_METHODS.shellResize]: "terminal",
+  [WS_METHODS.shellViewChanged]: "terminal",
   [WS_METHODS.shellKill]: "terminal",
   [WS_METHODS.shellRestore]: "terminal",
   [WS_METHODS.subscribeShells]: "terminal",

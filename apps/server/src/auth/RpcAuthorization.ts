@@ -183,6 +183,8 @@ export const RPC_REQUIRED_SCOPES = {
   [WS_METHODS.shellAttach]: AuthTerminalOperateScope,
   [WS_METHODS.shellWrite]: AuthTerminalOperateScope,
   [WS_METHODS.shellResize]: AuthTerminalOperateScope,
+  // Only moves the shell's next process check forward.
+  [WS_METHODS.shellViewChanged]: AuthTerminalReadScope,
   [WS_METHODS.shellKill]: AuthTerminalOperateScope,
   [WS_METHODS.shellRestore]: AuthTerminalOperateScope,
   [WS_METHODS.subscribeShells]: AuthTerminalReadScope,

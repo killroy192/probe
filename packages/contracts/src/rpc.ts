@@ -499,6 +499,7 @@ export const WS_METHODS = {
   shellAttach: "shell.attach",
   shellWrite: "shell.write",
   shellResize: "shell.resize",
+  shellViewChanged: "shell.viewChanged",
   shellKill: "shell.kill",
   shellRestore: "shell.restore",
   workspaceCreate: "workspace.create",
@@ -1627,6 +1628,12 @@ const WsShellResizeRpc = Rpc.make(WS_METHODS.shellResize, {
   error: ShellRpcError,
 });
 
+// A client showed, hid or focused a shell's tab, so its program is checked again soon.
+const WsShellViewChangedRpc = Rpc.make(WS_METHODS.shellViewChanged, {
+  payload: ShellInput,
+  error: ShellRpcError,
+});
+
 const WsShellKillRpc = Rpc.make(WS_METHODS.shellKill, {
   payload: ShellInput,
   error: ShellRpcError,
@@ -2293,6 +2300,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsShellAttachRpc,
   WsShellWriteRpc,
   WsShellResizeRpc,
+  WsShellViewChangedRpc,
   WsShellKillRpc,
   WsShellRestoreRpc,
   WsSubscribeShellsRpc,

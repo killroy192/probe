@@ -17,6 +17,7 @@ import * as HostProcess from "@t3tools/shared/HostProcess";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Base64Url from "effect/encoding/Base64Url";
+import * as Clock from "effect/Clock";
 import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
 import * as Exit from "effect/Exit";
 import * as Fiber from "effect/Fiber";
@@ -33,7 +34,7 @@ import * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
 import * as SynchronizedRef from "effect/SynchronizedRef";
 import * as TestClock from "effect/testing/TestClock";
-import { expect, vi } from "vite-plus/test";
+import { describe, expect, vi } from "vite-plus/test";
 
 import * as ProcessRunner from "../processRunner.ts";
 import * as ServerSettings from "../serverSettings.ts";
@@ -882,12 +883,12 @@ it.layer(
               Effect.sync(() => ptyAdapter.processes[0]?.emitExit({ exitCode: 0, signal: 0 })),
             );
             yield* manager.open(openInput());
-            // Typing keeps the shell from counting as quiet, which would skip snapshots.
+            // Enter every second keeps the shell due at every tick.
             for (let second = 0; second < 6; second += 1) {
               yield* manager.write({
                 threadId: "thread-1",
                 terminalId: DEFAULT_TERMINAL_ID,
-                data: "x",
+                data: "\r",
               });
               yield* TestClock.adjust("1 second");
             }
@@ -897,6 +898,183 @@ it.layer(
       }
     }).pipe(Effect.provide(TestClock.layer())),
   );
+
+  describe("label check schedule", () => {
+    // Each terminal's program is checked after waits of 1, 1, 2, 3, 5, 8, 13, 13… seconds.
+    const UNTOUCHED_CHECKS = [1, 2, 4, 7, 12, 20, 33, 46].map((second) => second * 1000);
+
+    const scheduleFixture = (terminalIds: ReadonlyArray<string>) =>
+      Effect.gen(function* () {
+        const checks: Array<{ readonly at: number; readonly terminalId: string }> = [];
+        let snapshots = 0;
+        const programs = new Map<number, string>();
+        const ptyAdapter = new FakePtyAdapter();
+        const { manager } = yield* createManager(5, {
+          ptyAdapter,
+          processTable: Effect.sync(() => {
+            snapshots += 1;
+            return [
+              ...ptyAdapter.processes.map((process) => ({
+                pid: process.pid,
+                ppid: 1,
+                name: "zsh",
+              })),
+              ...[...programs].map(([shellPid, name], index) => ({
+                pid: 500 + index,
+                ppid: shellPid,
+                name,
+              })),
+            ];
+          }),
+          registerTerminalProcesses: ({ terminalId }) =>
+            Clock.currentTimeMillis.pipe(
+              Effect.map((at) => {
+                checks.push({ at, terminalId });
+              }),
+            ),
+        }).pipe(Effect.provide(layerWithHostPlatform("linux")));
+        // The fake PTY never exits on kill, and the kill grace would wait on the test clock.
+        yield* Effect.addFinalizer(() =>
+          Effect.sync(() => {
+            for (const process of ptyAdapter.processes)
+              process.emitExit({ exitCode: 0, signal: 0 });
+          }),
+        );
+        for (const terminalId of terminalIds) yield* manager.open(openInput({ terminalId }));
+        const at = (terminalId: string) =>
+          checks.filter((check) => check.terminalId === terminalId).map((check) => check.at);
+        const until = (ms: number) =>
+          Effect.gen(function* () {
+            const now = yield* Clock.currentTimeMillis;
+            for (let step = 0; step < (ms - now) / 500; step += 1) {
+              yield* TestClock.adjust("500 millis");
+            }
+          });
+        const emit = (terminalId: string, chunks: ReadonlyArray<string>) =>
+          Effect.gen(function* () {
+            const last = yield* Deferred.make<void>();
+            const stop = yield* manager.subscribe((event) =>
+              event.type === "output" && event.data === chunks.at(-1)
+                ? Deferred.succeed(last, undefined).pipe(Effect.asVoid)
+                : Effect.void,
+            );
+            const process = ptyAdapter.processes[terminalIds.indexOf(terminalId)]!;
+            for (const chunk of chunks) process.emitData(chunk);
+            yield* Deferred.await(last);
+            stop();
+          });
+        const write = (terminalId: string, data: string) =>
+          manager.write({ threadId: "thread-1", terminalId, data });
+        const run = (terminalId: string, program: string) =>
+          Effect.sync(() => {
+            programs.set(ptyAdapter.processes[terminalIds.indexOf(terminalId)]!.pid, program);
+          });
+        return {
+          manager,
+          at,
+          until,
+          emit,
+          write,
+          run,
+          snapshots: () => snapshots,
+        };
+      });
+
+    type Fixture = Effect.Success<ReturnType<typeof scheduleFixture>>;
+
+    it.effect("checks an untouched terminal ever less often, whatever it prints or is typed", () =>
+      Effect.gen(function* () {
+        const shell = yield* scheduleFixture(["busy"]);
+        for (let second = 0; second < 46; second += 1) {
+          yield* shell.emit("busy", [`line ${second}\r\n`]);
+          yield* shell.write("busy", "ls -la");
+          yield* shell.until(second * 1000 + 1000);
+        }
+        expect(shell.at("busy")).toEqual(UNTOUCHED_CHECKS);
+      }).pipe(Effect.provide(TestClock.layer())),
+    );
+
+    it.effect.each([
+      { reset: "Enter", act: (shell: Fixture) => shell.write("t", "make build\r") },
+      { reset: "Ctrl+C", act: (shell: Fixture) => shell.write("t", "\u0003") },
+      {
+        reset: "a prompt mark",
+        act: (shell: Fixture) => shell.emit("t", ["done\r\n\u001b]133;A;redraw=1\u0007% "]),
+      },
+      {
+        reset: "a prompt mark split across output",
+        act: (shell: Fixture) => shell.emit("t", ["done\r\n\u001b]13", "3;A\u0007% "]),
+      },
+    ])("checks a terminal again within a second of $reset, then waits from the start", ({ act }) =>
+      Effect.gen(function* () {
+        const shell = yield* scheduleFixture(["t"]);
+        yield* shell.until(20_500);
+        yield* act(shell);
+        yield* shell.until(25_500);
+        expect(shell.at("t")).toEqual([...UNTOUCHED_CHECKS.slice(0, 6), 21_000, 22_000, 24_000]);
+      }).pipe(Effect.provide(TestClock.layer())),
+    );
+
+    it.effect("checks a terminal from the start again once a check finds a different program", () =>
+      Effect.gen(function* () {
+        const shell = yield* scheduleFixture(["t"]);
+        yield* shell.until(20_500);
+        yield* shell.run("t", "vim");
+        yield* shell.until(36_500);
+        // The check at 33 s finds vim.
+        expect(shell.at("t")).toEqual([...UNTOUCHED_CHECKS.slice(0, 7), 34_000, 35_000]);
+      }).pipe(Effect.provide(TestClock.layer())),
+    );
+
+    it.effect("counts resets inside half a second as one", () =>
+      Effect.gen(function* () {
+        const shell = yield* scheduleFixture(["t"]);
+        yield* shell.until(20_500);
+        yield* TestClock.adjust("300 millis");
+        yield* shell.write("t", "\r");
+        yield* TestClock.adjust("200 millis");
+        yield* shell.emit("t", ["\u001b]133;A\u0007"]);
+        yield* TestClock.adjust("100 millis");
+        yield* shell.write("t", "\u0003");
+        yield* shell.until(26_000);
+        // One reset at 20.8 s: checks at 21, 22 and 24 s; a second one would add 23 s.
+        expect(shell.at("t")).toEqual([...UNTOUCHED_CHECKS.slice(0, 6), 21_000, 22_000, 24_000]);
+      }).pipe(Effect.provide(TestClock.layer())),
+    );
+
+    it.effect("checks a terminal a client shows again at the next tick", () =>
+      Effect.gen(function* () {
+        const shell = yield* scheduleFixture(["shown", "other"]);
+        yield* shell.until(20_500);
+        yield* shell.manager.recheckLabel("thread-1", "shown");
+        yield* shell.until(22_500);
+        expect(shell.at("shown")).toEqual([...UNTOUCHED_CHECKS.slice(0, 6), 21_000, 22_000]);
+        expect(shell.at("other")).toEqual(UNTOUCHED_CHECKS.slice(0, 6));
+      }).pipe(Effect.provide(TestClock.layer())),
+    );
+
+    it.effect("reads the process table once a tick, only when a terminal is due", () =>
+      Effect.gen(function* () {
+        const shell = yield* scheduleFixture(["a", "b", "c"]);
+        yield* shell.until(20_500);
+        yield* shell.write("b", "\r");
+        yield* shell.until(46_500);
+        expect(shell.at("a")).toEqual(UNTOUCHED_CHECKS);
+        expect(shell.at("c")).toEqual(UNTOUCHED_CHECKS);
+        expect(shell.at("b")).toEqual([
+          ...UNTOUCHED_CHECKS.slice(0, 6),
+          21_000,
+          22_000,
+          24_000,
+          27_000,
+          32_000,
+          40_000,
+        ]);
+        // The ticks where a, c or b is due: 1, 2, 4, 7, 12, 20, 21, 22, 24, 27, 32, 33, 40, 46 s.
+        expect(shell.snapshots()).toBe(14);
+      }).pipe(Effect.provide(TestClock.layer())),
+    );
+  });
 
   it.effect("keeps terminals that get input or output while closeIdle checks them", () =>
     Effect.gen(function* () {
