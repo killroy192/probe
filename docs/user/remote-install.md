@@ -56,8 +56,7 @@ build fails, the old version stays current. Old versions stay in `versions/` unt
 `status` lists them, marks the current one and the one that runs, and says when the running server
 is not the current version.
 
-Going back is not supported: a newer server may migrate the database in the state folder, and an
-older one started on it afterwards runs without refusing, which is not safe.
+Going back is not supported: a newer server may migrate the database in the state folder, and an older one started on it afterwards refuses to start, leaves the database unchanged and says to start the newer version.
 
 ## Start, pair and stop the server
 

@@ -6,11 +6,8 @@ import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
 
-import {
-  BUILD_MIGRATION_HEAD,
-  databaseMigrationHead,
-} from "../persistence/databaseMigrationHead.ts";
-import { migrationManifest } from "../persistence/Migrations.ts";
+import { databaseMigrationHead } from "../persistence/databaseMigrationHead.ts";
+import { BUILD_MIGRATION_HEAD, migrationManifest } from "../persistence/Migrations.ts";
 
 import { runServicePreflight } from "./servicePreflight.ts";
 import { SERVICE_LAUNCHER_PROTOCOL } from "./serviceProtocol.ts";

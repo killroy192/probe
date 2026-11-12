@@ -1,5 +1,6 @@
 import packageJson from "../../package.json" with { type: "json" };
-import { BUILD_MIGRATION_HEAD, recordedMigrations } from "../persistence/databaseMigrationHead.ts";
+import { recordedMigrations } from "../persistence/databaseMigrationHead.ts";
+import { newerMigrations } from "../persistence/Migrations.ts";
 import { SERVICE_LAUNCHER_PROTOCOL } from "./serviceProtocol.ts";
 
 export type ServicePreflightResult =
@@ -35,7 +36,8 @@ export function runServicePreflight(input: {
     };
   }
 
-  const newer = newerRecordedMigrations(input.databasePath);
+  const recorded = recordedMigrations(input.databasePath);
+  const newer = recorded === null ? null : newerMigrations(recorded);
   if (newer === null) {
     return {
       status: "blocked",
@@ -52,15 +54,6 @@ export function runServicePreflight(input: {
   }
 
   return { status: "ready", version, launcherProtocol: SERVICE_LAUNCHER_PROTOCOL };
-}
-
-/** Migrations a newer build recorded, or null when the database exists but cannot be read.
- * Startup already handles renamed ids this build knows. */
-function newerRecordedMigrations(databasePath: string): ReadonlyArray<string> | null {
-  const recorded = recordedMigrations(databasePath);
-  return recorded === null
-    ? null
-    : recorded.filter(({ id }) => id > BUILD_MIGRATION_HEAD).map(({ id, name }) => `${id}_${name}`);
 }
 
 export function decodeServicePreflightResult(value: unknown): ServicePreflightResult | undefined {

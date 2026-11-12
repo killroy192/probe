@@ -1,16 +1,22 @@
+// @effect-diagnostics nodeBuiltinImport:off
+import * as NodeSqlite from "node:sqlite";
+
 import { assert, describe, it } from "@effect/vitest";
 import * as NodeSqliteClient from "@t3tools/shared/nodeSqliteClient";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as FileSystem from "effect/FileSystem";
+import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
 import * as SqlClient from "effect/sql/SqlClient";
 
 import { migrationManifest, runMigrations } from "./Migrations.ts";
+import * as SqlitePersistence from "./Sqlite.ts";
 
 const v2Migrations = migrationManifest.filter(([id]) => id >= 55);
-const newerMigrationId = Math.max(...migrationManifest.map(([id]) => id)) + 1;
+const lastMigrationId = Math.max(...migrationManifest.map(([id]) => id));
+const newerMigrationId = lastMigrationId + 1;
 
 const history = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
@@ -54,14 +60,14 @@ describe("runMigrations", () => {
       yield* runMigrations({ toMigrationInclusive: 54 });
       yield* sql`
         INSERT INTO effect_sql_migrations (migration_id, name)
-        VALUES (${newerMigrationId}, 'FutureMainMigration')
+        VALUES (${lastMigrationId}, 'FutureMainMigration')
       `;
       const before = yield* history;
 
       const exit = yield* Effect.exit(runMigrations());
 
       assert.isTrue(Exit.isFailure(exit));
-      for (const [id, name] of v2Migrations) {
+      for (const [id, name] of v2Migrations.slice(0, -1)) {
         assert.include(String(exit), `${id}_${name} (recorded: nothing)`);
       }
       assert.deepStrictEqual(yield* history, before);
@@ -97,7 +103,7 @@ describe("runMigrations", () => {
       yield* runMigrations({ toMigrationInclusive: 55 });
       yield* sql`
         INSERT INTO effect_sql_migrations (migration_id, name)
-        VALUES (56, 'SiteLocalMigration'), (${newerMigrationId}, 'NewerV2Migration')
+        VALUES (56, 'SiteLocalMigration'), (${lastMigrationId}, 'NewerV2Migration')
       `;
       const before = yield* history;
 
@@ -113,17 +119,33 @@ describe("runMigrations", () => {
     }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
   );
 
-  it.effect("still starts after a newer build recorded a later V2 migration", () =>
+  it.effect("refuses a database a newer build migrated before writing to it", () =>
     Effect.gen(function* () {
-      const sql = yield* SqlClient.SqlClient;
-      yield* runMigrations();
-      yield* sql`
-        INSERT INTO effect_sql_migrations (migration_id, name)
-        VALUES (${newerMigrationId}, 'NewerV2Migration')
-      `;
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const dbPath = path.join(
+        yield* fs.makeTempDirectoryScoped({ prefix: "t3-migrations-" }),
+        "statev2.sqlite",
+      );
+      const startup = Layer.build(SqlitePersistence.layerFromPath(dbPath)).pipe(Effect.scoped);
+      yield* startup;
+      const db = new NodeSqlite.DatabaseSync(dbPath);
+      db.prepare("INSERT INTO effect_sql_migrations (migration_id, name) VALUES (?, ?)").run(
+        newerMigrationId,
+        "NewerMigration",
+      );
+      // Out of WAL, so startup's journal_mode pragma would rewrite the file header.
+      db.exec("PRAGMA journal_mode = DELETE");
+      db.close();
+      const before = yield* fs.readFile(dbPath);
 
-      assert.deepStrictEqual(yield* runMigrations(), []);
-    }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
+      const exit = yield* Effect.exit(startup);
+
+      assert.isTrue(Exit.isFailure(exit));
+      assert.include(String(exit), `this build does not know migrations ${newerMigrationId}_NewerMigration`);
+      assert.include(String(exit), "probe-server start");
+      assert.deepStrictEqual(yield* fs.readFile(dbPath), before);
+    }).pipe(Effect.provide(NodeServices.layer)),
   );
 });
 
