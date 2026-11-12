@@ -167,6 +167,11 @@ launcher owns it; a server it discovered already running must survive a client
 disconnect. Reconnection restores the forward before opening the application
 transport.
 
+The other way onto a target is the [in-target install](../user/remote-install.md): the user runs
+[`scripts/install-server.sh`](../../scripts/install-server.sh) inside it, and it builds the server
+there from the repository. It shares no code with the SSH path, which downloads upstream release
+archives, so a fix to the lock, the proof or the launch in one does not reach the other.
+
 An installed server is launched by [`scripts/probe-server.sh`](../../scripts/probe-server.sh),
 which has the same rule: stop only a server its own launch record names. It takes a pid as the
 server only while `/proc/<pid>/cmdline` shows `bin.mjs serve` with that `--base-dir`, so changing
