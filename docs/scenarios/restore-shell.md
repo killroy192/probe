@@ -11,14 +11,15 @@ shell in the same folder.
 1. A shell ended by a signal, or lost and shown after the server restarts, stays in the tree marked
    ended. Nothing starts it again by itself.
 2. Hover its row and click **Restore**.
-3. The shell runs again as a new process in the same folder, under the same row and title, marked
-   "restored", with empty output.
+3. The shell runs again as a new process in the same folder, under the same row and title, with
+   empty output. Its row is marked "restored" for 20 seconds, on every client open at the time.
 4. If its tab was open when it ended, the tab comes back. Type in it as in any shell.
 
 - A shell that exits or is killed leaves the tree, so nothing offers to restore it.
 - An ended shell whose folder is gone is marked "moved" and offers no **Restore**; **×** still
   removes it.
 - A restored shell is removed with **×** like any other.
+- A page loaded after the restore, or a server restarted since, shows no "restored" mark.
 - A shell started after a lost one takes the next number; the lost one keeps its own.
 
 ## Requirements
@@ -39,6 +40,7 @@ shell in the same folder.
 | FR-12 | An ended shell whose folder is gone offers no Restore.                                                                |
 | FR-13 | An ended shell whose folder is gone can be removed.                                                                   |
 | FR-14 | A restored shell can be removed.                                                                                      |
+| FR-15 | A page reload shows no "restored" mark for a shell restored before the reload.                                        |
 
 ## Related
 

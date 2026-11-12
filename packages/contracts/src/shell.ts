@@ -79,7 +79,10 @@ export const ShellSummary = Schema.Struct({
   ended: Schema.NullOr(ShellEndReason),
   /** True once the project or worktree the shell was started in is gone from disk. */
   missing: Schema.Boolean,
-  /** True once the user restored this shell after it ended; it is a new process in the same place. */
+  /**
+   * True for 20 s after the user restored this ended shell as a new process in the same place;
+   * a server restart clears it.
+   */
   restored: Schema.Boolean,
   /**
    * True once the shell printed its first prompt; false before it, for a shell that never says

@@ -17,7 +17,7 @@ import { useState } from "react";
 
 import { requestConfirmDialog } from "../../confirmDialog";
 import { isElectron } from "../../env";
-import { useShells } from "../../state/shells";
+import { useRestoredMarks, useShells } from "../../state/shells";
 import { useWorkspaces } from "../../state/workspaces";
 import { SidebarChromeFooter, SidebarChromeHeader } from "../sidebar/SidebarChrome";
 import { SidebarHeaderIconButton } from "../sidebar/SidebarThreadHeader";
@@ -85,6 +85,7 @@ export function WorkspaceSidebar() {
   const act = async (action: Promise<string | null>) => setError(await action);
   const savedWorkspaces = view.workspaces ?? [];
   const { shells } = useShells(view.environmentId);
+  const restoredMarks = useRestoredMarks(view.environmentId);
 
   return (
     <>
@@ -181,6 +182,7 @@ export function WorkspaceSidebar() {
             <ShellTree
               workspace={view.shown}
               shells={shells ?? []}
+              restoredMarks={restoredMarks}
               activeShellId={view.tabs.activeShellId}
               onChooseShell={(shellId) => {
                 view.activateShell(shellId);
@@ -290,6 +292,7 @@ function byWorktree(shells: ReadonlyArray<ShellSummary>) {
 function ShellTree({
   workspace,
   shells,
+  restoredMarks,
   activeShellId,
   onChooseShell,
   canStart,
@@ -301,6 +304,7 @@ function ShellTree({
 }: {
   readonly workspace: WorkspaceDetail;
   readonly shells: ReadonlyArray<ShellSummary>;
+  readonly restoredMarks: ReadonlySet<ShellSummary["shellId"]>;
   readonly activeShellId: string | null;
   readonly onChooseShell: (shellId: ShellSummary["shellId"]) => void;
   readonly canStart: boolean;
@@ -334,7 +338,7 @@ function ShellTree({
             <span className={shell.ended === null ? "truncate" : "truncate text-muted-foreground"}>
               {shellName(shell, { folder: false })}
             </span>
-            {shell.restored && shell.ended === null ? (
+            {restoredMarks.has(shell.shellId) ? (
               <span data-restored className="ml-auto shrink-0 text-xs text-muted-foreground">
                 restored
               </span>

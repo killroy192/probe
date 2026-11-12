@@ -43,7 +43,10 @@ vi.mock("../../state/workspaces", () => ({
     open: async () => null,
   }),
 }));
-vi.mock("../../state/shells", () => ({ useShells: () => ({ shells: [], error: null }) }));
+vi.mock("../../state/shells", () => ({
+  useShells: () => ({ shells: [], error: null }),
+  useRestoredMarks: () => new Set(),
+}));
 vi.mock("../ShellView", () => ({ focusShell: () => undefined, ShellTerminal: () => null }));
 vi.mock("../sidebar/SidebarChrome", () => ({
   SidebarChromeHeader: () => null,
