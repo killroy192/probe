@@ -28,12 +28,12 @@ curl -fsSL https://raw.githubusercontent.com/killroy192/probe/main/scripts/insta
 
 or copy the file in and run `sh install-server.sh`. It asks no questions.
 
-| Variable            | Default                                    | Meaning                                                    |
-| ------------------- | ------------------------------------------ | ---------------------------------------------------------- |
-| `PROBE_REPO`        | the public Probe repository                | repository to build; a path to a local checkout works too |
-| `PROBE_REF`         | `main`                                     | branch or tag to build                                     |
-| `PROBE_INSTALL_DIR` | `${XDG_DATA_HOME:-~/.local/share}/probe`   | install folder                                             |
-| `PROBE_REGISTRY`    | `https://registry.npmjs.org/`              | package registry the check must reach                      |
+| Variable            | Default                                  | Meaning                                                   |
+| ------------------- | ---------------------------------------- | --------------------------------------------------------- |
+| `PROBE_REPO`        | the public Probe repository              | repository to build; a path to a local checkout works too |
+| `PROBE_REF`         | `main`                                   | branch or tag to build                                    |
+| `PROBE_INSTALL_DIR` | `${XDG_DATA_HOME:-~/.local/share}/probe` | install folder                                            |
+| `PROBE_REGISTRY`    | `https://registry.npmjs.org/`            | package registry the check must reach                     |
 
 Only committed state is built. The script prints one line per step (check, fetch, build, prove,
 switch), then the version and commit, the install folder, the placeholder commands, the path of its

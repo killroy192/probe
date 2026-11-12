@@ -191,8 +191,8 @@ const fixture = async () => {
           (name) => name === "install.lock" || name.startsWith(".current."),
         ),
       ],
-      clones: (await NodeFSP.readFile(path("clones"), "utf8").catch(() => "")).split("\n")
-        .length - 1,
+      clones:
+        (await NodeFSP.readFile(path("clones"), "utf8").catch(() => "")).split("\n").length - 1,
     };
   };
 
@@ -251,7 +251,11 @@ describe.skipIf(HostProcess.Platform.defaultValue() !== "linux")("install-server
     ],
     ["no download tool", { omit: ["curl"] }, ["- curl or wget:"]],
     ["no process tools", { omit: ["ps", "mktemp", "nohup"] }, ["- ps:", "- mktemp:", "- nohup:"]],
-    ["an unsupported CPU", { fakes: { uname: '#!/bin/sh\n[ "$1" = -m ] && echo riscv64 || echo Linux\n' } }, ["- CPU:"]],
+    [
+      "an unsupported CPU",
+      { fakes: { uname: '#!/bin/sh\n[ "$1" = -m ] && echo riscv64 || echo Linux\n' } },
+      ["- CPU:"],
+    ],
     ["a home folder it cannot write", { env: { HOME: "/" } }, ["- home folder:"]],
     ["musl instead of glibc", { fakes: { getconf: "#!/bin/sh\nexit 1\n" } }, ["- libc:"]],
     ["an unreachable repository", { env: { PROBE_REPO: "/nonexistent/repo" } }, ["- repository:"]],
@@ -267,18 +271,20 @@ describe.skipIf(HostProcess.Platform.defaultValue() !== "linux")("install-server
       },
       ["- repository:", "- disk space:", "- memory:", "- package registry:"],
     ],
-  ])("refuses a target with %s, listing every problem and installing nothing", async (_, options, items) => {
-    await using fx = await fixture();
-    await fx.commit("0.1.5");
+  ])(
+    "refuses a target with %s, listing every problem and installing nothing",
+    async (_, options, items) => {
+      await using fx = await fixture();
+      await fx.commit("0.1.5");
 
-    const { code, output } = await (await fx.run(options)).result;
+      const { code, output } = await (await fx.run(options)).result;
 
-    expect(code, output).not.toBe(0);
-    for (const item of items) expect(output).toContain(item);
-    expect(await NodeFSP.readdir(fx.install).catch(() => [])).toEqual(
-      expect.not.arrayContaining(["versions", "build", "current", "install.lock"]),
-    );
-  });
+      expect(code, output).not.toBe(0);
+      for (const item of items) expect(output).toContain(item);
+      const written = await NodeFSP.readdir(fx.install).catch(() => []);
+      expect(written.filter((name) => name !== "logs")).toEqual([]);
+    },
+  );
 
   it.each([
     ["the build fails", { FAKE_BUILD: "fail" }],
