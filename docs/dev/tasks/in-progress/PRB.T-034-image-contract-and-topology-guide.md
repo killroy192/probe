@@ -3,9 +3,9 @@ id: PRB.T-034
 type: story
 parent: PRB.E-004
 phase: 2
-labels: [remote, plan]
+labels: [remote, verify]
 created: 2026-11-09
-updated: 2026-11-09
+updated: 2026-11-12
 ---
 
 # Image contract and topology guide
