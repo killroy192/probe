@@ -109,13 +109,19 @@ export class HostConnection {
   private readonly socket: NodeNet.Socket;
   readonly hostPid: number;
 
-  private constructor(socket: NodeNet.Socket, hostPid: number) {
+  private readonly onLost: (hostPid: number) => void;
+
+  private constructor(socket: NodeNet.Socket, hostPid: number, onLost: (hostPid: number) => void) {
     this.socket = socket;
     this.hostPid = hostPid;
+    this.onLost = onLost;
   }
 
   /** Connects and greets; fails when nothing listens or the host speaks another version. */
-  static connect(socketPath: string): Promise<HostConnection> {
+  static connect(
+    socketPath: string,
+    onLost: (hostPid: number) => void = () => {},
+  ): Promise<HostConnection> {
     return new Promise((resolve, reject) => {
       const socket = NodeNet.connect(socketPath);
       socket.setEncoding("utf8");
@@ -132,7 +138,7 @@ export class HostConnection {
             );
             return;
           }
-          connection = new HostConnection(socket, message.pid);
+          connection = new HostConnection(socket, message.pid, onLost);
           resolve(connection);
           return;
         }
@@ -194,6 +200,7 @@ export class HostConnection {
       resolve({ t: "spawnFailed", req: 0, message: "The shell host went away." });
     this.waiting.clear();
     if (this.closing) return;
+    this.onLost(this.hostPid);
     for (const process of this.processes.values()) process.receiveExit(HOST_LOST);
   }
 
@@ -283,8 +290,13 @@ export const make = Effect.fn("ShellHost.make")(function* (options: {
 }) {
   const lock = Semaphore.makeUnsafe(1);
   let connection: HostConnection | null = null;
+  const runFork = Effect.runForkWith(yield* Effect.context<never>());
+  const onLost = (hostPid: number) =>
+    runFork(Effect.logWarning("lost the shell host; its shells ended", { pid: hostPid }));
 
-  const tryConnect = Effect.tryPromise(() => HostConnection.connect(options.socketPath)).pipe(
+  const tryConnect = Effect.tryPromise(() =>
+    HostConnection.connect(options.socketPath, onLost),
+  ).pipe(
     Effect.tapError((error) =>
       Effect.logDebug("shell host not reachable", { reason: error.message }),
     ),
