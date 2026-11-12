@@ -4,6 +4,7 @@
 
 - [Workspaces](./user/workspaces.md): workspaces, projects, shells, worktrees, restarts
 - [Terminal history](./user/terminal.md)
+- [Install on a remote machine or devcontainer](./user/remote-install.md)
 
 ## Inherited from T3 Code
 
