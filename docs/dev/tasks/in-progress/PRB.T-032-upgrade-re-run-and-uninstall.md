@@ -3,9 +3,9 @@ id: PRB.T-032
 type: story
 parent: PRB.E-004
 phase: 2
-labels: [remote, plan]
+labels: [remote, implement]
 created: 2026-11-09
-updated: 2026-11-09
+updated: 2026-11-12
 ---
 
 # Upgrade, re-run and uninstall
@@ -145,3 +145,27 @@ Blocks:
 | SU-1 | Whether the installed target reuses the service launcher update path (`docs/internals/server-updates.md`) or has a simpler replace-and-restart | unknown | unverified | Plan stage (epic Notes for stories) | author |
 | SU-2 | Old versions stay beside the new one and only uninstall removes them | assumption | unverified | AC-17, AC-8 | author |
 | SU-3 | How the version relates to the repository ref the script builds (epic U-3) so that "same version" is decidable | unknown | unverified | PRB.T-030 plan | author |
+
+## Plan decisions
+
+Made 2026-11-12; the user auto-approves the recommended options. PRB.T-030 already gives re-run
+("nothing changed"), versions side by side, a failed build leaving the old version current, and
+kill-safety at each phase; this story adds what is missing and tests the upgrade cases.
+
+- **Upgrade note:** when the switch replaces an earlier `current`, the install script prints that a
+  running server keeps the old version until it is stopped and started again. It never stops a
+  server and cannot know which state folders are in use, so the note is unconditional.
+- **Status:** shows the build the running server was started from (the launch record) beside the
+  installed `current`, says when they differ, and lists the installed versions.
+- **Replace-and-restart, not the service update path** (`docs/internals/server-updates.md`): the
+  installed target has no service manager and the user restarts with the printed command.
+- **Uninstall is `probe-server uninstall [--remove-data] [--base-dir <state folder>]`.** It refuses,
+  removing nothing, while any server process runs from this install root (found by reading
+  `/proc/*/cmdline` for `<root>/versions/`, read-only, never to kill). A shell host left running
+  is not a reason to refuse: its shells keep running until they end, and the output says so. It
+  removes `versions/`, `build/`, `logs/`, `current` and the `probe-server` link, then the root if
+  empty, and lists what it removed and kept. `--remove-data` also removes the state folder (default
+  `~/.probe`), refusing while that folder's shell host is alive; if the folder is a mount point it
+  says it may be a host folder before removing it. A second uninstall says nothing is installed.
+- **Migration (AC-12):** read the server's migration rules and record what an older server does with
+  a newer database; no policy change here.
