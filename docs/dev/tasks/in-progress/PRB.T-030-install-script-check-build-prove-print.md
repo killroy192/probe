@@ -3,9 +3,9 @@ id: PRB.T-030
 type: story
 parent: PRB.E-004
 phase: 2
-labels: [remote, plan]
+labels: [remote, implement]
 created: 2026-11-09
-updated: 2026-11-09
+updated: 2026-11-12
 ---
 
 # Install script: check, build, prove, print
@@ -138,7 +138,7 @@ Depends on: PRB.T-029 (spike), because the contract, the build steps, the minimu
 
 | Depends on | Why | Status |
 | ---------- | --- | ------ |
-| PRB.T-029 | Epic order "after 1": the by-hand build path, times, minimum versions, tools needed and credential behavior | backlog |
+| PRB.T-029 | Epic order "after 1": the by-hand build path, times, minimum versions, tools needed and credential behavior | done |
 
 Blocks:
 
@@ -151,13 +151,49 @@ Blocks:
 
 | ID | Statement | Kind (assumption / unknown) | Status (unverified / verified / false) | How and when to verify | Owner |
 | ---- | --------- | --------------------------- | -------------------------------------- | ---------------------- | ----- |
-| SA-1 | The script can build the server in the target with the toolchain the contract names (epic A-1) | assumption | unverified | PRB.T-029, then AC-1 | author |
-| SA-2 | The SSH install logic (lock, atomic move, proving) can run in plain `sh` in the target (epic A-3) | assumption | unverified | PRB.T-029; plan reads `packages/ssh/src/tunnel.ts` | author |
-| SA-3 | Debian-family glibc images are enough (epic A-5) | assumption | unverified | PRB.T-029, PRB.T-033 | author |
-| SA-4 | Tests can run the script against a plain shell with faked missing tools without Docker (the dev container has no Docker socket) | assumption | unverified | Plan stage | author |
-| SU-1 | The minimum Node and package-manager versions the build needs (epic U-7) | unknown | unverified | PRB.T-029 | author |
-| SU-2 | How the target gets the source (clone at a ref or tarball) and whether it needs credentials; depends on the open repository visibility decision (epic U-6) | unknown | unverified | PRB.T-029; `docs/dev/questions.md` | author |
-| SU-3 | Whether `scripts/install.sh` is a model or unrelated to this script | unknown | unverified | Plan stage | author |
-| SU-4 | Whether the server reports its own version in a form a script can read and how it maps to the ref built (epic U-3) | unknown | unverified | Plan stage | author |
-| SU-5 | Cold install time and disk limits (epic NFR-1) | unknown | unverified | `TBD (author, 2026-11-15)` after PRB.T-029 | author |
-| SU-6 | Whether the SSH code reuses the script (epic R-7) | unknown | unverified | Decided in plan; AC-16 | author |
+| SA-1 | The script can build the server in the target with the toolchain the contract names (epic A-1) | assumption | verified on Ubuntu 24.04 arm64 by hand (PRB.T-029); x64 in PRB.T-033 | AC-1 | author |
+| SA-2 | The SSH install logic (lock, atomic move, proving) can run in plain `sh` in the target (epic A-3) | assumption | verified for the lock, staging, marker and move under dash and busybox (PRB.T-029); a `--version` proof is not enough (Alpine) | AC-7 | author |
+| SA-3 | Debian-family glibc images are enough (epic A-5) | assumption | verified: Alpine cannot load `node-pty` (PRB.T-029) | PRB.T-033 | author |
+| SA-4 | Tests can run the script against a plain shell with faked missing tools without Docker (the dev container has no Docker socket) | assumption | unverified; the plan fakes tools with a restricted `PATH` and a fake `vp` | First script test | author |
+| SU-1 | The minimum Node and package-manager versions the build needs (epic U-7) | unknown | narrowed: Node 22 builds with warnings, 24 and 26 clean; pnpm fixed by vp (PRB.T-029). Decided: Node 24 minimum | PRB.T-033 on x64 | author |
+| SU-2 | How the target gets the source (clone at a ref or tarball) and whether it needs credentials; depends on the open repository visibility decision (epic U-6) | unknown | answered: public HTTPS clone, no credentials (PRB.T-029). Decided: `git clone` of a repository and ref the user can override | AC-6 | author |
+| SU-3 | Whether `scripts/install.sh` is a model or unrelated to this script | unknown | answered: unrelated (it downloads upstream T3 releases); left unchanged, its marker and versions layout reused as a pattern | Plan, 2026-11-12 | author |
+| SU-4 | Whether the server reports its own version in a form a script can read and how it maps to the ref built (epic U-3) | unknown | answered: `--version` prints the package version (`0.1.5`), which does not change per commit. Decided: the install is identified by the commit built | Plan, 2026-11-12 | author |
+| SU-5 | Cold install time and disk limits (epic NFR-1) | unknown | proposed by PRB.T-029, adopted 2026-11-12 (user auto-approves recommended options): cold install 5 min on 2 CPUs, 6 GB free disk, 4 GB memory for the build | AC-15 | author |
+| SU-6 | Whether the SSH code reuses the script (epic R-7) | unknown | decided 2026-11-12: no, see Plan decisions | AC-16 | author |
+
+## Plan decisions
+
+Made 2026-11-12 from the PRB.T-029 findings; the user auto-approves the recommended options.
+
+- **One new file, `scripts/install-server.sh`**, POSIX `sh`. The inherited `scripts/install.sh`
+  (upstream T3 release download) stays as it is.
+- **Source:** `git clone --depth 1` of `PROBE_REPO` (default `https://github.com/killroy192/probe.git`)
+  at `PROBE_REF` (default `main`). A local path works as `PROBE_REPO`, which covers a copied-in
+  checkout and the tests. Only committed state is built.
+- **Identity:** the commit built. `git ls-remote` resolves the ref to a commit during the check, so
+  a re-run of an installed commit stops there (the 5 s limit) without cloning. The output shows the
+  package version and the short commit.
+- **Folders** (root `PROBE_INSTALL_DIR`, default `${XDG_DATA_HOME:-~/.local/share}/probe`):
+  `build/<staging>` for the clone and build, `versions/<commit>/` for a complete install with an
+  `.install-complete` marker, `current` a link swapped atomically, `logs/`. The build is moved into
+  `versions/` only after the proof, on the same file system. The state folder is not touched.
+- **Contract check**, all items collected before any write: not root (`id -u`); `git`, `node` 24 or
+  newer, `vp`, `make`, `g++`, `python3`, `curl` or `wget`, `ps`, `mktemp`, `nohup`; a writable home;
+  `x86_64` or `aarch64`; glibc; 6 GB free on the install root's file system; 4 GB memory; the
+  repository reachable at the ref; the package registry reachable.
+- **Build:** `CI=true vp i --frozen-lockfile`, then `vp run --filter t3 build`, in the staging folder.
+- **Proof:** start the built server on a throwaway state folder, `127.0.0.1` and a free port, wait up
+  to 30 s for `/.well-known/t3/environment`, then stop it (and any shell host) by captured PID.
+  `--version` alone passes where `node-pty` cannot load (PRB.T-029 B-4).
+- **Concurrency and kills:** a no-clobber lock file with the owner's PID (the `packages/ssh` pattern);
+  a second run waits, then finds the install complete. Staging left by a killed run is removed by the
+  next run that holds the lock.
+- **Output:** one line per phase (check, fetch, build, prove, switch), a log under `logs/`, and a final
+  block of at most 15 lines: version and commit, install folder, start, stop and pairing commands
+  with placeholders, the log path and the elapsed time.
+- **SSH code (R-7, AC-16):** not shared. `packages/ssh` downloads upstream release archives over SSH
+  and the epic leaves that path unchanged; the overlap is the lock and marker, about 40 lines.
+  Revisit with the release package (PRB.T-035).
+- **Tests:** `scripts/install-server.test.ts`, Linux only, runs the script with a fixture repository,
+  a fake `vp` whose build writes a tiny server, and a restricted `PATH` for missing tools.
