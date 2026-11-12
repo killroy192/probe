@@ -3,9 +3,9 @@ id: PRB.T-031
 type: story
 parent: PRB.E-004
 phase: 2
-labels: [remote, plan]
+labels: [remote, implement]
 created: 2026-11-09
-updated: 2026-11-09
+updated: 2026-11-12
 ---
 
 # Start, stop, status and pairing token
@@ -140,8 +140,8 @@ Depends on: PRB.T-030 (an installed, proven server and the installed layout); PR
 
 | Depends on | Why | Status |
 | ---------- | --- | ------ |
-| PRB.T-030 | Epic order "after 2": the commands are the real form of what that script prints | backlog |
-| PRB.T-029 | Findings on pairing, bind and mounted state | backlog |
+| PRB.T-030 | Epic order "after 2": the commands are the real form of what that script prints | merged 2026-11-12 |
+| PRB.T-029 | Findings on pairing, bind and mounted state | done |
 
 Blocks:
 
@@ -153,11 +153,44 @@ Blocks:
 
 | ID | Statement | Kind (assumption / unknown) | Status (unverified / verified / false) | How and when to verify | Owner |
 | ---- | --------- | --------------------------- | -------------------------------------- | ---------------------- | ----- |
-| SA-1 | Pairing can be done from inside the target and the token works from the host through a published port (epic A-6) | assumption | unverified | PRB.T-029, AC-9 | author |
-| SA-2 | An explicit bind and port in a container is reachable from the host through a published port; loopback is not (epic A-7) | assumption | unverified | PRB.T-029, AC-2 | author |
-| SA-3 | The SSH launch logic (adopt, port scan, `nohup`, readiness) works in the target under plain `sh` with `ps`, `mktemp`, `kill`, `nohup` (epic A-3) | assumption | unverified | PRB.T-029; plan | author |
-| SA-4 | The shell host and its socket work on a mounted state folder (epic A-9) | assumption | unverified | PRB.T-029, AC-10 | author |
-| SU-1 | Whether start conflicts with a server another tool started in the same home (epic U-5) | unknown | unverified | Plan: the SSH adopt logic is the model; AC-4 | author |
-| SU-2 | Whether `pair` or `auth pairing create` is the right command to print, and its default scopes (the token carries standard scopes; admin scopes are for Connections settings) | unknown | unverified | Plan stage | author |
+| SA-1 | Pairing can be done from inside the target and the token works from the host through a published port (epic A-6) | assumption | verified (PRB.T-029) | PRB.T-029, AC-9 | author |
+| SA-2 | An explicit bind and port in a container is reachable from the host through a published port; loopback is not (epic A-7) | assumption | verified on macOS Docker Desktop (PRB.T-029) | PRB.T-029, AC-2 | author |
+| SA-3 | The SSH launch logic (adopt, port scan, `nohup`, readiness) works in the target under plain `sh` with `ps`, `mktemp`, `kill`, `nohup` (epic A-3) | assumption | partly true: pieces run under dash; bind, base dir, adoption and the pairing call do not fit (PRB.T-029) | PRB.T-029; plan | author |
+| SA-4 | The shell host and its socket work on a mounted state folder (epic A-9) | assumption | verified between containers (PRB.T-029) | PRB.T-029, AC-10 | author |
+| SU-1 | Whether start conflicts with a server another tool started in the same home (epic U-5) | unknown | answered: a second server on one state folder is refused by the server's own ownership lock (PRB.T-029) | Plan: the SSH adopt logic is the model; AC-4 | author |
+| SU-2 | Whether `pair` or `auth pairing create` is the right command to print, and its default scopes (the token carries standard scopes; admin scopes are for Connections settings) | unknown | decided: `pair` (standard scopes; `auth pairing create` is the old form) | Plan stage | author |
 | SU-3 | The bind address a published container port needs on the author's hosts (macOS Docker Desktop, Linux) (epic A-7) | unknown | unverified | `TBD (author, 2026-11-15)` | author |
-| SU-4 | The installed server's default port behavior when no port is given: whether it scans for a free port or uses a fixed default (the dev runner scans; the installed server is unverified) | unknown | unverified | Plan stage; AC-5 | author |
+| SU-4 | The installed server's default port behavior when no port is given: whether it scans for a free port or uses a fixed default (the dev runner scans; the installed server is unverified) | unknown | answered: with no `--port` the server scans from 3773 (`apps/server/src/cli/config.ts`) | Plan stage; AC-5 | author |
+
+## Plan decisions
+
+Made 2026-11-12; the user auto-approves the recommended options.
+
+- **One command, `scripts/probe-server.sh`** (POSIX `sh`, small `node -e` helpers as in
+  `scripts/install-server.sh`), with `start`, `stop`, `status` and `pair`. It ships inside each
+  build, and the install script adds a link `<install root>/probe-server` to
+  `current/scripts/probe-server.sh` and prints that path in the real commands. Nothing is written
+  outside the install root and the state folder.
+- **Flags:** `--port`, `--host`, `--base-dir`. Defaults: bind `127.0.0.1`, state folder `~/.probe`
+  (not `~/.t3`, which a T3 Code install on the same machine owns), and no port means the server's
+  own scan from 3773.
+- **Start:** refuses a busy explicit port by name; runs `T3CODE_NO_BROWSER=1 nohup node
+  <current>/apps/server/dist/bin.mjs serve …` detached, output to a log in the state folder; waits up
+  to 30 s for `/.well-known/t3/environment` 200, else stops what it started and fails with the log
+  path. It prints version and commit, address, port, bind, state folder and log path, and a
+  reminder that a non-loopback bind is reached through the host's published address.
+- **Which server is ours:** the server's own `userdata/server-runtime.json` (pid, host, port,
+  origin) plus a launch record written by start (pid and install root). A pid counts as running only
+  if `/proc/<pid>/cmdline` is our `bin.mjs` with this `--base-dir`, so a pid reused after a
+  container restart is not mistaken for the server. Start reuses a running server on the folder and
+  says so. Stop sends SIGTERM only to a server with our launch record and refuses one started
+  elsewhere; it says shells keep running (the shell host is not stopped).
+- **No token in logs:** the headless startup output prints a pairing token (PRB.T-029 B-3). A
+  server option turns it off for a detached start, and `pair` prints the token and a pairing URL
+  with `<address you reach this server at>` in place of a wildcard bind (B-2).
+- **Not applicable:** AC-12 (secret storage). PRB.T-029 found Probe keeps its secrets in files and
+  needs no keyring. B-1 (no agent command) no longer happens: a new state folder offers a plain
+  shell.
+- **SSH code:** not shared, as in PRB.T-030 (AC-19).
+- **Tests:** `scripts/probe-server.test.ts` with a fake server that writes the runtime record; the
+  real server is checked by hand.
