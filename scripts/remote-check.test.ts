@@ -62,7 +62,7 @@ const closedPort = () =>
   new Promise<number>((resolve) => {
     const server = NodeNet.createServer();
     server.listen(0, "127.0.0.1", () => {
-      const { port } = (server.address() as NodeNet.AddressInfo);
+      const { port } = server.address() as NodeNet.AddressInfo;
       server.close(() => resolve(port));
     });
   });
