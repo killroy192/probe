@@ -51,6 +51,7 @@ import * as Deferred from "effect/Deferred";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Base64Url from "effect/encoding/Base64Url";
+import * as Clock from "effect/Clock";
 import * as Equal from "effect/Equal";
 import * as Exit from "effect/Exit";
 import * as Fiber from "effect/Fiber";
@@ -102,8 +103,11 @@ const MAX_HISTORY_CHUNK_LENGTH = 16 * 1024;
 const DEFAULT_PERSIST_DEBOUNCE_MS = 250;
 const DEFAULT_SUBPROCESS_POLL_INTERVAL_MS = 1_000;
 const MAX_SUBPROCESS_POLL_INTERVAL_MS = 60_000;
-// Discover children started without terminal input or output.
-const QUIET_SUBPROCESS_SNAPSHOT_EVERY_TICKS = 30;
+// Poll intervals between label checks, from a reset on: what runs in an untouched shell rarely changes.
+const LABEL_CHECK_WAITS = [1, 1, 2, 3, 5, 8, 13] as const;
+const LABEL_CHECK_RESET_WINDOW_MS = 500;
+// The zsh and bash wrappers print it at every prompt, so the foreground program ended or stopped.
+const PROMPT_START_MARK = "\u001b]133;A";
 const DEFAULT_PROCESS_KILL_GRACE_MS = 1_000;
 const DEFAULT_MAX_RETAINED_INACTIVE_SESSIONS = 128;
 const DEFAULT_OPEN_COLS = 120;
@@ -203,6 +207,9 @@ export class TerminalManager extends Context.Service<
     ) => Effect.Effect<() => void, TerminalError>;
 
     readonly write: (input: TerminalWriteInput) => Effect.Effect<void, TerminalError>;
+
+    /** Has the next poll tick check what runs in the terminal; a client shows or focuses it. */
+    readonly recheckLabel: (threadId: string, terminalId: string) => Effect.Effect<void>;
 
     readonly resize: (
       input: TerminalResizeInput,
@@ -355,6 +362,34 @@ interface TerminalSessionState {
   hasRunningSubprocess: boolean;
   childCommandLabel: string | null;
   runtimeEnv: Record<string, string> | null;
+  labelCheck: LabelCheckSchedule;
+  /** The end of the last output chunk, for a prompt mark split across chunks. */
+  promptMarkTail: string;
+}
+
+/** When the poll next looks at what runs in a session; see `LABEL_CHECK_WAITS`. */
+interface LabelCheckSchedule {
+  /** Checks since the last reset. */
+  step: number;
+  /** Clock millis from which the next tick checks the session. */
+  dueAt: number;
+  resetAt: number;
+}
+
+const newLabelCheck = (): LabelCheckSchedule => ({
+  step: 0,
+  dueAt: 0,
+  resetAt: Number.NEGATIVE_INFINITY,
+});
+
+function sawPromptMark(session: TerminalSessionState, data: string): boolean {
+  const keep = PROMPT_START_MARK.length - 1;
+  const tail = session.promptMarkTail;
+  session.promptMarkTail = data.length >= keep ? data.slice(-keep) : (tail + data).slice(-keep);
+  return (
+    data.includes(PROMPT_START_MARK) ||
+    (tail.length > 0 && (tail + data.slice(0, keep)).includes(PROMPT_START_MARK))
+  );
 }
 
 interface TerminalGrid {
@@ -386,6 +421,7 @@ type DrainProcessEventAction =
       sequence: number;
       persist: boolean;
       data: string;
+      promptMark: boolean;
     }
   | {
       type: "exit";
@@ -528,12 +564,6 @@ function advanceEventSequence(session: TerminalSessionState): {
 
 function terminalActivityMark(session: TerminalSessionState): number {
   return session.eventSequence + session.inputCount;
-}
-
-interface QuietTerminalSession {
-  readonly process: PtyAdapter.PtyProcess | null;
-  readonly mark: number;
-  readonly idleSnapshots: number;
 }
 
 function cleanupProcessHandles(session: TerminalSessionState): void {
@@ -2366,6 +2396,29 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
     },
   );
 
+  type LabelCheckReset = "input" | "prompt" | "view" | "changed";
+  /**
+   * Has the next tick check the session, and restarts its waits; a reset inside the window of the
+   * last one does nothing. False when it did nothing. Untraced: Enter and every prompt run it.
+   */
+  const resetLabelCheck = Effect.fnUntraced(function* (
+    session: TerminalSessionState,
+    reason: LabelCheckReset,
+  ) {
+    const now = yield* Clock.currentTimeMillis;
+    const check = session.labelCheck;
+    if (now - check.resetAt < LABEL_CHECK_RESET_WINDOW_MS) return false;
+    check.step = 0;
+    check.dueAt = now;
+    check.resetAt = now;
+    yield* Effect.logDebug("terminal label check reset", {
+      threadId: session.threadId,
+      terminalId: session.terminalId,
+      reason,
+    });
+    return true;
+  });
+
   const drainProcessEvents = Effect.fn("terminal.drainProcessEvents")(function* (
     session: TerminalSessionState,
     expectedPid: number,
@@ -2412,6 +2465,7 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
             sequence: eventStamp.sequence,
             persist: sanitized.visibleText.length > 0,
             data: nextEvent.data,
+            promptMark: sawPromptMark(session, nextEvent.data),
           } as const;
         }
 
@@ -2451,6 +2505,7 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
 
       if (action.type === "output") {
         if (action.persist) yield* queuePersist(session);
+        if (action.promptMark) yield* resetLabelCheck(session, "prompt");
 
         yield* publishEvent({
           type: "output",
@@ -2691,6 +2746,8 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
               session.process = ptyProcess;
               session.pid = processPid;
               session.status = "running";
+              session.labelCheck = newLabelCheck();
+              session.promptMarkTail = "";
               // onExit may replay an exit immediately; accept it before subscribing.
               session.unsubscribeData = spawnResult.process.onData((data) => {
                 if (!enqueueProcessEvent(session, processPid, { type: "output", data })) {
@@ -2812,46 +2869,33 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
     }
   });
 
-  // Two unchanged snapshots cover children forked just after the first snapshot.
-  // Process identity prevents a restarted shell from inheriting quiet state.
-  let quietSessions = new WeakMap<TerminalSessionState, QuietTerminalSession>();
-  let skippedQuietTicks = 0;
-  const isQuiet = (session: TerminalSessionState & { pid: number }) => {
-    const quiet = quietSessions.get(session);
-    return (
-      quiet !== undefined &&
-      quiet.idleSnapshots === 2 &&
-      quiet.process === session.process &&
-      quiet.mark === terminalActivityMark(session) &&
-      !session.hasRunningSubprocess
-    );
+  const advanceLabelCheck = (session: TerminalSessionState, now: number) => {
+    const check = session.labelCheck;
+    check.step += 1;
+    const waits = LABEL_CHECK_WAITS[Math.min(check.step, LABEL_CHECK_WAITS.length - 1)]!;
+    check.dueAt = now + waits * subprocessPollIntervalMs;
   };
 
   const pollSubprocessActivity = Effect.fn("terminal.pollSubprocessActivity")(function* () {
     const state = yield* readManagerState;
-    const runningSessions = [...state.sessions.values()]
+    const now = yield* Clock.currentTimeMillis;
+    const dueSessions = [...state.sessions.values()]
       .filter(
         (session): session is TerminalSessionState & { pid: number } =>
-          session.status === "running" && Number.isInteger(session.pid),
+          session.status === "running" &&
+          Number.isInteger(session.pid) &&
+          session.labelCheck.dueAt <= now,
       )
       .map((session) => ({
         session,
         terminalPid: session.pid,
         process: session.process,
-        mark: terminalActivityMark(session),
+        resetAt: session.labelCheck.resetAt,
       }));
 
-    if (runningSessions.length === 0) {
+    if (dueSessions.length === 0) {
       return true;
     }
-    if (
-      runningSessions.every(({ session }) => isQuiet(session)) &&
-      skippedQuietTicks < QUIET_SUBPROCESS_SNAPSHOT_EVERY_TICKS - 1
-    ) {
-      skippedQuietTicks += 1;
-      return true;
-    }
-    skippedQuietTicks = 0;
 
     const inspectorOption = yield* acquireSubprocessInspector.pipe(
       Effect.asSome,
@@ -2870,18 +2914,14 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
     );
 
     if (Option.isNone(inspectorOption)) {
-      quietSessions = new WeakMap();
       return false;
     }
 
     const { inspector: subprocessInspector, snapshotSucceeded } = inspectorOption.value;
     const checkSubprocessActivity = Effect.fn("terminal.checkSubprocessActivity")(function* (
-      candidate: (typeof runningSessions)[number],
+      candidate: (typeof dueSessions)[number],
     ) {
       const { session, terminalPid, process } = candidate;
-      let mark = candidate.mark;
-      const previous = quietSessions.get(session);
-      quietSessions.delete(session);
       const inspectResult = yield* subprocessInspector(terminalPid).pipe(
         Effect.asSome,
         Effect.catch((reason) =>
@@ -2895,11 +2935,16 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
       );
 
       if (
-        Option.isNone(inspectResult) ||
         session.status !== "running" ||
         session.pid !== terminalPid ||
         session.process !== process
       ) {
+        return;
+      }
+      // A reset that came in while this check ran stands.
+      const resetMeanwhile = session.labelCheck.resetAt !== candidate.resetAt;
+      if (Option.isNone(inspectResult)) {
+        if (!resetMeanwhile) advanceLabelCheck(session, now);
         return;
       }
 
@@ -2929,8 +2974,6 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
         liveSession.value.hasRunningSubprocess = next.hasRunningSubprocess;
         liveSession.value.childCommandLabel = nextChildLabel;
         const eventStamp = advanceEventSequence(liveSession.value);
-        // Only this poll's own event may advance the mark without waking it.
-        mark += 1;
 
         return [
           Option.some({
@@ -2949,23 +2992,13 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
         yield* publishEvent(event.value);
       }
 
-      if (
-        snapshotSucceeded &&
-        !next.hasRunningSubprocess &&
-        session.status === "running" &&
-        session.pid === terminalPid &&
-        session.process === process &&
-        terminalActivityMark(session) === mark
-      ) {
-        quietSessions.set(session, {
-          process,
-          mark,
-          idleSnapshots: previous?.process === process && previous.mark === mark ? 2 : 1,
-        });
-      }
+      if (resetMeanwhile) return;
+      // A different program may change again soon, so it is looked at again from the start.
+      const restarted = Option.isSome(event) && (yield* resetLabelCheck(session, "changed"));
+      if (!restarted) advanceLabelCheck(session, now);
     });
 
-    yield* Effect.forEach(runningSessions, checkSubprocessActivity, {
+    yield* Effect.forEach(dueSessions, checkSubprocessActivity, {
       concurrency: "unbounded",
       discard: true,
     });
@@ -3088,6 +3121,8 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
         hasRunningSubprocess: false,
         childCommandLabel: null,
         runtimeEnv: normalizedRuntimeEnv(input.env),
+        labelCheck: newLabelCheck(),
+        promptMarkTail: "",
       };
       openEmulator(session, history.value());
 
@@ -3216,6 +3251,8 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
           hasRunningSubprocess: false,
           childCommandLabel: null,
           runtimeEnv: null,
+          labelCheck: newLabelCheck(),
+          promptMarkTail: "",
         };
         openEmulator(session, "");
         for (const part of visibleParts) {
@@ -3618,6 +3655,19 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
           cause,
         }),
     });
+    // Enter starts a program and Ctrl+C ends one, from any client or the probe command.
+    if (input.data.includes("\r") || input.data.includes("\u0003")) {
+      yield* resetLabelCheck(session, "input");
+    }
+  });
+
+  const recheckLabel: TerminalManager["Service"]["recheckLabel"] = Effect.fn(
+    "TerminalManager.recheckLabel",
+  )(function* (threadId, terminalId) {
+    const session = yield* getSession(threadId, terminalId);
+    if (Option.isSome(session) && session.value.status === "running") {
+      yield* resetLabelCheck(session.value, "view");
+    }
   });
 
   const resizeLocked = Effect.fn("terminal.resize")(function* (
@@ -3743,6 +3793,7 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
     observeStream,
     resyncStream,
     write,
+    recheckLabel,
     resize,
     printsPromptMark: Effect.fn("TerminalManager.printsPromptMark")(
       function* (threadId, terminalId) {

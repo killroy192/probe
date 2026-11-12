@@ -76,6 +76,7 @@ describe("shell contracts", () => {
       WS_METHODS.shellAttach,
       WS_METHODS.shellWrite,
       WS_METHODS.shellResize,
+      WS_METHODS.shellViewChanged,
       WS_METHODS.shellKill,
       WS_METHODS.shellRestore,
       WS_METHODS.subscribeShells,

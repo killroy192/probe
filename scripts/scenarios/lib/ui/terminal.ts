@@ -52,6 +52,11 @@ export async function shellReady(
   );
 }
 
+/** Presses Ctrl+C in the active tab's terminal, the way a user stops the program running there. */
+export async function interrupt(page: PointerPage) {
+  await page.getByRole("tabpanel").filter({ visible: true }).locator("textarea").press("Control+c");
+}
+
 /**
  * Types into the active tab's terminal the way a user does, then submits the line, once the page
  * shows that shell attached and ready, so the line reaches a shell that reads it.

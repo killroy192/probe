@@ -62,6 +62,8 @@ the same way again after a page reload.
 | FR-21 | After a dropped start, a retry from Create shell starts one shell once the page has reconnected.                                         |
 | FR-22 | The server log records each shell's start with the shell's id and folder.                                                                |
 | FR-23 | The server log records the end of a shell ended from outside Probe, with the shell's id.                                                 |
+| FR-24 | A program a typed command starts is named in its shell's tab and tree node, and the name goes from both once Ctrl+C ends it.             |
+| FR-25 | Showing a shell's tab has the server check again which program runs in it, and the server log records that.                              |
 
 ## Related
 

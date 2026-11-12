@@ -7,10 +7,11 @@ import { expected } from "../lib/expect.ts";
 import { layoutSaved, openTab, showWorkspace } from "../lib/navigate.ts";
 import { timesSeen } from "../lib/network.ts";
 import { outputDuringReload } from "../lib/reloadRelease.ts";
+import { expectLogged } from "../lib/serverLog.ts";
 import { framedPage, plainTabs } from "../lib/setup.ts";
 import { history, printedAfter, running, shellEnded, writeLine } from "../lib/shells.ts";
 import { closeTab, selectedShellTab, selectedTab, shellTab, tabIds } from "../lib/ui/tabs.ts";
-import { typeLine } from "../lib/ui/terminal.ts";
+import { interrupt, typeLine } from "../lib/ui/terminal.ts";
 import { endedRow, openFromTree, shellRow, workspaceShown } from "../lib/ui/tree.ts";
 import { alive, waitFor } from "../lib/waits.ts";
 import { type CheckScenario, defineCheck } from "../scenario.ts";
@@ -108,6 +109,80 @@ export const switchTabs = defineCheck(import.meta.url, {
         expected: true,
         found: running(setup.shells, left.shellId),
       });
+    });
+  },
+});
+
+export const labelsFollow = defineCheck(import.meta.url, {
+  id: "S4.labels-follow",
+  title: "a shell's tab and tree node name a typed program and drop it after Ctrl+C",
+  needs: {},
+  // One program's run: the names it gives the tab and node, and takes back when it ends.
+  verifies: ["shells/FR-17", "shells/FR-24"],
+  run: async (ctx) => {
+    const { page, shells } = await ctx.trail.stage("setup", () => plainTabs(ctx, 1));
+    const [shown] = shells as [(typeof shells)[number]];
+    const idleTab = await shellTab(page, shown.shellId).textContent();
+    const idleNode = await shellRow(page, shown.shellId).textContent();
+
+    await ctx.trail.stage("a typed program names the tab", async () => {
+      await typeLine(page, "sleep 600");
+      await waitFor(
+        shellTab(page, shown.shellId).filter({ hasText: / · sleep$/ }),
+        `the tab of ${shown.shellId} to name sleep`,
+      );
+      await waitFor(
+        shellRow(page, shown.shellId).filter({ hasText: / · sleep$/ }),
+        `the tree node of ${shown.shellId} to name sleep`,
+      );
+    });
+
+    await ctx.trail.stage("Ctrl+C takes the name away", async () => {
+      await interrupt(page);
+      const tab = shellTab(page, shown.shellId);
+      const node = shellRow(page, shown.shellId);
+      await waitFor(
+        tab.filter({ hasNotText: "sleep" }),
+        `the tab of ${shown.shellId} to drop sleep`,
+      );
+      await waitFor(
+        node.filter({ hasNotText: "sleep" }),
+        `the tree node of ${shown.shellId} to drop sleep`,
+      );
+      expected({
+        what: "the tab name after Ctrl+C",
+        expected: idleTab,
+        found: await tab.textContent(),
+      });
+      expected({
+        what: "the tree node name after Ctrl+C",
+        expected: idleNode,
+        found: await node.textContent(),
+      });
+    });
+  },
+});
+
+export const shownTabRechecked = defineCheck(import.meta.url, {
+  id: "S4.shown-tab-rechecked",
+  title: "showing a shell's tab has the server check its program again",
+  needs: {},
+  verifies: ["shells/FR-25"],
+  run: async (ctx) => {
+    const { server } = ctx;
+    const { page, shells } = await ctx.trail.stage("setup", () => plainTabs(ctx, 2));
+    const [left] = shells as [(typeof shells)[number]];
+
+    await ctx.trail.stage("showing an idle tab rechecks it", async () => {
+      const from = server.logMark();
+      await shellTab(page, left.shellId).click();
+      await waitFor(selectedShellTab(page, left.shellId), `the clicked tab of ${left.shellId}`);
+      await expectLogged(
+        server,
+        `the server to hear that the tab of ${left.shellId} was shown`,
+        (entry) => entry.includes("shell view changed") && entry.includes(left.shellId),
+        { from },
+      );
     });
   },
 });
@@ -322,6 +397,8 @@ export const endedAfterReload = defineCheck(import.meta.url, {
 export const successors: ReadonlyArray<CheckScenario> = [
   manyShellsCheck,
   switchTabs,
+  labelsFollow,
+  shownTabRechecked,
   reloadLayout,
   outputDuringReloadCheck,
   reopenAfterReload,

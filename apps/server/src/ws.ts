@@ -3036,6 +3036,7 @@ export const layerWsRpc = (
         [WS_METHODS.shellWrite]: (input) => shells.write(input),
         [WS_METHODS.shellResize]: (input, metadata) =>
           shells.resize(input, terminalViewerId(metadata)),
+        [WS_METHODS.shellViewChanged]: (input) => shells.viewChanged(input.shellId),
         [WS_METHODS.shellKill]: (input) => shells.kill(input.shellId),
         [WS_METHODS.shellRestore]: (input) => shells.restore(input.shellId),
         [WS_METHODS.subscribeShells]: (_input) =>

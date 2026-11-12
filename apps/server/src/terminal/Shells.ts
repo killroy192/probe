@@ -1143,6 +1143,12 @@ export const makeShells = Effect.fn("Shells.make")(function* (
       }
       yield* manager.resize({ threadId, terminalId, cols: input.cols, rows: input.rows }, viewerId);
     }),
+    /** A client showed, hid or focused the shell, so the program in it is looked at again soon. */
+    viewChanged: Effect.fn("Shells.viewChanged")(function* (shellId: string) {
+      const { threadId, terminalId } = session(shellId);
+      yield* Effect.logDebug("shell view changed", { shellId });
+      yield* manager.recheckLabel(threadId, terminalId);
+    }),
     kill,
     restore,
     /** Kills the shell the token was given to; false when no live shell has it. */

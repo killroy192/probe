@@ -9,8 +9,9 @@ export async function expectLogged(
   server: ServerHandle,
   message: string,
   match: (entry: string) => boolean,
+  options?: { readonly from?: number },
 ): Promise<string> {
-  return server.logged(message, match).catch(() => {
+  return server.logged(message, match, options).catch(() => {
     throw new Error(message);
   });
 }

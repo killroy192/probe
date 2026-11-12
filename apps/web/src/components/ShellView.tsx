@@ -8,6 +8,7 @@ import {
   shellOwnerId,
 } from "@t3tools/contracts";
 import * as Schema from "effect/Schema";
+import { type FocusEvent, useEffect, useEffectEvent, useRef } from "react";
 
 import { TYPOGRAPHY_ADVANCED_STORAGE_KEY } from "../appearanceFonts";
 import { isElectron } from "../env";
@@ -15,7 +16,8 @@ import { useLocalStorage } from "../hooks/useLocalStorage";
 import { focusTerminal } from "../lib/terminalFocus";
 import { workspaceAreaProps } from "../lib/workspaceFocus";
 import { primaryServerKeybindingsAtom } from "../state/server";
-import { useShells } from "../state/shells";
+import { shellEnvironment, useShells } from "../state/shells";
+import { useAtomCommand } from "../state/use-atom-command";
 import { TerminalViewport } from "./ThreadTerminalDrawer";
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "./ui/empty";
 import { SidebarInset } from "./ui/sidebar";
@@ -84,19 +86,43 @@ export function ShellTerminal({
     Schema.Boolean,
   );
   const ownerId = ThreadId.make(shellOwnerId(shell.shellId));
+  const { shellId } = shell;
+  const viewChanged = useAtomCommand(shellEnvironment.viewChanged, { reportFailure: false });
+  // Showing, hiding or focusing a shell has the server look at its program again soon.
+  const sendViewChanged = () => void viewChanged({ environmentId, input: { shellId } });
+  const onViewChanged = useEffectEvent(sendViewChanged);
+  const visibleBefore = useRef<boolean | null>(null);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Tells the server a tab was shown or hidden; a tab mounted hidden changed nothing.
+  useEffect(() => {
+    const before = visibleBefore.current;
+    visibleBefore.current = visible;
+    if (before === null ? visible : before !== visible) onViewChanged();
+  }, [visible]);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Subscribes to the browser tab being shown or hidden while this shell is the one shown.
+  useEffect(() => {
+    if (!visible) return;
+    const onVisibilityChange = () => onViewChanged();
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => document.removeEventListener("visibilitychange", onVisibilityChange);
+  }, [visible]);
+  const onFocus = (event: FocusEvent<HTMLDivElement>) => {
+    if (!event.currentTarget.contains(event.relatedTarget)) sendViewChanged();
+  };
   return (
-    <TerminalViewport
-      advancedTypography={advancedTypography}
-      threadRef={scopeThreadRef(environmentId, ownerId)}
-      threadId={ownerId}
-      terminalId={shell.shellId}
-      shellId={shell.shellId}
-      terminalLabel={shell.label}
-      cwd={shell.cwd}
-      onSessionExited={() => undefined}
-      autoFocus={visible}
-      visible={visible}
-      keybindings={keybindings}
-    />
+    <div className="contents" onFocus={onFocus}>
+      <TerminalViewport
+        advancedTypography={advancedTypography}
+        threadRef={scopeThreadRef(environmentId, ownerId)}
+        threadId={ownerId}
+        terminalId={shell.shellId}
+        shellId={shell.shellId}
+        terminalLabel={shell.label}
+        cwd={shell.cwd}
+        onSessionExited={() => undefined}
+        autoFocus={visible}
+        visible={visible}
+        keybindings={keybindings}
+      />
+    </div>
   );
 }
