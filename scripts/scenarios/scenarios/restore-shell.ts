@@ -4,7 +4,7 @@ import * as NodeFSP from "node:fs/promises";
 
 import type { PointerPage } from "../browser.ts";
 import { expected } from "../lib/expect.ts";
-import { openTab, restartAndReload, showWorkspace } from "../lib/navigate.ts";
+import { openTab, reloadShowing, restartAndReload, showWorkspace } from "../lib/navigate.ts";
 import { pageFrames } from "../lib/network.ts";
 import { framedPage, type Setup, type ShellResult } from "../lib/setup.ts";
 import { history, listedShell, signalShells } from "../lib/shells.ts";
@@ -16,6 +16,7 @@ import {
   openFromTree,
   restoreButton,
   restoreFromTree,
+  restoredMark,
   shellRow,
 } from "../lib/ui/tree.ts";
 import { waitFor } from "../lib/waits.ts";
@@ -150,7 +151,7 @@ export const restoreAfterSignal = defineCheck(import.meta.url, {
         },
       });
       await waitFor(
-        page.locator(`[data-shell-row="${shell.shellId}"] [data-restored]`),
+        restoredMark(page, shell.shellId),
         `the row of shell ${shell.shellId} as restored`,
       );
       // Its tab was open when it ended, so it comes back; a closed tab would stay closed.
@@ -250,6 +251,44 @@ export const removeRestored = defineCheck(import.meta.url, {
   },
 });
 
+export const restoredMarkAfterReload = defineCheck(import.meta.url, {
+  id: "S8.restored-mark-reload",
+  title: "a reload shows no restored mark for a shell restored before it",
+  needs: {},
+  verifies: ["restore-shell/FR-15"],
+  run: async (ctx) => {
+    const { trail } = ctx;
+    const { page, setup, ws, shells } = await prepare(ctx, ["plain"], [1]);
+    const shell = shells[0]!;
+
+    await trail.stage("restored", async () => {
+      await signal(page, setup, shell);
+      await restore(page, setup, shell);
+      await waitFor(
+        restoredMark(page, shell.shellId),
+        `the row of shell ${shell.shellId} as restored`,
+      );
+    });
+
+    await trail.stage("no mark after a reload", async () => {
+      await reloadShowing(page, ws.name);
+      await waitFor(
+        shellRow(page, shell.shellId),
+        `the row of shell ${shell.shellId} after the reload`,
+      );
+      // The server still marks it restored, so the page alone leaves the mark out.
+      expected({
+        what: `the restored marks on the row of shell ${shell.shellId} after the reload`,
+        expected: { listedRestored: true, marks: 0 },
+        found: {
+          listedRestored: latest(setup, shell)?.restored ?? null,
+          marks: await restoredMark(page, shell.shellId).count(),
+        },
+      });
+    });
+  },
+});
+
 export const restoreAfterLostHost = defineCheck(import.meta.url, {
   id: "S8.restore-after-lost-host",
   title: "a shell lost with its shell host is listed as lost after a restart and restores in place",
@@ -311,5 +350,6 @@ export const successors = [
   noRestoreExitKill,
   noRestoreMovedFolder,
   removeRestored,
+  restoredMarkAfterReload,
   restoreAfterLostHost,
 ];

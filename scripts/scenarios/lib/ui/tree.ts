@@ -37,6 +37,10 @@ const rowWithActions = (page: PointerPage, shellId: string) =>
 export const missingMark = (page: PointerPage, shellId: string) =>
   rowWithActions(page, shellId).locator("[data-missing]");
 
+/** The mark a shell's whole row shows for a while after this page saw it restored. */
+export const restoredMark = (page: PointerPage, shellId: string) =>
+  rowWithActions(page, shellId).locator("[data-restored]");
+
 /** The mark a project's own row shows while its folder is gone. */
 export const projectMissing = (page: PointerPage, folder: string) =>
   page.locator(

@@ -30,6 +30,7 @@ import * as DateTime from "effect/DateTime";
 import * as Deferred from "effect/Deferred";
 import type * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
+import * as Fiber from "effect/Fiber";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
@@ -69,6 +70,7 @@ interface ShellRecord {
   elsewhere: string | null;
   /** The home folder is gone from disk. */
   missing: boolean;
+  /** Restored in this server's life and not yet cleared; never saved. */
   restored: boolean;
   /** The first prompt: still awaited, seen, or never coming (not wrapped, or none in time). */
   prompt: "pending" | "ready" | "none";
@@ -97,8 +99,6 @@ const SavedShell = Schema.Struct({
   worktree: Schema.NullOr(Schema.String),
   home: Schema.NullOr(Schema.String),
   tokenHash: Schema.NullOr(Schema.String),
-  /** Set once the user restored the shell after it ended. */
-  restored: Schema.optionalKey(Schema.Boolean),
   /** Set once the first-prompt scan ended, so a takeover does not scan again. */
   prompt: Schema.optionalKey(Schema.Literals(["ready", "none"])),
   /** Set once the shell ended in a way that keeps it listed until it is removed. */
@@ -119,8 +119,8 @@ const RegistryFile = Schema.Struct({
 });
 const encodeRegistry = Schema.encodeSync(Schema.fromJsonString(RegistryFile));
 
-// An older server wrote `folder` where this one writes `project`; reading accepts both, so a
-// server upgrade still finds the shells that kept running.
+// An older server wrote `folder` where this one writes `project`, and saved `restored`; reading
+// accepts both, so a server upgrade still finds the shells that kept running.
 const { project: _project, ...savedShellFields } = SavedShell.fields;
 const DiskRegistryFile = Schema.Struct({
   version: Schema.Literal(1),
@@ -129,6 +129,7 @@ const DiskRegistryFile = Schema.Struct({
       ...savedShellFields,
       project: Schema.optionalKey(Schema.NullOr(Schema.String)),
       folder: Schema.optionalKey(Schema.NullOr(Schema.String)),
+      restored: Schema.optionalKey(Schema.Boolean),
     }),
   ),
 });
@@ -247,6 +248,7 @@ export const withoutShells = (
 };
 
 const DEFAULT_PROMPT_TIMEOUT = "15 seconds";
+const RESTORED_FOR = "20 seconds";
 // The terminal manager's kill grace: a killed shell's removal waits no longer for its process to end.
 const DEFAULT_KILL_WAIT = "1 second";
 
@@ -805,6 +807,8 @@ export const makeShells = Effect.fn("Shells.make")(function* (
 
   // Shells being restored, so a second request while the first runs is refused.
   const restoring = new Set<string>();
+  // The pending clear of each restored shell's mark; a second restore starts it over.
+  const restoredClears = new Map<string, Fiber.Fiber<void>>();
   // Shells whose starting script is not typed yet; input for them waits, so it cannot run ahead of it.
   const scriptPending = new Map<string, Deferred.Deferred<void>>();
 
@@ -856,6 +860,23 @@ export const makeShells = Effect.fn("Shells.make")(function* (
       const tokenHash = token === null ? null : hashToken(token);
       if (tokenHash !== null) tokens.set(tokenHash, shellId);
       record.restored = true;
+      const earlierClear = restoredClears.get(shellId);
+      if (earlierClear !== undefined) yield* Fiber.interrupt(earlierClear);
+      restoredClears.set(
+        shellId,
+        yield* Effect.sleep(RESTORED_FOR).pipe(
+          Effect.andThen(
+            Effect.gen(function* () {
+              restoredClears.delete(shellId);
+              if (records.get(shellId) !== record || !record.restored) return;
+              record.restored = false;
+              const shell = summaryOf(shellId);
+              if (shell !== null) yield* emit({ type: "upsert", shell });
+            }),
+          ),
+          Effect.forkIn(scope, { startImmediately: true }),
+        ),
+      );
       const { prompt: _earlierPrompt, ...earlier } = entry;
       saved.set(shellId, {
         ...earlier,
@@ -863,7 +884,6 @@ export const makeShells = Effect.fn("Shells.make")(function* (
         label: snapshot.label,
         tokenHash,
         ended: null,
-        restored: true,
       });
       yield* persistOrWarn;
       yield* Effect.logInfo("shell restored", {
@@ -895,7 +915,7 @@ export const makeShells = Effect.fn("Shells.make")(function* (
     }
     const hosted = host === null ? [] : yield* host.list;
     const byPid = new Map(hosted.map((entry) => [entry.session.pid, entry]));
-    for (const { folder, ...disk } of decoded.value.shells) {
+    for (const { folder, restored: _restored, ...disk } of decoded.value.shells) {
       const entry: SavedShell = { ...disk, project: disk.project ?? folder ?? null };
       const home = entry.home;
       const record: ShellRecord = {
@@ -906,7 +926,7 @@ export const makeShells = Effect.fn("Shells.make")(function* (
         branch: entry.worktree === null ? null : yield* readBranch(entry.worktree),
         elsewhere: null,
         missing: home !== null && !(yield* exists(home)),
-        restored: entry.restored === true,
+        restored: false,
         prompt: entry.prompt ?? "pending",
       };
       records.set(entry.shellId, record);

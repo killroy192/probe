@@ -3544,19 +3544,55 @@ it.layer(
       });
       expect((yield* Effect.exit(shells.restore(lost.shellId)))._tag).toBe("Failure");
 
-      // A restored shell is an ordinary running shell: it survives a restart as one, and the
-      // next end of it can be restored again.
+      // A restored shell is an ordinary running shell: it survives a restart as one, not marked
+      // restored, and the next end of it can be restored again.
+      expect(yield* (yield* FileSystem.FileSystem).readFileString(registryPath)).not.toContain(
+        '"restored"',
+      );
       const third = yield* makeShells((yield* createManager()).manager, {
         registryPath,
         host: (yield* fakeHost([{ pid: signalled.pid! }])).host,
       });
       expect(
         (yield* third.list).find((shell) => shell.shellId === signalled.shellId)?.restored,
-      ).toBe(true);
+      ).toBe(false);
     }),
   );
 
-  it.effect("adopts the shells an older registry saved with a folder instead of a project", () =>
+  it.effect("clears the restored mark 20 seconds after the latest restore", () =>
+    Effect.gen(function* () {
+      const { manager, ptyAdapter } = yield* createManager();
+      const { host, forgotten } = yield* fakeHost([]);
+      // The fake PTY never exits on kill, and the kill grace would wait on the test clock.
+      yield* Effect.addFinalizer(() =>
+        Effect.sync(() => ptyAdapter.processes.at(-1)?.emitExit({ exitCode: 0, signal: 0 })),
+      );
+      const shells = yield* makeShells(manager, { registryPath: yield* registryIn(), host });
+      const shell = yield* shells.open({ cwd: process.cwd() });
+      const events = yield* collectList(shells);
+      const restoredNow = Effect.map(shells.list, (listed) => listed[0]?.restored);
+      const endAndRestore = Effect.fnUntraced(function* (index: number) {
+        ptyAdapter.processes[index]!.emitExit({ exitCode: 0, signal: 9 });
+        yield* Queue.take(forgotten);
+        yield* shells.restore(shell.shellId);
+      });
+
+      yield* endAndRestore(0);
+      yield* TestClock.adjust("10 seconds");
+      yield* endAndRestore(1);
+      // Past the first restore's 20 seconds, the second one still marks it.
+      yield* TestClock.adjust("15 seconds");
+      expect(yield* restoredNow).toBe(true);
+      yield* TestClock.adjust("5 seconds");
+      expect(yield* restoredNow).toBe(false);
+      expect((yield* events).at(-1)).toMatchObject({
+        type: "upsert",
+        shell: { shellId: shell.shellId, status: "running", restored: false },
+      });
+    }).pipe(Effect.provide(TestClock.layer())),
+  );
+
+  it.effect("adopts the shells an older registry saved with a folder and a restored mark", () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
       const registryPath = yield* registryIn();
@@ -3576,6 +3612,7 @@ it.layer(
               worktree: null,
               home: process.cwd(),
               tokenHash: null,
+              restored: true,
               ended: null,
             },
           ],
@@ -3586,8 +3623,13 @@ it.layer(
         host: (yield* fakeHost([{ pid: 4343 }])).host,
       });
       expect(
-        (yield* shells.list).map((shell) => [shell.shellId, shell.status, shell.project]),
-      ).toEqual([["legacy", "running", process.cwd()]]);
+        (yield* shells.list).map((shell) => [
+          shell.shellId,
+          shell.status,
+          shell.project,
+          shell.restored,
+        ]),
+      ).toEqual([["legacy", "running", process.cwd(), false]]);
     }),
   );
 

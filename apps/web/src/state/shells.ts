@@ -1,3 +1,4 @@
+import { useAtomValue } from "@effect/atom-react";
 import {
   createShellEnvironmentAtoms,
   EMPTY_TERMINAL_BUFFER_STATE,
@@ -12,6 +13,7 @@ import {
   type ShellId,
   type ShellSummary,
 } from "@t3tools/contracts";
+import * as Option from "effect/Option";
 import { AsyncResult, Atom } from "effect/reactivity";
 
 import { connectionAtomRuntime } from "../connection/runtime";
@@ -72,4 +74,56 @@ export function useShells(environmentId: EnvironmentId | null): {
       : shellEnvironment.list({ environmentId, input: null }),
   );
   return { shells: query.data, error: query.error };
+}
+
+/** Which running shells show the restored mark; `unseen` were already restored in the first list. */
+export interface RestoredMarks {
+  readonly unseen: ReadonlySet<ShellId>;
+  readonly shown: ReadonlySet<ShellId>;
+}
+
+const NO_RESTORED_MARKS: RestoredMarks = { unseen: new Set(), shown: new Set() };
+
+/**
+ * The page marks only restores it saw happen, so a reload never shows an earlier one. Null until
+ * the first list (`shells` null while it loads), whose restores count as seen before the page.
+ */
+export function nextRestoredMarks(
+  previous: RestoredMarks | null,
+  shells: ReadonlyArray<ShellSummary> | null,
+): RestoredMarks | null {
+  if (shells === null) return previous;
+  const marked = shells.flatMap((shell) =>
+    shell.restored && shell.ended === null ? [shell.shellId] : [],
+  );
+  const unseen = new Set(
+    previous === null ? marked : marked.filter((shellId) => previous.unseen.has(shellId)),
+  );
+  return { unseen, shown: new Set(marked.filter((shellId) => !unseen.has(shellId))) };
+}
+
+const EMPTY_RESTORED_MARKS_ATOM = Atom.make(NO_RESTORED_MARKS).pipe(
+  Atom.withLabel("web-shell-restored-marks:empty"),
+);
+
+const restoredMarksFamily = Atom.family((environmentId: EnvironmentId) => {
+  const listAtom = shellEnvironment.list({ environmentId, input: null });
+  return Atom.make((get) =>
+    nextRestoredMarks(
+      Option.getOrNull(get.self<RestoredMarks | null>()),
+      AsyncResult.getOrElse(get(listAtom), () => null),
+    ),
+  ).pipe(Atom.withLabel(`web-shell-restored-marks:${environmentId}`));
+});
+
+/** The shells whose row shows the restored mark. */
+export function useRestoredMarks(environmentId: EnvironmentId | null): ReadonlySet<ShellId> {
+  const canRead = useEnvironmentScope(environmentId, AuthTerminalReadScope);
+  return (
+    useAtomValue(
+      environmentId === null || !canRead
+        ? EMPTY_RESTORED_MARKS_ATOM
+        : restoredMarksFamily(environmentId),
+    )?.shown ?? NO_RESTORED_MARKS.shown
+  );
 }
