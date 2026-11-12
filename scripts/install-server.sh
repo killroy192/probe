@@ -15,7 +15,8 @@
 #
 # Layout under the install root: build/ (staging, removed on success or by the
 # next run), versions/<commit>/ (a complete install, with .install-complete),
-# current (a link swapped atomically), logs/.
+# current (a link swapped atomically), probe-server (a link to the start, stop,
+# status and pair command in current), logs/.
 
 PROBE_REPO="${PROBE_REPO:-https://github.com/killroy192/probe.git}"
 PROBE_REF="${PROBE_REF:-main}"
@@ -263,28 +264,36 @@ take_lock() {
   done
   LOCK_HELD=1
   # Leftovers of a killed run; only the lock holder builds, so all of it is stale.
-  rm -rf "$ROOT/build" "$ROOT"/.current.*
+  rm -rf "$ROOT/build" "$ROOT"/.current.* "$ROOT"/.probe-server.*
 }
 
 print_summary() {
   say "$1"
   say "  Folder:  $ROOT/versions/$2"
-  say "  The commands below are placeholders and are not available yet:"
-  say "  Start:   probe-server start --port <port> --host <bind address> --base-dir <state folder>"
-  say "  Stop:    probe-server stop --base-dir <state folder>"
-  say "  Pairing: probe-server pair --base-dir <state folder>"
+  say "  Start:   $ROOT/probe-server start --port <port> --host <bind address> --base-dir <state folder>"
+  say "  Status:  $ROOT/probe-server status --base-dir <state folder>"
+  say "  Pairing: $ROOT/probe-server pair --base-dir <state folder>"
+  say "  Stop:    $ROOT/probe-server stop --base-dir <state folder>"
+  say "  Without them the server listens on 127.0.0.1, picks a free port, and keeps its state in ~/.probe."
   say "  Log:     $LOG"
   say "  Took $(elapsed)."
 }
 
 nothing_changed() {
+  [ -L "$ROOT/probe-server" ] || link_command
   print_summary "Probe server $(package_version "$ROOT/versions/$1") ($(printf '%.7s' "$1")) is already installed; nothing changed." "$1"
   exit 0
 }
 
 switch_to() {
   link="$ROOT/.current.$$"
-  ln -s "versions/$1" "$link" && mv -T "$link" "$ROOT/current"
+  ln -s "versions/$1" "$link" && mv -T "$link" "$ROOT/current" && link_command
+}
+
+# The link goes through current, so it follows every switch.
+link_command() {
+  link="$ROOT/.probe-server.$$"
+  ln -s current/scripts/probe-server.sh "$link" && mv -T "$link" "$ROOT/probe-server"
 }
 
 prove() {

@@ -1,9 +1,18 @@
 import type * as NodeOS from "node:os";
 
 import { describe, expect, it } from "@effect/vitest";
+import * as DateTime from "effect/DateTime";
+import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
+import { HttpServer } from "effect/http";
+import * as NetAddress from "effect/net/NetAddress";
+import * as NodeServices from "@effect/platform-node/NodeServices";
 
+import * as EnvironmentAuth from "./auth/EnvironmentAuth.ts";
+import * as ServerConfig from "./config.ts";
 import {
   acceptsPrivateNetworkConnection,
+  headlessServeOutput,
   resolveHeadlessConnectionString,
 } from "./startupAccess.ts";
 
@@ -73,3 +82,49 @@ describe("acceptsPrivateNetworkConnection", () => {
     expect(accepts(undefined, "192.168.1.31")).toBe(false);
   });
 });
+
+it.effect.each([
+  { startupPairing: undefined, printsToken: true },
+  { startupPairing: false, printsToken: false },
+] as const)(
+  "headless startup output with startupPairing $startupPairing prints a token: $printsToken",
+  ({ startupPairing, printsToken }) =>
+    Effect.gen(function* () {
+      let issued = 0;
+      const output = yield* headlessServeOutput().pipe(
+        Effect.provide(
+          Layer.mergeAll(
+            Layer.effect(
+              ServerConfig.ServerConfig,
+              Effect.gen(function* () {
+                const config = yield* ServerConfig.ServerConfig;
+                return ServerConfig.make({ ...config, host: "127.0.0.1", startupPairing });
+              }),
+            ).pipe(
+              Layer.provide(
+                ServerConfig.layerTest(process.cwd(), { prefix: "t3-headless-output-" }),
+              ),
+              Layer.provide(NodeServices.layer),
+            ),
+            Layer.mock(HttpServer.HttpServer)({
+              address: NetAddress.inetAddressUnsafe(NetAddress.ipv4Loopback, 3773),
+            }),
+            Layer.mock(EnvironmentAuth.EnvironmentAuth)({
+              issueStartupPairingCredential: () =>
+                Effect.sync(() => {
+                  issued += 1;
+                  return {
+                    id: "startup",
+                    credential: "startup-secret",
+                    expiresAt: DateTime.makeUnsafe(0),
+                  };
+                }),
+            }),
+          ),
+        ),
+      );
+
+      expect(output.includes("startup-secret")).toBe(printsToken);
+      expect(issued).toBe(printsToken ? 1 : 0);
+    }),
+);
