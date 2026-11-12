@@ -111,6 +111,8 @@ export class ServerConfig extends Context.Service<
     readonly seedMockAgent?: string | undefined;
     /** `PROBE_RAW_OUTPUT_DIR`: where the scenario harness reads each shell's raw output. */
     readonly rawOutputDir?: string | undefined;
+    /** `PROBE_STARTUP_PAIRING=0`: print no startup pairing token; a detached server's output is a log on disk. */
+    readonly startupPairing?: boolean | undefined;
   }
 >()("t3/config/ServerConfig") {
   static readonly layerTest = (

@@ -181,7 +181,7 @@ export const renderTerminalQrCode = (value: string, margin = 2): string => {
   return rows.join("\n");
 };
 
-export const formatHeadlessServeOutput = (accessInfo: HeadlessServeAccessInfo): string =>
+const formatHeadlessServeOutput = (accessInfo: HeadlessServeAccessInfo): string =>
   [
     "T3 Code server is ready.",
     `Connection string: ${accessInfo.connectionString}`,
@@ -193,7 +193,7 @@ export const formatHeadlessServeOutput = (accessInfo: HeadlessServeAccessInfo): 
     "",
   ].join("\n");
 
-export const issueHeadlessServeAccessInfo = Effect.fn("issueHeadlessServeAccessInfo")(function* () {
+const issueHeadlessServeAccessInfo = Effect.fn("issueHeadlessServeAccessInfo")(function* () {
   const serverConfig = yield* ServerConfig.ServerConfig;
   const httpServer = yield* HttpServer.HttpServer;
   const serverAuth = yield* EnvironmentAuth.EnvironmentAuth;
@@ -209,4 +209,13 @@ export const issueHeadlessServeAccessInfo = Effect.fn("issueHeadlessServeAccessI
     token: issued.credential,
     pairingUrl: buildPairingUrl(connectionString, issued.credential),
   } satisfies HeadlessServeAccessInfo;
+});
+
+const HEADLESS_SERVE_READY_WITHOUT_PAIRING =
+  "T3 Code server is ready. Startup pairing is off (PROBE_STARTUP_PAIRING); run the pair command for a token.";
+
+export const headlessServeOutput = Effect.fn("headlessServeOutput")(function* () {
+  const serverConfig = yield* ServerConfig.ServerConfig;
+  if (serverConfig.startupPairing === false) return HEADLESS_SERVE_READY_WITHOUT_PAIRING;
+  return formatHeadlessServeOutput(yield* issueHeadlessServeAccessInfo());
 });
